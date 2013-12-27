@@ -1,4 +1,5 @@
 $ = require 'ejquery'
+ace = require 'ace/ace'
 Prelude = require 'vendor/prelude/prelude-browser-min'
 CodeMirror = require 'vendor/codemirror/codemirror'
 TimeLine = require 'app/UniqueTimeLine'
@@ -244,7 +245,7 @@ execute = (code) ->
   eval (compiler.preExecute? code) ? code
 
 history = new History
-sourceChange = (inst, e) ->
+sourceChange = (e) ->
   sourceCompiled = false
   sourceChanged = true
   history.add e
@@ -356,7 +357,7 @@ ammendClientTable = (exclude, addition) ->
 loadFromClient = (name) ->
   name = $.totalStorage(LAST_CODE) unless name?
   unless name?
-    setMode "IcedCoffeeScript" unless compiler?
+    setMode "CoffeeScript" unless compiler?
     return
   stored = fileCookie(name)
   if stored?
@@ -446,7 +447,9 @@ resizeEditor = (e) ->
     h: $(window).height()
 
   $("#centerBar").height winSize.h - 20
-  $("#sourceWrap .CodeMirror-scroll").css "max-height", (winSize.h - 175) + "px"
+  # $("#sourceWrap .CodeMirror-scroll").css "max-height", (winSize.h - 175) + "px"
+  $("#commandArea").css "height", 17 + "px"
+  $("#sourceArea").css "height", (winSize.h - 175) + "px"
   $("#rightColumn").width winSize.w - $("#leftColumn").width() - 60
   $("#rightColumn").css "max-height", (winSize.h - 25) + "px"
   setMaxPreWidth $("#output pre")
@@ -489,39 +492,61 @@ helpDescription = """
   save Long file name.txt\\
 """
 
-sourceArea = CodeMirror.fromTextArea $("#sourceArea")[0],
-  tabSize: 2
-  indentUnit: 2
-  lineNumbers: true
-  extraKeys:
-    Tab: "indentMore"
-    "Shift-Tab": "indentLess"
+# sourceArea = CodeMirror.fromTextArea $("#sourceArea")[0],
+#   tabSize: 2
+#   indentUnit: 2
+#   lineNumbers: true
+#   extraKeys:
+#     Tab: "indentMore"
+#     "Shift-Tab": "indentLess"
 
-  onChange: (inst, e) ->
-    sourceChange inst, e
+#   onChange: (inst, e) ->
+#     sourceChange inst, e
 
-  onCursorActivity: ->
-    sourceArea.setLineClass hlLine, null, null
-    hlLine = sourceArea.setLineClass sourceArea.getCursor().line, null, "activeline"
+#   onCursorActivity: ->
+#     sourceArea.setLineClass hlLine, null, null
+#     hlLine = sourceArea.setLineClass sourceArea.getCursor().line, null, "activeline"
 
-hlLine = sourceArea.setLineClass 1, null, "activeline"
-commandArea = CodeMirror.fromTextArea $("#commandArea")[0],
-  tabSize: 2
-  indentUnit: 2
-  keyMap: "commandLine"
-  onKeyEvent: (inst, e) ->
-    commandAreaKeyEvent inst, e
+# hlLine = sourceArea.setLineClass 1, null, "activeline"
+# commandArea = CodeMirror.fromTextArea $("#commandArea")[0],
+#   tabSize: 2
+#   indentUnit: 2
+#   keyMap: "commandLine"
+#   onKeyEvent: (inst, e) ->
+#     commandAreaKeyEvent inst, e
 
-$(sourceArea.getInputField()).keyup (e) ->
-  switch CodeMirror.keyNames[e.keyCode]
-    when "Esc"
-      commandArea.focus()
+sourceArea = ace.edit 'sourceArea'
+sourceArea.setTheme "ace/theme/monokai"
+sourceArea.getSession().setMode "ace/mode/coffee"
+sourceArea.setHighlightActiveLine true
 
-$("#commandWrap .CodeMirror").mouseenter (e) ->
-  commandArea.focus()
+sourceArea.getSession().on 'change', sourceChange
 
-$("#sourceWrap .CodeMirror").mouseenter (e) ->
-  sourceArea.focus()
+commandArea = ace.edit 'commandArea'
+commandArea.setTheme "ace/theme/monokai"
+commandArea.getSession().setMode "ace/mode/coffee"
+commandArea.setHighlightActiveLine false
+
+# Execute on enter
+commandArea.commands.addCommand
+  name: 'execute'
+  bindKey:
+    win: 'Enter'
+    mac: 'Enter'
+  exec: ->
+    compileAndRun()
+    commandArea.setValue ""
+
+# $(sourceArea.getInputField()).keyup (e) ->
+#   switch CodeMirror.keyNames[e.keyCode]
+#     when "Esc"
+#       commandArea.focus()
+
+# $("#commandWrap .CodeMirror").mouseenter (e) ->
+#   commandArea.focus()
+
+# $("#sourceWrap .CodeMirror").mouseenter (e) ->
+#   sourceArea.focus()
 
 $("#centerBar").draggable
   axis: "x"
