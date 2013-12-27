@@ -312,10 +312,6 @@ fileCookie = (name, value) ->
   $.totalStorage cookieFilePrefix + name, value
 
 saveCurrent = ->
-  exists = undefined
-  source = undefined
-  value = undefined
-  valueLines = undefined
   source = sourceArea.getValue()
   value =
     source: source
@@ -412,25 +408,6 @@ outputScrollTop = ->
     scrollTop: 0
   , $("#rightColumn").scrollTop() / 10
 
-commandAreaKeyEvent = (inst, e) ->
-  shouldStop = undefined
-  if e.type is "keyup"
-    shouldStop = true
-    switch CodeMirror.keyNames[e.keyCode]
-      when "Enter"
-        compileAndRun()
-        commandArea.setValue ""
-      when "Up"
-        timeline.temp commandArea.getValue() unless timeline.isInPast()
-        commandArea.setValue timeline.goBack()
-      when "Down"
-        commandArea.setValue timeline.goForward() if timeline.isInPast()
-      when "Esc"
-        sourceArea.focus()
-      else
-        shouldStop = false
-    if shouldStop
-      e.stop()
 
 defaultEditor = ->
   winSize =
@@ -522,6 +499,12 @@ sourceArea.setHighlightActiveLine true
 
 sourceArea.getSession().on 'change', sourceChange
 
+sourceArea.commands.addCommand
+  name: 'leave'
+  bindKey: win: 'Esc', mac: 'Esc'
+  exec: ->
+    commandArea.focus()
+
 commandArea = ace.edit 'commandArea'
 commandArea.setTheme "ace/theme/monokai"
 commandArea.getSession().setMode "ace/mode/coffee"
@@ -530,23 +513,32 @@ commandArea.setHighlightActiveLine false
 # Execute on enter
 commandArea.commands.addCommand
   name: 'execute'
-  bindKey:
-    win: 'Enter'
-    mac: 'Enter'
+  bindKey: win: 'Enter', mac: 'Enter'
   exec: ->
     compileAndRun()
     commandArea.setValue ""
 
-# $(sourceArea.getInputField()).keyup (e) ->
-#   switch CodeMirror.keyNames[e.keyCode]
-#     when "Esc"
-#       commandArea.focus()
+commandArea.commands.addCommand
+  name: 'previous'
+  bindKey: win: 'Up', mac: 'Up'
+  exec: ->
+    timeline.temp commandArea.getValue() unless timeline.isInPast()
+    commandArea.setValue timeline.goBack()
 
-# $("#commandWrap .CodeMirror").mouseenter (e) ->
-#   commandArea.focus()
+commandArea.commands.addCommand
+  name: 'following'
+  bindKey: win: 'Down', mac: 'Down'
+  exec: ->
+    commandArea.setValue timeline.goForward() if timeline.isInPast()
 
-# $("#sourceWrap .CodeMirror").mouseenter (e) ->
-#   sourceArea.focus()
+commandArea.commands.addCommand
+  name: 'leave'
+  bindKey: win: 'Esc', mac: 'Esc'
+  exec: ->
+    sourceArea.focus()
+
+$("#commandWrap").mouseenter -> commandArea.focus()
+$("#sourceArea").mouseenter -> sourceArea.focus()
 
 $("#centerBar").draggable
   axis: "x"
