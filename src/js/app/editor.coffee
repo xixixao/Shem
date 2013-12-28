@@ -313,9 +313,7 @@ fileCookie = (name, value) ->
 
 saveCurrent = ->
   source = sourceArea.getValue()
-  value =
-    source: source
-    mode: currentMode
+  value = serializeSource()
 
   valueLines = (source.split "\n").length
   exists = false
@@ -323,6 +321,24 @@ saveCurrent = ->
   ammendClientTable saveName, "#{saveName},#{valueLines}"
   fileCookie saveName, value
   $.totalStorage LAST_CODE, saveName
+
+serializeSource = ->
+  source: sourceArea.getValue()
+  mode: currentMode
+  selection: sourceArea.getSelectionRange()
+  cursor: sourceArea.getCursorPosition()
+  scroll:
+    top: sourceArea.session.getScrollTop()
+    left: sourceArea.session.getScrollLeft()
+
+deseriazeSource = (serialized, callback) ->
+  {source, mode, selection, cursor, scroll} = serialized
+  sourceArea.setValue source
+  sourceArea.session.selection.setSelectionRange selection
+  sourceArea.moveCursorToPosition cursor
+  sourceArea.session.setScrollTop scroll.top
+  sourceArea.session.setScrollLeft scroll.left
+  setNewMode mode, callback
 
 saveTimeline = ->
   $.totalStorage TIMELINE_COOKIE, timeline.newest(200)
@@ -358,11 +374,8 @@ loadFromClient = (name) ->
   stored = fileCookie(name)
   if stored?
     saveName = name
-    source = stored.source
-    mode = stored.mode
 
-    sourceArea.setValue source
-    setNewMode mode, ->
+    deseriazeSource stored, ->
       showFileMessage "" + saveName + " loaded"  if saveName isnt UNNAMED_CODE
 
   else
@@ -468,29 +481,6 @@ helpDescription = """
   Name with arbitrary characters (spaces) must be closed by \\
   save Long file name.txt\\
 """
-
-# sourceArea = CodeMirror.fromTextArea $("#sourceArea")[0],
-#   tabSize: 2
-#   indentUnit: 2
-#   lineNumbers: true
-#   extraKeys:
-#     Tab: "indentMore"
-#     "Shift-Tab": "indentLess"
-
-#   onChange: (inst, e) ->
-#     sourceChange inst, e
-
-#   onCursorActivity: ->
-#     sourceArea.setLineClass hlLine, null, null
-#     hlLine = sourceArea.setLineClass sourceArea.getCursor().line, null, "activeline"
-
-# hlLine = sourceArea.setLineClass 1, null, "activeline"
-# commandArea = CodeMirror.fromTextArea $("#commandArea")[0],
-#   tabSize: 2
-#   indentUnit: 2
-#   keyMap: "commandLine"
-#   onKeyEvent: (inst, e) ->
-#     commandAreaKeyEvent inst, e
 
 sourceArea = ace.edit 'sourceArea'
 sourceArea.setTheme "ace/theme/monokai"
