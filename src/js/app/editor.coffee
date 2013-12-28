@@ -483,9 +483,11 @@ helpDescription = """
 """
 
 sourceArea = ace.edit 'sourceArea'
-sourceArea.setTheme "ace/theme/monokai"
+sourceArea.setTheme "ace/theme/cobalt"
 sourceArea.getSession().setMode "ace/mode/coffee"
 sourceArea.setHighlightActiveLine true
+sourceArea.getSession().setTabSize 2
+sourceArea.setShowPrintMargin false
 
 sourceArea.getSession().on 'change', sourceChange
 
@@ -496,9 +498,11 @@ sourceArea.commands.addCommand
     commandArea.focus()
 
 commandArea = ace.edit 'commandArea'
-commandArea.setTheme "ace/theme/monokai"
+commandArea.setTheme "ace/theme/cobalt"
 commandArea.getSession().setMode "ace/mode/coffee"
 commandArea.setHighlightActiveLine false
+commandArea.setShowPrintMargin false
+commandArea.renderer.setShowGutter false
 
 # Execute on enter
 commandArea.commands.addCommand
@@ -529,6 +533,13 @@ commandArea.commands.addCommand
 
 $("#commandWrap").mouseenter -> commandArea.focus()
 $("#sourceArea").mouseenter -> sourceArea.focus()
+
+# set correct background for border
+
+commandArea.renderer.on 'themeLoaded', ->
+  color = $("#sourceArea").css 'background-color'
+  $("#sourceArea").parent().css 'background-color', color
+  $("#commandArea").parent().css 'background-color', color
 
 $("#centerBar").draggable
   axis: "x"
