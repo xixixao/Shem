@@ -439,7 +439,7 @@ resizeEditor = (e) ->
   $("#centerBar").height winSize.h - 20
   # $("#sourceWrap .CodeMirror-scroll").css "max-height", (winSize.h - 175) + "px"
   $("#commandArea").css "height", 17 + "px"
-  $("#sourceArea").css "height", (winSize.h - 175) + "px"
+  $("#sourceArea").css "height", (winSize.h - 135) + "px"
   $("#rightColumn").width winSize.w - $("#leftColumn").width() - 60
   $("#rightColumn").css "max-height", (winSize.h - 25) + "px"
   setMaxPreWidth $("#output pre")
@@ -484,7 +484,7 @@ helpDescription = """
 
 sourceArea = ace.edit 'sourceArea'
 sourceArea.setTheme "ace/theme/cobalt"
-sourceArea.getSession().setMode "ace/mode/coffee"
+sourceArea.getSession().setMode "compilers/coffeescript/mode"
 sourceArea.setHighlightActiveLine true
 sourceArea.getSession().setTabSize 2
 sourceArea.setShowPrintMargin false
@@ -499,7 +499,7 @@ sourceArea.commands.addCommand
 
 commandArea = ace.edit 'commandArea'
 commandArea.setTheme "ace/theme/cobalt"
-commandArea.getSession().setMode "ace/mode/coffee"
+commandArea.getSession().setMode "compilers/coffeescript/mode"
 commandArea.setHighlightActiveLine false
 commandArea.setShowPrintMargin false
 commandArea.renderer.setShowGutter false
