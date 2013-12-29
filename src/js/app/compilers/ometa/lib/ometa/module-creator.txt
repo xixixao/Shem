@@ -1,0 +1,17 @@
+ometa ModuleCreator <: BSOMetaJSTranslator {
+  file = ^trans:all -> ("""define([\
+                             '../src/ometa-base',\
+                             '../src/lib'\
+                           ],  function (OMeta, OMLib){\
+                           subclass = OMLib.subclass;""" + all +
+                        """\napi = {\
+                            BSOMetaJSParser: BSOMetaJSParser,\
+                            BSOMetaJSTranslator: BSOMetaJSTranslator\
+                          }\
+                          $.extend(OMeta.interpreters, api);\
+                          return api;\
+                        });""")
+
+}
+
+ModuleCreator.match(BSOMetaJSParser.matchAll("bla;", "topLevel"), "file");

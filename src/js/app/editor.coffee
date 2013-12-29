@@ -178,8 +178,8 @@ setMode = (name, callback) ->
   if mode?
     id = mode.id
     require [
-      "vendor/compilers/" + id + "/compiler"
-      "vendor/compilers/" + id + "/highlighter"
+      "compilers/" + id + "/compiler"
+      "compilers/" + id + "/highlighter"
     ], (compilerClass, highlighter) ->
       compiler = compilerClass
       compilerOptions = mode.options
@@ -358,7 +358,8 @@ ammendClientTable = (exclude, addition) ->
   oldTable = $.totalStorage BROWSE_COOKIE
   if oldTable?
     for pair in oldTable.split ";"
-      [name, lines] = pair
+      [name, lines] = pair.split ","
+      console.log name, exclude
       table.push pair if name isnt exclude
 
   table.push addition if addition
@@ -518,12 +519,14 @@ commandArea.commands.addCommand
   exec: ->
     timeline.temp commandArea.getValue() unless timeline.isInPast()
     commandArea.setValue timeline.goBack()
+    commandArea.clearSelection()
 
 commandArea.commands.addCommand
   name: 'following'
   bindKey: win: 'Down', mac: 'Down'
   exec: ->
     commandArea.setValue timeline.goForward() if timeline.isInPast()
+    commandArea.clearSelection()
 
 commandArea.commands.addCommand
   name: 'leave'
