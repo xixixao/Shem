@@ -1,7 +1,6 @@
 $ = require 'ejquery'
 ace = require 'ace/ace'
 Prelude = require 'vendor/prelude/prelude-browser-min'
-CodeMirror = require 'vendor/codemirror/codemirror'
 TimeLine = require 'app/UniqueTimeLine'
 Commands = require 'app/Commands'
 History = require 'app/History'
@@ -191,7 +190,7 @@ setMode = (name, callback) ->
         setCurrentMessage modesList(), "modesList"
       else
         log "#{name} compiler loaded"
-      compileCode()
+      # compileCode()
       callback?()
     , (error) ->
       log "#{name} loading failed"
@@ -249,7 +248,7 @@ sourceChange = (e) ->
   sourceCompiled = false
   sourceChanged = true
   history.add e
-  return unless autoCompile
+  return #unless autoCompile
   DELAY = 700
   lastHit = +new Date
   setTimeout ->
@@ -406,22 +405,10 @@ displayClient = ->
   else
     log output
 
-CodeMirror.keyMap.commandLine =
-  Up: "doNothing"
-  Down: "doNothing"
-  PageUp: "doNothing"
-  PageDown: "doNothing"
-  Enter: "doNothing"
-  fallthrough: "default"
-
-CodeMirror.commands.doNothing = (cm) ->
-  true
-
 outputScrollTop = ->
   $("#rightColumn").animate
     scrollTop: 0
   , $("#rightColumn").scrollTop() / 10
-
 
 defaultEditor = ->
   winSize =
@@ -485,12 +472,23 @@ helpDescription = """
 
 sourceArea = ace.edit 'sourceArea'
 sourceArea.setTheme "ace/theme/cobalt"
-sourceArea.getSession().setMode "compilers/coffeescript/mode"
+sourceArea.session.setMode "compilers/coffeescript/mode"
+sourceArea.session.on 'changeMode', ->
+  sourceArea.session.$worker.on 'ok', ({data: {result}}) ->
+    saveCurrent()
+    compiledJS = result
+    hideError "compiler", "runtime"
+    sourceCompiled = true
+    # $("#repl_permalink").attr "href", "##{sourceFragment}#{encodeURIComponent(source)}"
+
+  sourceArea.session.$worker.on 'error', ({data: {text}}) ->
+    showErrorMessage "compiler", "Compiler: #{text}"
+
 sourceArea.setHighlightActiveLine true
-sourceArea.getSession().setTabSize 2
+sourceArea.session.setTabSize 2
 sourceArea.setShowPrintMargin false
 
-sourceArea.getSession().on 'change', sourceChange
+sourceArea.session.on 'change', sourceChange
 
 sourceArea.commands.addCommand
   name: 'leave'
@@ -500,7 +498,7 @@ sourceArea.commands.addCommand
 
 commandArea = ace.edit 'commandArea'
 commandArea.setTheme "ace/theme/cobalt"
-commandArea.getSession().setMode "compilers/coffeescript/mode"
+commandArea.session.setMode "compilers/coffeescript/mode"
 commandArea.setHighlightActiveLine false
 commandArea.setShowPrintMargin false
 commandArea.renderer.setShowGutter false
