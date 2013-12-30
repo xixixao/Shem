@@ -4,6 +4,7 @@ Prelude = require 'vendor/prelude/prelude-browser-min'
 TimeLine = require 'app/UniqueTimeLine'
 Commands = require 'app/Commands'
 History = require 'app/History'
+CommandMode = require 'app/CommandMode'
 jsDump = require 'vendor/jsDump'
 
 console.log "Loaded sourceArea"
@@ -172,17 +173,15 @@ setNewMode = (name, callback) ->
 setMode = (name, callback) ->
   config = modes[name]
   if config?
-    modeId = config.id
-    sourceArea.session.setMode "compilers/#{modeId}/mode"
-    commandArea.session.setMode "compilers/#{modeId}/mode"
+    modePath = "compilers/#{config.id}/mode"
+    sourceArea.session.setMode modePath
+    commandArea.session.setMode compiler = new CommandMode "compilers/#{config.id}"
     currentMode = name
-    commandArea.on 'changeMode', ->
-      compiler = sourceArea.session.getMode()
-      if isCurrentMessage "modesList"
-        setCurrentMessage modesList(), "modesList"
-      else
-        showFileMessage "#{name} compiler loaded"
-      callback?()
+    if isCurrentMessage "modesList"
+      setCurrentMessage modesList(), "modesList"
+    else
+      showFileMessage "#{name} compiler loaded"
+    callback?()
   # , (error) ->
   #   log "#{name} loading failed"
   else
@@ -487,14 +486,12 @@ sourceArea.commands.addCommand
 
 commandArea = ace.edit 'commandArea'
 commandArea.setTheme "ace/theme/cobalt"
-commandArea.session.setUseWorker false
 commandArea.setHighlightActiveLine false
 commandArea.setShowPrintMargin false
 commandArea.renderer.setShowGutter false
-commandWorker = null
 
 commandArea.session.on 'changeMode', ->
-  commandWorker = commandArea.session.getMode().createWorker()
+  commandWorker = commandArea.session.getMode().worker
 
   commandWorker.on 'ok', ({data: {result, type}}) ->
     # TODO use prelude trim
@@ -527,8 +524,7 @@ commandArea.commands.addCommand
   name: 'execute'
   bindKey: win: 'Enter', mac: 'Enter'
   exec: ->
-    commandWorker.call 'setValue', [commandArea.getValue()]
-    commandWorker.call 'onUpdate', []
+    commandArea.session.getMode().updateWorker()
 
 commandArea.commands.addCommand
   name: 'previous'
