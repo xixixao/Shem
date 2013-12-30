@@ -114,44 +114,40 @@ commands = Commands.initialize [
   "ph", -> history.print(log)
 ]
 
-compileAndRun = ->
-  # TODO use prelude trim
-  source = $.trim commandArea.getValue()
-  return if source.length is 0
+# compileAndRun = ->
+#   # TODO use prelude trim
+#   source = $.trim commandArea.getValue()
+#   return if source.length is 0
 
-  timeline.push source
-  hideError "command", "runtime"
-  try
-    if pref = source.match(/^(< |:)/)
-      source = source[pref[0].length..]
-      for command in commands
-        match = command.match source
-        break if match?
-      saveTimeline()
-      outputScrollTop()
-    else
-      command = compiler.compile source, getCompilerOptions()
-      try
-        log execute compiledJS + command
-        saveTimeline()
-        outputScrollTop()
-      catch error
-        showErrorMessage "runtime", "Runtime: #{error}"
-  catch error
-    console.log error
-    showErrorMessage "command", "Command Line: #{error.message}"
-  return
+#   timeline.push source
+#   hideError "command", "runtime"
+#   try
+#     if pref = source.match(/^(< |:)/)
+#       source = source[pref[0].length..]
+#       for command in commands
+#         match = command.match source
+#         break if match?
+#       saveTimeline()
+#       outputScrollTop()
+#     else
+#       command = compiler.compile source, getCompilerOptions()
+#       try
+#         log execute compiledJS + command
+#         saveTimeline()
+#         outputScrollTop()
+#       catch error
+#         showErrorMessage "runtime", "Runtime: #{error}"
+#   catch error
+#     console.log error
+#     showErrorMessage "command", "Command Line: #{error.message}"
+#   return
 
 modes =
   CoffeeScript:
     id: "coffeescript"
-    options:
-      bare: true
 
   IcedCoffeeScript:
     id: "icedcoffeescript"
-    options:
-      bare: true
 
   Ometa:
     id: "ometa"
@@ -167,33 +163,28 @@ displayModes = ->
   addMessage modesList(), "modesList"
 
 setNewMode = (name, callback) ->
+  name = 'CoffeeScript' unless name?.length
   if name isnt currentMode
     setMode name, callback
   else
     callback?()
 
 setMode = (name, callback) ->
-  mode = modes[name]
-  if mode?
-    id = mode.id
-    require [
-      "compilers/" + id + "/compiler"
-      "compilers/" + id + "/highlighter"
-    ], (compilerClass, highlighter) ->
-      compiler = compilerClass
-      compilerOptions = mode.options
-      sourceArea.setOption "mode", id
-      commandArea.setOption "mode", id
-      mode.init?()
-      currentMode = name
+  config = modes[name]
+  if config?
+    modeId = config.id
+    sourceArea.session.setMode "compilers/#{modeId}/mode"
+    commandArea.session.setMode "compilers/#{modeId}/mode"
+    currentMode = name
+    commandArea.on 'changeMode', ->
+      compiler = sourceArea.session.getMode()
       if isCurrentMessage "modesList"
         setCurrentMessage modesList(), "modesList"
       else
-        log "#{name} compiler loaded"
-      # compileCode()
+        showFileMessage "#{name} compiler loaded"
       callback?()
-    , (error) ->
-      log "#{name} loading failed"
+  # , (error) ->
+  #   log "#{name} loading failed"
   else
     log "Wrong mode name, choose from:\n\n#{modesList()}"
 
@@ -208,37 +199,37 @@ getCompilerOptions = ->
   # TODO: use prelude
   $.extend {}, compilerOptions
 
-compileCode = ->
-  startColor = "#151515"
-  endColor = "#ccc"
-  normalColor = "#050505"
-  indicator = $ "#compilationIndicator"
-  indicateBy = (color) ->
-    indicator.animate
-      color: color
-    ,
-      complete: ->
-        indicator.css color: color
+# compileCode = ->
+#   startColor = "#151515"
+#   endColor = "#ccc"
+#   normalColor = "#050505"
+#   indicator = $ "#compilationIndicator"
+#   indicateBy = (color) ->
+#     indicator.animate
+#       color: color
+#     ,
+#       complete: ->
+#         indicator.css color: color
 
-  compileSource ->
-    indicateBy startColor
-  , ->
-    indicateBy endColor
-    indicateBy normalColor
+#   compileSource ->
+#     indicateBy startColor
+#   , ->
+#     indicateBy endColor
+#     indicateBy normalColor
 
-compileSource = (start, finish) ->
-  start()
-  source = sourceArea.getValue()
-  compiledJS = ""
-  saveCurrent()
-  try
-    compiledJS = compiler.compile source, getCompilerOptions()
-    hideError "compiler", "runtime"
-  catch error
-    showErrorMessage "compiler", "Compiler: #{error.message ? error}"
-  sourceCompiled = true
-  finish()
-  $("#repl_permalink").attr "href", "##{sourceFragment}#{encodeURIComponent(source)}"
+# compileSource = (start, finish) ->
+#   start()
+#   source = sourceArea.getValue()
+#   compiledJS = ""
+#   saveCurrent()
+#   try
+#     compiledJS = compiler.compile source, getCompilerOptions()
+#     hideError "compiler", "runtime"
+#   catch error
+#     showErrorMessage "compiler", "Compiler: #{error.message ? error}"
+#   sourceCompiled = true
+#   finish()
+#   $("#repl_permalink").attr "href", "##{sourceFragment}#{encodeURIComponent(source)}"
 
 execute = (code) ->
   eval (compiler.preExecute? code) ? code
@@ -249,12 +240,12 @@ sourceChange = (e) ->
   sourceChanged = true
   history.add e
   return #unless autoCompile
-  DELAY = 700
-  lastHit = +new Date
-  setTimeout ->
-    if +new Date() - lastHit > DELAY
-      compileCode() unless sourceCompiled
-  , 2 * DELAY
+  # DELAY = 700
+  # lastHit = +new Date
+  # setTimeout ->
+  #   if +new Date() - lastHit > DELAY
+  #     compileCode() unless sourceCompiled
+  # , 2 * DELAY
 
 # TODO: this is not used, it is connected to History
 printHistory = ->
@@ -349,7 +340,7 @@ removeFromClient = (name) ->
   return unless name?
   fileCookie saveName, null
   ammendClientTable name
-  showFileMessage "" + name + " deleted"
+  showFileMessage "#{name} deleted"
 
 ammendClientTable = (exclude, addition) ->
   addition = null unless addition?
@@ -358,7 +349,6 @@ ammendClientTable = (exclude, addition) ->
   if oldTable?
     for pair in oldTable.split ";"
       [name, lines] = pair.split ","
-      console.log name, exclude
       table.push pair if name isnt exclude
 
   table.push addition if addition
@@ -472,7 +462,6 @@ helpDescription = """
 
 sourceArea = ace.edit 'sourceArea'
 sourceArea.setTheme "ace/theme/cobalt"
-sourceArea.session.setMode "compilers/coffeescript/mode"
 sourceArea.session.on 'changeMode', ->
   sourceArea.session.$worker.on 'ok', ({data: {result}}) ->
     saveCurrent()
@@ -498,18 +487,48 @@ sourceArea.commands.addCommand
 
 commandArea = ace.edit 'commandArea'
 commandArea.setTheme "ace/theme/cobalt"
-commandArea.session.setMode "compilers/coffeescript/mode"
+commandArea.session.setUseWorker false
 commandArea.setHighlightActiveLine false
 commandArea.setShowPrintMargin false
 commandArea.renderer.setShowGutter false
+commandWorker = null
+
+commandArea.session.on 'changeMode', ->
+  commandWorker = commandArea.session.getMode().createWorker()
+
+  commandWorker.on 'ok', ({data: {result, type}}) ->
+    # TODO use prelude trim
+    source = $.trim commandArea.getValue()
+    return if source.length is 0
+
+    timeline.push source
+    hideError "command", "runtime"
+    if type is 'command'
+      for command in commands
+        match = command.match result
+        break if match?
+      saveTimeline()
+      outputScrollTop()
+    else
+      try
+        log execute compiledJS + result
+        saveTimeline()
+        outputScrollTop()
+      catch error
+        showErrorMessage "runtime", "Runtime: #{error}"
+
+    commandArea.setValue ""
+
+  commandWorker.on 'error', ({data: {text}}) ->
+    showErrorMessage "command", "Command Line: #{text}"
 
 # Execute on enter
 commandArea.commands.addCommand
   name: 'execute'
   bindKey: win: 'Enter', mac: 'Enter'
   exec: ->
-    compileAndRun()
-    commandArea.setValue ""
+    commandWorker.call 'setValue', [commandArea.getValue()]
+    commandWorker.call 'onUpdate', []
 
 commandArea.commands.addCommand
   name: 'previous'
