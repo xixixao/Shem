@@ -90,7 +90,8 @@
         bare: bare
       });
     } catch (e) {
-      throw "" + source + "\n\n" + (e.toString());
+      console.log("CoffeeScript SyntaxError in\n\n" + source);
+      throw e;
     }
     return result;
   };

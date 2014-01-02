@@ -7,6 +7,7 @@ TextMode     = require("ace/mode/text").Mode
 WorkerClient = require("ace/worker/worker_client").WorkerClient
 
 MetaCoffee   = require './metacoffee/index'
+ErrorHandler = require './errorhandler/index'
 
 indenter = ///
   (?:
@@ -80,8 +81,9 @@ exports.Mode = class extends TextMode
     worker
 
   preExecute: ->
+    window.ErrorHandler = ErrorHandler
     window.ometaError = (m, i) ->
-      handled = ErrorHandler.handle m, i
+      handled = ErrorHandler.handle m, i + 1
       "Error at line " + (handled.lineNumber + 1) + "\n" +
         ErrorHandler.bottomErrorArrow handled
 

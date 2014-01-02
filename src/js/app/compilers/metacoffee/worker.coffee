@@ -24,6 +24,6 @@ exports.Worker = class extends Mirror
         column: loc.position
         endRow: loc.line_number
         endColumn: loc.position
-        text: e.message
+        text: e.message or e.toString()
         type: "error"
       return
