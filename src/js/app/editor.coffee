@@ -115,34 +115,6 @@ commands = Commands.initialize [
   "ph", -> history.print(log)
 ]
 
-# compileAndRun = ->
-#   # TODO use prelude trim
-#   source = $.trim commandArea.getValue()
-#   return if source.length is 0
-
-#   timeline.push source
-#   hideError "command", "runtime"
-#   try
-#     if pref = source.match(/^(< |:)/)
-#       source = source[pref[0].length..]
-#       for command in commands
-#         match = command.match source
-#         break if match?
-#       saveTimeline()
-#       outputScrollTop()
-#     else
-#       command = compiler.compile source, getCompilerOptions()
-#       try
-#         log execute compiledJS + command
-#         saveTimeline()
-#         outputScrollTop()
-#       catch error
-#         showErrorMessage "runtime", "Runtime: #{error}"
-#   catch error
-#     console.log error
-#     showErrorMessage "command", "Command Line: #{error.message}"
-#   return
-
 modes =
   CoffeeScript:
     id: "coffeescript"
@@ -239,13 +211,7 @@ sourceChange = (e) ->
   sourceCompiled = false
   sourceChanged = true
   history.add e
-  return #unless autoCompile
-  # DELAY = 700
-  # lastHit = +new Date
-  # setTimeout ->
-  #   if +new Date() - lastHit > DELAY
-  #     compileCode() unless sourceCompiled
-  # , 2 * DELAY
+  return
 
 # TODO: this is not used, it is connected to History
 printHistory = ->
@@ -422,6 +388,7 @@ resizeEditor = (e) ->
   $("#rightColumn").width winSize.w - $("#leftColumn").width() - 60
   $("#rightColumn").css "max-height", (winSize.h - 25) + "px"
   setMaxPreWidth $("#output pre")
+  sourceArea.resize()
 
 selectLastOutput = ->
   (getMessage(0)).selectText()
