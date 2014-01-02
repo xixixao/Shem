@@ -6,7 +6,7 @@ Range        = require("ace/range").Range
 TextMode     = require("ace/mode/text").Mode
 WorkerClient = require("ace/worker/worker_client").WorkerClient
 
-iced = require('./coffee-script/iced')
+MetaCoffee   = require './metacoffee/index'
 
 indenter = ///
   (?:
@@ -65,8 +65,8 @@ exports.Mode = class extends TextMode
     @$outdent.autoOutdent doc, row
 
   createWorker: (session) ->
-    worker = new WorkerClient ["ace", "compilers"],
-      "compilers/icedcoffeescript/worker",
+    worker = new WorkerClient ["ace", "compilers", "coffee-script"],
+      "compilers/metacoffee/worker",
       "Worker"
 
     if session
@@ -80,4 +80,11 @@ exports.Mode = class extends TextMode
     worker
 
   preExecute: ->
-    window.iced = iced.runtime
+    window.ometaError = (m, i) ->
+      handled = ErrorHandler.handle m, i
+      "Error at line " + (handled.lineNumber + 1) + "\n" +
+        ErrorHandler.bottomErrorArrow handled
+
+    MetaCoffee.installRuntime window
+    console.log MetaCoffee
+    console.log subclass

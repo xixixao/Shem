@@ -9,10 +9,8 @@ module.exports = class extends Rules
     @$rules.start.unshift [
       token: "keyword"
       regex: "await"
-      next: "start"
     ,
       token: ["keyword", "variable.parameter"]
       regex: /(defer)([^)\]}]+)/.source
-      next: "start"
     ]...
 
