@@ -1,5 +1,5 @@
 Tokenizer    = require("ace/tokenizer").Tokenizer
-Rules        = require("ace/mode/coffee_highlight_rules").CoffeeHighlightRules
+Rules        = require './highlighter'
 Outdent      = require("ace/mode/matching_brace_outdent").MatchingBraceOutdent
 FoldMode     = require("ace/mode/folding/coffee").FoldMode
 Range        = require("ace/range").Range
