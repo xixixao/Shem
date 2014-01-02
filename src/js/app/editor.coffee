@@ -175,7 +175,7 @@ setMode = (name, callback) ->
   if config?
     modePath = "compilers/#{config.id}/mode"
     sourceArea.session.setMode modePath
-    commandArea.session.setMode compiler = new CommandMode "compilers/#{config.id}"
+    commandArea.session.setMode new CommandMode "compilers/#{config.id}"
     currentMode = name
     if isCurrentMessage "modesList"
       setCurrentMessage modesList(), "modesList"
@@ -231,7 +231,8 @@ getCompilerOptions = ->
 #   $("#repl_permalink").attr "href", "##{sourceFragment}#{encodeURIComponent(source)}"
 
 execute = (code) ->
-  eval (compiler.preExecute? code) ? code
+  compiler.preExecute?()
+  eval code
 
 history = new History
 sourceChange = (e) ->
@@ -300,6 +301,7 @@ autosave = ->
 fileCookie = (name, value) ->
   $.totalStorage cookieFilePrefix + name, value
 
+# TODO: for each file, save its non-command executed commands
 saveCurrent = ->
   source = sourceArea.getValue()
   value = serializeSource()
@@ -462,6 +464,7 @@ helpDescription = """
 sourceArea = ace.edit 'sourceArea'
 sourceArea.setTheme "ace/theme/cobalt"
 sourceArea.session.on 'changeMode', ->
+  compiler = sourceArea.session.getMode()
   sourceArea.session.$worker.on 'ok', ({data: {result}}) ->
     saveCurrent()
     compiledJS = result
@@ -493,6 +496,8 @@ commandArea.renderer.setShowGutter false
 commandArea.session.on 'changeMode', ->
   commandWorker = commandArea.session.getMode().worker
 
+  # CommandWorker only compiles on user enter, hence this is an order to execute
+  # the source and the command
   commandWorker.on 'ok', ({data: {result, type}}) ->
     # TODO use prelude trim
     source = $.trim commandArea.getValue()
