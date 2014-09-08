@@ -1,3 +1,5 @@
+# path is my addition to ace, it is passed from CommandMode and it is the path
+# to the worker backing the source editor
 exports.Worker = (sender, path) ->
   SourceWorker = (require path).Worker
 
