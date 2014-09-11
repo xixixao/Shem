@@ -7,7 +7,8 @@ controls = '\\(\\)\\[\\]'
 
 tokenize = (input) ->
   whitespace = ''
-  loop
+  currentPos = 0
+  while input.length > 0
     match = input.match ///
       ^ # must be at the start
       (
@@ -17,15 +18,18 @@ tokenize = (input) ->
       | "[^"]*?" # strings
       | '\\?[^']' # char
       )///
-    break if not match
+    if not match
+      throw new Error "Could not recognize a token starting with `#{input[0..10]}`"
     [token] = match
     input = input[token.length...]
     if /\s+$/.test token
       whitespace = token
       continue
     ws = whitespace
+    pos = currentPos
+    currentPos += ws.length + token.length
     whitespace = ''
-    {token, ws}
+    {token, ws, pos}
 
 astize = (tokens) ->
   tree = []
@@ -116,8 +120,8 @@ labelSimple = (ast) ->
     labelMapping word,
       ['keyword', token in keywords]
       ['numerical', /^-?\d+/.test(token)]
-      ['typename', /^[A-Z]/.test token]
-      ['label', /\w+:/.test token]
+      #['typename', /^[A-Z]/.test token]
+      ['label', /\w*:$/.test token]
       ['string', /^["']/.test token]
       ['paren', token in ['(', ')']]
 
@@ -141,7 +145,7 @@ fnDefinition = (node) ->
     if not matchAnyNode ['::', '#'], def
       implementation = defs[i...]
       break
-  {body, wheres} = fnImplementation implementation
+  {body, wheres} = fnImplementation implementation ? []
   {params, type, doc, body, wheres}
 
 fnImplementation = (defs) ->
@@ -203,6 +207,11 @@ labelRecursiveCall = (ast, fnname) ->
   mapTokens [fnname], ast, (word) ->
     word.label = 'recurse'
 
+typeDatas = (ast) ->
+  macro 'data', ast, (node) ->
+    node.type = 'data'
+    node
+
 typeComments = (ast) ->
   macro '#', ast, (node) ->
     node.type = 'comment'
@@ -227,18 +236,26 @@ apply = (onto, fns...) ->
     result = fn result
   result
 
+typifyMost = (ast) ->
+  apply ast, typeComments, typeDatas, labelSimple, labelMatches, labelFns
+
 typify = (ast) ->
-  apply ast, typeComments, labelSimple, labelMatches, labelFns, labelComments
+  apply ast, typifyMost, labelComments
 
 typifyTop = (ast) ->
-  apply ast, typeComments, labelSimple, labelMatches, labelFns, labelTop, labelComments
+  apply ast, typifyMost, labelTop, labelComments
 
 typifyDefinitions = (ast) ->
-  apply ast, typeComments, labelSimple, labelMatches, labelFns, labelDefinitions, labelComments
+  apply ast, typifyMost, labelDefinitions, labelComments
 
 toHtml = (highlighted) ->
   crawl highlighted, (word) ->
     (word.ws or '') + colorize(theme[word.label ? 'normal'], word.token)
+
+toTokens = (highlighted) ->
+  tokens = []
+  crawl highlighted, (word) -> tokens.push word
+  tokens
 
 collapse = (nodes) ->
   collapsed = ""
@@ -253,6 +270,9 @@ syntaxed = (source) ->
 syntaxedExp = (source) ->
   collapse inside toHtml typify astize tokenize source
 
+tokenizedDefinitions = (source) ->
+  toTokens [inside typifyDefinitions astize tokenize "(#{source})"]
+
 variableCounter = 1
 
 # exp followed by list of definitions
@@ -263,15 +283,11 @@ compiled = (source) ->
 # single exp
 compiledExp = (source) ->
   variableCounter = 1
-  compileImpl typify astize tokenize source
+  "(#{compileImpl typify astize tokenize source})"
 
 compileDefinitions = (source) ->
   variableCounter = 1
   compileWheres typifyDefinitions astize tokenize "(#{source})"
-
-compileComments = (ast) ->
-  typedMacro 'comment', ast, (node) ->
-    ''
 
 compileList = (elems) ->
   # "[#{elems.join ', '}]"
@@ -285,7 +301,8 @@ isMap = (node) ->
 
 compileImpl = (node) ->
   switch node.type
-    when 'comment' then ''
+    when 'comment' then 'null'
+    when 'data' then 'null'
     when 'function' then compileFn node
     else
       if Array.isArray node
@@ -296,16 +313,15 @@ compileImpl = (node) ->
           compileList exps
         else
           [op, args...] = exps
-          fn = compileImpl op
-          if expander = trueMacros[fn]
+          opName = op.token
+          if opName and expander = trueMacros[opName]
             expander args...
+          else if opName and expander = macros[opName]
+            expander (args.map compileImpl)...
           else
-            compiledArgs = args.map compileImpl
-            if expander = macros[fn]
-              expander compiledArgs...
-            else
-              # TODO: this expandMacro doesn't make sense
-              "#{fn}(#{compiledArgs.map(expandMacro).join ', '})"
+            fn = compileImpl op
+            # TODO: this expandMacro doesn't make sense
+            "#{fn}(#{(args.map compileImpl).join ', '})"
       else if node.token.match /^"/
         node.token
       else
@@ -313,7 +329,11 @@ compileImpl = (node) ->
 
 compileMap = (elems) ->
   [constr, args...] = elems
-  "({\"#{constr.token}\": [#{args.map(compileImpl).join ', '}]})"
+  items = args.map(compileImpl).join ', '
+  if constr.token == ':'
+    "[#{items}]"
+  else
+    "({\"#{constr.token}\": [#{items}]})"
 
 expandMacro = (macro) ->
   macros[macro]?() ? macro
@@ -335,16 +355,19 @@ validIdentifier = (name) ->
         .replace('.', 'dot_')
         .replace('&', 'and_')
         .replace(/^const$/, 'const_')
+        .replace(/^default$/, 'default_')
 
-compileDef = ([name, def]) ->
-  pm = patternMatch(name, compileImpl def)
-  pm.precs.filter(({cache}) -> cache).map(({cache}) -> cache)
-  .concat(pm.assigns).map(compileAssign).join '\n'
+compileFn = (node) ->
+  {params, body, wheres} = fnDefinition node
+  """$curry(function (#{params.map(getToken).map(validIdentifier).join ', '}) {
+       #{compileFnImpl body, wheres, yes}
+     })"""
 
-newVar = ->
-  "i#{variableCounter++}"
+getToken = (word) -> word.token
 
 compileFnImpl = (body, wheres, doReturn) ->
+  if not body
+    throw new Error "Missing definition of a function"
   [
     compileWhereImpl wheres
   ,
@@ -355,16 +378,15 @@ compileFnImpl = (body, wheres, doReturn) ->
   ].join '\n'
 
 compileWhereImpl = (wheres) ->
-  "#{wheres.map(compileDef).reverse().join '\n'}"
+  "#{wheres.map(compileDef).join '\n'}"
 
-getToken = (word) -> word.token
+compileDef = ([name, def]) ->
+  pm = patternMatch(name, compileImpl def)
+  pm.precs.filter(({cache}) -> cache).map(({cache}) -> cache)
+  .concat(pm.assigns).map(compileAssign).join '\n'
 
-compileFn = (ast) ->
-  typedMacro 'function', ast, (node) ->
-    {params, body, wheres} = fnDefinition node
-    """$curry(function (#{params.map(getToken).map(validIdentifier).join ', '}) {
-         #{compileFnImpl body, wheres, yes}
-       })"""
+newVar = ->
+  "i#{variableCounter++}"
 
 repeat = (x, n) ->
   new Array(n + 1).join x
@@ -383,7 +405,7 @@ patternMatchingRules = [
   (pattern) ->
     trigger: matchNode '&', pattern
     cache: true
-    cond: (exp) -> ["#{exp}.head"]
+    cond: (exp) -> ["'head' in #{exp}"]
     assignTo: (exp) ->
       [op, head, tail] = inside pattern
       recurse: [
@@ -394,13 +416,24 @@ patternMatchingRules = [
     elems = inside pattern
     trigger: not isMap pattern
     cache: true
-    cond: (exp) -> ["#{exp}.size() == #{elems.length}"]
+    cond: (exp) -> ["$listSize(#{exp}) == #{elems.length}"]
     assignTo: (exp) ->
       recurse: (for elem, i in elems
         if i is 0
           [elem, "#{exp}.head"]
         else
           [elem, "#{exp}#{repeat '.tail', i}.head"])
+  (pattern) ->
+    [constr, elems...] = inside pattern
+    label = "'#{constr.token}'"
+    trigger: constr.token is ':' and isMap pattern
+    cache: true
+    cond: (exp) ->
+      ["#{exp}.length == #{elems.length}"]
+    assignTo: (exp, value) ->
+      value ?= exp
+      recurse: (for elem, i in elems
+        [elem, "#{value}[#{i}]"])
   (pattern) ->
     [constr, elems...] = inside pattern
     label = "'#{constr.token}'"
@@ -460,6 +493,8 @@ macros =
 trueMacros =
   'match': (onwhat, cases...) ->
     varNames = []
+    if not onwhat
+      throw new Error 'match `onwhat` missing'
     exp = compileImpl onwhat
     compiledCases = (for [pattern, result], i in pairs cases
       control = if i is 0 then 'if' else ' else if'
@@ -535,8 +570,8 @@ expandBuiltings unaryFnMapping, (to) ->
       "function(__a){return #{to}(__a);}"
 
 binaryFnMapping =
-  from: '^'.split ' '
-  to: 'Math.pow'.split ' '
+  from: []
+  to: []
 
 expandBuiltings binaryFnMapping, (to) ->
   (x, y) ->
@@ -547,9 +582,22 @@ expandBuiltings binaryFnMapping, (to) ->
     else
       "function(__a, __b){return #{to}(__a, __b);}"
 
+invertedBinaryFnMapping =
+  from: '^'.split ' '
+  to: 'Math.pow'.split ' '
+
+expandBuiltings invertedBinaryFnMapping, (to) ->
+  (x, y) ->
+    if x and y
+      "#{to}(#{y}, #{x})"
+    else if x
+      "function(__b){return #{to}(__b, #{a});}"
+    else
+      "function(__a, __b){return #{to}(__b, __a);}"
+
 binaryOpMapping =
-  from: '+ - / * = rem != and or'.split ' '
-  to: '+ - / * == % != && ||'.split ' '
+  from: '+ * = != and or'.split ' '
+  to: '+ * == != && ||'.split ' '
 
 expandBuiltings binaryOpMapping, (to) ->
   (x, y) ->
@@ -559,6 +607,19 @@ expandBuiltings binaryOpMapping, (to) ->
       "function(__b){return #{x} #{to} __b;}"
     else
       "function(__a, __b){return __a #{to} __b;}"
+
+invertedBinaryOpMapping =
+  from: '- / rem < >'.split ' '
+  to: '- / % < >'.split ' '
+
+expandBuiltings invertedBinaryOpMapping, (to) ->
+  (x, y) ->
+    if x and y
+      "(#{y} #{to} #{x})"
+    else if x
+      "function(__b){return __b #{to} #{x};}"
+    else
+      "function(__a, __b){return __b #{to} __a;}"
 
 compileTop = (ast) ->
   {body, wheres} = fnImplementation inside ast
@@ -575,9 +636,7 @@ toJs = (typified) ->
 library = """
 var $listize = function (list) {
   if (list.length == 0) {
-   x = [];
-   x.size = function() { return 0 };
-   return x;
+   return [];
   }
   return and_(list[0], $listize(list.splice(1)));
 };
@@ -585,11 +644,15 @@ var $listize = function (list) {
 var and_ = function (x, xs) {
   return {
     head: x,
-    tail: xs,
-    size: function() {
-      return 1 + this.tail.size();
-    }
+    tail: xs
   };
+}
+
+var $listSize = function (list) {
+  if (list.length == 0) {
+    return 0;
+  }
+  return 1 + $listSize(list.tail);
 }
 
 var showminus_list = function (x) {
@@ -619,3 +682,6 @@ exports.compile = (source) ->
 
 exports.compileExp = (source) ->
   compiledExp source
+
+exports.tokenize = (source) ->
+  tokenizedDefinitions source
