@@ -273,6 +273,9 @@ syntaxedExp = (source) ->
 tokenizedDefinitions = (source) ->
   toTokens [inside typifyDefinitions astize tokenize "(#{source})"]
 
+tokenizedExp = (source) ->
+  toTokens typify astize tokenize source
+
 variableCounter = 1
 
 # exp followed by list of definitions
@@ -685,3 +688,6 @@ exports.compileExp = (source) ->
 
 exports.tokenize = (source) ->
   tokenizedDefinitions source
+
+exports.tokenizeExp = (source) ->
+  tokenizedExp source
