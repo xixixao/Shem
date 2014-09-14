@@ -58,6 +58,13 @@ walk = (ast, cb) ->
         walk node, cb)
   ast
 
+walkOnly = (ast, cb) ->
+  if Array.isArray ast
+    cb ast
+    for node in ast
+      walk node, cb
+  ast
+
 crawl = (ast, cb) ->
   if Array.isArray ast
     typed ast, (for node in ast
@@ -124,6 +131,7 @@ labelSimple = (ast) ->
       ['label', /\w*:$/.test token]
       ['string', /^["']/.test token]
       ['paren', token in ['(', ')']]
+      ['bracket', token in ['[', ']']]
 
 labelMatches = (ast) ->
   macro 'match', ast, (node, args) ->
@@ -252,10 +260,17 @@ toHtml = (highlighted) ->
   crawl highlighted, (word) ->
     (word.ws or '') + colorize(theme[word.label ? 'normal'], word.token)
 
-toTokens = (highlighted) ->
-  tokens = []
-  crawl highlighted, (word) -> tokens.push word
-  tokens
+# Correct offset by 1 in positions, when we wrap the source in an S-exp
+shiftPos = (ast) ->
+  crawl ast, (word) ->
+    word.pos = word.pos - 1
+    word
+
+parentize = (highlighted) ->
+  walkOnly highlighted, (node) ->
+    for subNode in node
+      subNode.parent = node
+    node
 
 collapse = (nodes) ->
   collapsed = ""
@@ -271,10 +286,10 @@ syntaxedExp = (source) ->
   collapse inside toHtml typify astize tokenize source
 
 tokenizedDefinitions = (source) ->
-  toTokens [inside typifyDefinitions astize tokenize "(#{source})"]
+  (parentize shiftPos [inside typifyDefinitions astize tokenize "(#{source})"])[0]
 
 tokenizedExp = (source) ->
-  toTokens typify astize tokenize source
+  parentize typify astize tokenize source
 
 variableCounter = 1
 
@@ -691,3 +706,5 @@ exports.tokenize = (source) ->
 
 exports.tokenizeExp = (source) ->
   tokenizedExp source
+
+exports.walk = walk
