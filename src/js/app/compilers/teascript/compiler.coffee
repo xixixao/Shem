@@ -683,7 +683,7 @@ var showminus_list = function (x) {
 }
 
 $curry = function (f) {
-  _curry = function(args) {
+  var _curry = function(args) {
     return f.length == 1 ? f : function(){
       var params = args ? args.concat() : [];
       return params.push.apply(params, arguments) < f.length && arguments.length
