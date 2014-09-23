@@ -143,7 +143,7 @@ labelMatches = (ast) ->
 fnDefinition = (node) ->
   words = inside node
   [keyword, paramList, defs...] = words
-  params = if paramList? then inside paramList else []
+  params = if Array.isArray(paramList) then inside paramList else undefined
   defs ?= []
   for def, i in defs
     if matchNode '::', def
@@ -183,7 +183,7 @@ labelFns = (ast) ->
     {params, body, wheres} = fnDefinition node
     labelFnBody body
     labelWhere wheres
-    labelParams node, params
+    labelParams node, params if params?
     node
 
 labelFnBody = (node) ->
@@ -202,18 +202,19 @@ labelNames = (pattern) ->
 labelWhere = (wheres) ->
   for [name, def] in wheres
     labelNames name
-    if matchNode 'fn', def
-      labelRecursiveCall def, name.token
+    if def
+      if matchNode 'fn', def
+        labelRecursiveCall def, name.token
   return
 
 labelParams = (ast, params) ->
   paramNames = (token for {token} in params)
   mapTokens paramNames, ast, (word) ->
-    word.label = 'param' unless word.label
+    word.label = 'param' unless word.label and word.label isnt 'recurse'
 
 labelRecursiveCall = (ast, fnname) ->
   mapTokens [fnname], ast, (word) ->
-    word.label = 'recurse'
+    word.label = 'recurse' if word.label isnt 'param'
 
 typeDatas = (ast) ->
   macro 'data', ast, (node) ->
@@ -377,6 +378,8 @@ validIdentifier = (name) ->
 
 compileFn = (node) ->
   {params, body, wheres} = fnDefinition node
+  if !params?
+    throw new Error 'missing parameter list'
   """$curry(function (#{params.map(getToken).map(validIdentifier).join ', '}) {
        #{compileFnImpl body, wheres, yes}
      })"""
@@ -399,6 +402,8 @@ compileWhereImpl = (wheres) ->
   "#{wheres.map(compileDef).join '\n'}"
 
 compileDef = ([name, def]) ->
+  if !def?
+    throw new Error 'missing definition in assignment'
   pm = patternMatch(name, compileImpl def)
   pm.precs.filter(({cache}) -> cache).map(({cache}) -> cache)
   .concat(pm.assigns).map(compileAssign).join '\n'
