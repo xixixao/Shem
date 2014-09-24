@@ -17,6 +17,7 @@ tokenize = (input) ->
       | [^#{controls}"'\s]+ # normal tokens
       | "[^"]*?" # strings
       | '\\?[^']' # char
+      | /[^\ /][^/]*?/ # regex
       )///
     if not match
       throw new Error "Could not recognize a token starting with `#{input[0..10]}`"
@@ -130,6 +131,7 @@ labelSimple = (ast) ->
       #['typename', /^[A-Z]/.test token]
       ['label', /\w*:$/.test token]
       ['string', /^["']/.test token]
+      ['regex', /^\/[^ \/]/.test token]
       ['paren', token in ['(', ')']]
       ['bracket', token in ['[', ']']]
 
@@ -361,18 +363,22 @@ validIdentifier = (name) ->
   if macros[name]
     expandMacro name
   else
-    [minus, actualName] = name
-    if minus == '-'
-      "(- #{validIdentifier actualName})"
+    [firstChar] = name
+    if firstChar is '-'
+      "(- #{validIdentifier name[1...]})"
+    else if firstChar is '/'
+      # regex
+      name
     else
       name
-        .replace('+', 'plus_')
-        .replace('-', 'minus_')
-        .replace('*', 'times_')
-        .replace('/', 'over_')
-        .replace('√', 'sqrt_')
-        .replace('.', 'dot_')
-        .replace('&', 'and_')
+        .replace(/\+/g, 'plus_')
+        .replace(/\-/g, 'minus_')
+        .replace(/\*/g, 'times_')
+        .replace(/\//g, 'over_')
+        .replace(/\√/g, 'sqrt_')
+        .replace(/\./g, 'dot_')
+        .replace(/\&/g, 'and_')
+        .replace(/\?/g, 'p_')
         .replace(/^const$/, 'const_')
         .replace(/^default$/, 'default_')
 
@@ -512,6 +518,9 @@ macros =
     } else {
       return #{elz};
     }}())"""
+  'call': (method, obj, args...) ->
+    # TODO: use dot notation if method is valid method name
+    """((#{obj})[#{method}](#{args.join ', '}))"""
 
 trueMacros =
   'match': (onwhat, cases...) ->
@@ -538,7 +547,6 @@ trueMacros =
     mainCache = mainCache.map ({cache}) -> compileAssign cache
     varDecls = if varNames.length > 0 then ["var #{varNames.join ', '};"] else []
     content = mainCache.concat(varDecls, compiledCases.join '').join '\n'
-
     """(function(){
       #{content}}())"""
 
@@ -669,14 +677,14 @@ var and_ = function (x, xs) {
     head: x,
     tail: xs
   };
-}
+};
 
 var $listSize = function (list) {
   if (list.length == 0) {
     return 0;
   }
   return 1 + $listSize(list.tail);
-}
+};
 
 var showminus_list = function (x) {
   var t = [];
@@ -685,9 +693,9 @@ var showminus_list = function (x) {
     x = x.tail;
   }
   return t;
-}
+};
 
-$curry = function (f) {
+var $curry = function (f) {
   var _curry = function(args) {
     return f.length == 1 ? f : function(){
       var params = args ? args.concat() : [];
