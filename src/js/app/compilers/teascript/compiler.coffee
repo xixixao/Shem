@@ -317,6 +317,10 @@ compileDefinitions = (source) ->
   variableCounter = 1
   compileWheres typifyDefinitions astize tokenize "(#{source})"
 
+compileDefinitionsInModule = (source) ->
+  variableCounter = 1
+  compileWheresInModule typifyDefinitions astize tokenize "(#{source})"
+
 compileList = (elems) ->
   # "[#{elems.join ', '}]"
   "$listize([#{elems.map(compileImpl).join ', '}])"
@@ -684,6 +688,19 @@ compileWheres = (ast) ->
   wheres = whereList inside ast
   compileWhereImpl wheres
 
+compileWheresInModule = (ast) ->
+  wheres = whereList inside ast
+  "#{wheres.map(compileExportedDef).join '\n'}"
+
+compileExportedDef = ([name, def]) ->
+  if !def?
+    throw new Error 'missing definition in top level assignment'
+  if name.token
+    identifier = validIdentifier name.token
+    "var #{identifier} = exports['#{identifier}'] = #{compileImpl def};"
+  else
+    compileDef [name, def]
+
 toJs = (typified) ->
   compileTop typified
 
@@ -745,6 +762,13 @@ var fromminus_nullable = function (jsValue) {
 exports.compile = (source) ->
   library + compileDefinitions source
 
+exports.compileModule = (source) ->
+  """
+  #{library}
+  var exports = {};
+  #{compileDefinitionsInModule source}
+  exports"""
+
 exports.compileExp = (source) ->
   compiledExp source
 
@@ -753,5 +777,7 @@ exports.tokenize = (source) ->
 
 exports.tokenizeExp = (source) ->
   tokenizedExp source
+
+exports.library = library
 
 exports.walk = walk
