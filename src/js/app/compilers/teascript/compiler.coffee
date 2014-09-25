@@ -2,7 +2,8 @@ colorize = (color, string) ->
   "<span style=\"color: #{color}\">#{string}</span>"
 
 keywords = 'def defn data class fn proc match if type :: \\
-            access call new'.split ' '
+            access call new
+            require'.split ' '
 
 controls = '\\(\\)\\[\\]'
 
@@ -538,6 +539,7 @@ macros =
   ':': (elems...) ->
     "[#{elems.join ', '}]"
 
+
 trueMacros =
   'match': (onwhat, cases...) ->
     varNames = []
@@ -565,6 +567,12 @@ trueMacros =
     content = mainCache.concat(varDecls, compiledCases.join '').join '\n'
     """(function(){
       #{content}}())"""
+  'require': (from, list) ->
+    args = inside(list).map(compileImpl).map(toJsString).join ', '
+    "$listize(window.requireModule(#{toJsString from.token}, [#{args}]))"
+
+toJsString = (token) ->
+  "'#{token}'"
 
 compileAssign = ([to, from]) ->
   "var #{to} = #{from};"
