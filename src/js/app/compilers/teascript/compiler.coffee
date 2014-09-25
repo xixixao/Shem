@@ -1,7 +1,8 @@
 colorize = (color, string) ->
   "<span style=\"color: #{color}\">#{string}</span>"
 
-keywords = 'def defn data class fn proc match if type :: \\'.split ' '
+keywords = 'def defn data class fn proc match if type :: \\
+            access call new'.split ' '
 
 controls = '\\(\\)\\[\\]'
 
@@ -14,10 +15,10 @@ tokenize = (input) ->
       (
         \s+ # pure whitespace
       | [#{controls}] # brackets
-      | [^#{controls}"'\s]+ # normal tokens
+      | /([^\ /]|\\/)([^/]|\\/)*?/ # regex
       | "[^"]*?" # strings
       | '\\?[^']' # char
-      | /[^\ /][^/]*?/ # regex
+      | [^#{controls}"'\s]+ # normal tokens
       )///
     if not match
       throw new Error "Could not recognize a token starting with `#{input[0..10]}`"
@@ -223,6 +224,11 @@ typeDatas = (ast) ->
     node.type = 'data'
     node
 
+typeTypes = (ast) ->
+  macro 'type', ast, (node) ->
+    node.type = 'type'
+    node
+
 typeComments = (ast) ->
   macro '#', ast, (node) ->
     node.type = 'comment'
@@ -248,7 +254,7 @@ apply = (onto, fns...) ->
   result
 
 typifyMost = (ast) ->
-  apply ast, typeComments, typeDatas, labelSimple, labelMatches, labelFns
+  apply ast, typeComments, typeDatas, typeTypes, labelSimple, labelMatches, labelFns
 
 typify = (ast) ->
   apply ast, typifyMost, labelComments
@@ -324,6 +330,7 @@ compileImpl = (node) ->
   switch node.type
     when 'comment' then 'null'
     when 'data' then 'null'
+    when 'type' then 'null'
     when 'function' then compileFn node
     else
       if Array.isArray node
@@ -381,6 +388,7 @@ validIdentifier = (name) ->
         .replace(/\?/g, 'p_')
         .replace(/^const$/, 'const_')
         .replace(/^default$/, 'default_')
+        .replace(/^with$/, 'with_')
 
 compileFn = (node) ->
   {params, body, wheres} = fnDefinition node
@@ -442,6 +450,8 @@ patternMatchingRules = [
         [tail, "#{exp}.tail"]
       ]
   (pattern) ->
+    if not Array.isArray pattern
+      throw new Error "pattern match expected pattern but saw token #{pattern.token}"
     elems = inside pattern
     trigger: not isMap pattern
     cache: true
@@ -518,9 +528,15 @@ macros =
     } else {
       return #{elz};
     }}())"""
+  'access': (field, obj) ->
+    # TODO: use dot notation if method is valid field name
+    "(#{obj})[#{field}]"
   'call': (method, obj, args...) ->
-    # TODO: use dot notation if method is valid method name
-    """((#{obj})[#{method}](#{args.join ', '}))"""
+    "(#{macros.access method, obj}(#{args.join ', '}))"
+  'new': (clazz, args...) ->
+    "(new #{clazz}(#{args.join ', '}))"
+  ':': (elems...) ->
+    "[#{elems.join ', '}]"
 
 trueMacros =
   'match': (onwhat, cases...) ->
@@ -706,6 +722,16 @@ var $curry = function (f) {
   };
   return _curry();
 };
+
+var fromminus_nullable = function (jsValue) {
+  if (typeof jsValue === "undefined" || jsValue === null) {
+    return {'None:': []};
+  } else {
+    return {'Just:': [jsValue]};
+  }
+};
+
+;
 """
 
 exports.compile = (source) ->
