@@ -710,7 +710,7 @@ var $listize = function (list) {
   if (list.length == 0) {
    return [];
   }
-  return and_(list[0], $listize(list.splice(1)));
+  return and_(list[0], $listize(list.slice(1)));
 };
 
 var and_ = function (x, xs) {
