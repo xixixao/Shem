@@ -668,8 +668,8 @@ expandBuiltings binaryOpMapping, (to) ->
       "function(__a, __b){return __a #{to} __b;}"
 
 invertedBinaryOpMapping =
-  from: '- / rem < >'.split ' '
-  to: '- / % < >'.split ' '
+  from: '- / rem < > <= >='.split ' '
+  to: '- / % < > <= >='.split ' '
 
 expandBuiltings invertedBinaryOpMapping, (to) ->
   (x, y) ->
