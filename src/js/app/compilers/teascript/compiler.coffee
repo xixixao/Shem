@@ -323,7 +323,7 @@ compileDefinitionsInModule = (source) ->
 
 compileList = (elems) ->
   # "[#{elems.join ', '}]"
-  "$listize([#{elems.map(compileImpl).join ', '}])"
+  "[#{elems.map(compileImpl).join ', '}]"
 
 isList = (node) ->
   Array.isArray(node) and (node[0].token is '[')
@@ -574,6 +574,8 @@ trueMacros =
   'require': (from, list) ->
     args = inside(list).map(compileImpl).map(toJsString).join ', '
     "$listize(window.requireModule(#{toJsString from.token}, [#{args}]))"
+  'list': (items...) ->
+    "$listize(#{compileList items})"
 
 toJsString = (token) ->
   "'#{token}'"
