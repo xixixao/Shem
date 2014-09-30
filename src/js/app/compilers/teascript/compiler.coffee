@@ -460,13 +460,10 @@ patternMatchingRules = [
     elems = inside pattern
     trigger: not isMap pattern
     cache: true
-    cond: (exp) -> ["$listSize(#{exp}) == #{elems.length}"]
+    cond: (exp) -> ["$sequenceSize(#{exp}) == #{elems.length}"]
     assignTo: (exp) ->
       recurse: (for elem, i in elems
-        if i is 0
-          [elem, "#{exp}.head"]
-        else
-          [elem, "#{exp}#{repeat '.tail', i}.head"])
+        [elem, "$sequenceAt(#{i}, #{exp})"])
   (pattern) ->
     [constr, elems...] = inside pattern
     label = "'#{constr.token}'"
@@ -725,11 +722,21 @@ var and_ = function (x, xs) {
   };
 };
 
-var $listSize = function (list) {
-  if (list.length == 0) {
-    return 0;
+var $sequenceSize = function (xs) {
+  if (xs.length != null) {
+    return xs.length;
   }
-  return 1 + $listSize(list.tail);
+  return 1 + $sequenceSize(xs.tail);
+};
+
+var $sequenceAt = function (i, xs) {
+  if (xs.length) {
+    return xs[i];
+  }
+  if (i == 0) {
+    return xs.head;
+  }
+  return $sequenceAt(i - 1, xs.tail);
 };
 
 var showminus_list = function (x) {
