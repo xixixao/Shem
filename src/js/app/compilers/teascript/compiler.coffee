@@ -707,7 +707,7 @@ toJs = (typified) ->
 library = """
 var $listize = function (list) {
   if (list.length == 0) {
-   return [];
+   return {length: 0};
   }
   return and_(list[0], $listize(list.slice(1)));
 };
@@ -715,7 +715,10 @@ var $listize = function (list) {
 var and_ = function (x, xs) {
   if (typeof xs == 'string' || xs instanceof String) {
     return x + xs;
-  } // cases for other sequences
+  }
+  if (xs.unshift) {
+    return [x].concat(xs);
+  }// cases for other sequences
   return {
     head: x,
     tail: xs
