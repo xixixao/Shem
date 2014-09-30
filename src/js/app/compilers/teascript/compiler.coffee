@@ -714,6 +714,9 @@ var $listize = function (list) {
 };
 
 var and_ = function (x, xs) {
+  if (typeof xs == 'string' || xs instanceof String) {
+    return x + xs;
+  } // cases for other sequences
   return {
     head: x,
     tail: xs
