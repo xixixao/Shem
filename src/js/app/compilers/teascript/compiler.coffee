@@ -433,6 +433,15 @@ newVar = ->
 repeat = (x, n) ->
   new Array(n + 1).join x
 
+isSplat = (elem) ->
+  elem.token and elem.token[...2] is '..'
+
+stripSplatFromName = (token) ->
+  if token[...2] is '..'
+    token[2...]
+  else
+    token
+
 patternMatchingRules = [
   (pattern) ->
     trigger: pattern.label is 'numerical'
@@ -440,30 +449,40 @@ patternMatchingRules = [
   (pattern) ->
     trigger: pattern.label is 'name'
     assignTo: (exp) ->
-      if exp isnt identifier = validIdentifier pattern.token
+      if exp isnt identifier = validIdentifier stripSplatFromName pattern.token
         [[identifier, exp]]
       else
         []
-  (pattern) ->
-    trigger: matchNode '&', pattern
-    cache: true
-    cond: (exp) -> ["'head' in #{exp}"]
-    assignTo: (exp) ->
-      [op, head, tail] = inside pattern
-      recurse: [
-        [head, "#{exp}.head"]
-        [tail, "#{exp}.tail"]
-      ]
+  # (pattern) ->
+  #   trigger: matchNode '&', pattern
+  #   cache: true
+  #   cond: (exp) -> ["'head' in #{exp}"]
+  #   assignTo: (exp) ->
+  #     [op, head, tail] = inside pattern
+  #     recurse: [
+  #       [head, "#{exp}.head"]
+  #       [tail, "#{exp}.tail"]
+  #     ]
   (pattern) ->
     if not Array.isArray pattern
       throw new Error "pattern match expected pattern but saw token #{pattern.token}"
     elems = inside pattern
+    hasSplat = no
+    requiredElems = 0
+    for elem in elems
+      if isSplat elem
+        hasSplat = yes
+      else
+        requiredElems++
     trigger: not isMap pattern
     cache: true
-    cond: (exp) -> ["$sequenceSize(#{exp}) == #{elems.length}"]
+    cond: (exp) -> ["$sequenceSize(#{exp}) #{if hasSplat then '>=' else '=='} #{requiredElems}"]
     assignTo: (exp) ->
       recurse: (for elem, i in elems
-        [elem, "$sequenceAt(#{i}, #{exp})"])
+        if isSplat elem
+          [elem, "$sequenceSplat(#{i}, #{elems.length - i - 1}, #{exp})"]
+        else
+          [elem, "$sequenceAt(#{i}, #{exp})"])
   (pattern) ->
     [constr, elems...] = inside pattern
     label = "'#{constr.token}'"
@@ -740,6 +759,23 @@ var $sequenceAt = function (i, xs) {
     return xs.head;
   }
   return $sequenceAt(i - 1, xs.tail);
+};
+
+var $sequenceSplat = function (from, leave, xs) {
+  if (xs.slice) {
+    return xs.slice(from, xs.length - leave);
+  }
+  return $listSlice(from, $sequenceSize(xs) - leave - from, xs);
+};
+
+var $listSlice = function (from, n, xs) {
+  if (n == 0) {
+    return $listize([]);
+  }
+  if (from == 0) {
+    return and_(xs.head, $listSlice(from, n - 1, xs.tail));
+  }
+  return $listSlice(from - 1, n, xs.tail);
 };
 
 var showminus_list = function (x) {
