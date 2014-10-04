@@ -636,8 +636,8 @@ expandBuiltings = (mapping, cb) ->
     macros[op] = cb mapping.to[i]
 
 unaryFnMapping =
-  from: '√ alert! not'.split ' '
-  to: 'Math.sqrt window.log !'.split ' '
+  from: '√ alert! not empty'.split ' '
+  to: 'Math.sqrt window.log ! $empty'.split ' '
 
 expandBuiltings unaryFnMapping, (to) ->
   (x) ->
@@ -766,6 +766,20 @@ var $sequenceSplat = function (from, leave, xs) {
     return xs.slice(from, xs.length - leave);
   }
   return $listSlice(from, $sequenceSize(xs) - leave - from, xs);
+};
+
+// temporary, will be replaced by typed 0-argument function
+var $empty = function (xs) {
+  if (typeof xs == 'string' || xs instanceof String) {
+    return "";
+  }
+  if (xs.unshift) {
+    return [];
+  }
+  if ('head' in xs) {
+    return $listize([]);
+  } // cases for other sequences
+  return {};
 };
 
 var $listSlice = function (from, n, xs) {
