@@ -776,7 +776,7 @@ var $empty = function (xs) {
   if (xs.unshift) {
     return [];
   }
-  if ('head' in xs) {
+  if ('length' in xs) {
     return $listize([]);
   } // cases for other sequences
   return {};
