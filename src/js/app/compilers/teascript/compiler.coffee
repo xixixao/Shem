@@ -418,7 +418,73 @@ compileFnImpl = (body, wheres, doReturn) ->
   ].join '\n'
 
 compileWhereImpl = (wheres) ->
-  "#{wheres.map(compileDef).join '\n'}"
+  sorted = (sortTopologically constructDependencyGraph wheres).map ({def}) -> def
+  "#{sorted.map(compileDef).join '\n'}"
+
+sortTopologically = ([graph, dependencies]) ->
+  reversedDependencies = reverseGraph graph
+  independent = []
+
+  moveToIndependent = (node) ->
+    independent.push node
+    delete dependencies[name] for name in node.names
+
+  for parent in graph when parent.set.numDependencies is 0
+    moveToIndependent parent
+
+  sorted = []
+  while independent.length > 0
+    finishedParent = independent.pop()
+    sorted.push finishedParent
+    for child in reversedDependencies[finishedParent.names[0]] or []
+      removeDependency child.set, name for name in finishedParent.names
+      moveToIndependent child if child.set.numDependencies is 0
+
+  for parent of dependencies
+    throw new Error "Cyclic definitions between #{(name for name of dependencies).join ','}"
+  sorted
+
+reverseGraph = (nodes) ->
+  reversed = {}
+  for child in nodes
+    for dependencyName of child.set.dependencies
+      (reversed[dependencyName] ?= []).push child
+  reversed
+
+constructDependencyGraph = (wheres) ->
+  lookupByName = {}
+  deps = dependencySet()
+  # find all defined names
+  graph = []
+  for [pattern, def], i in wheres
+    graph[i] = whereDef = def: [pattern, def], set: dependencySet(), names: []
+    crawl pattern, (node) ->
+      if node.label is 'name'
+        whereDef.names.push node.token
+        lookupByName[node.token] = whereDef
+  # then construct local graph
+  for [pattern, def], i in wheres
+    crawl def, (node) ->
+      if node.token of lookupByName
+        child = graph[i]
+        parent = lookupByName[node.token]
+        addDependency child.set, name for name in parent.names unless child is parent
+        addDependency deps, parent
+  [graph, lookupByName]
+
+dependencySet = ->
+  numDependencies: 0
+  dependencies: {}
+
+addDependency = (set, parentName) ->
+  return if set.dependencies[parentName]
+  set.numDependencies += 1
+  set.dependencies[parentName] = true
+
+removeDependency = (set, parentName) ->
+  return if !set.dependencies[parentName]
+  set.numDependencies -= 1
+  delete set.dependencies[parentName]
 
 compileDef = ([name, def]) ->
   if !def?
