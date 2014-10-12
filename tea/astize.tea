@@ -1,0 +1,55 @@
+[const fold map drop length at drop either id concat] (require Tea.Prelude [const fold map drop length at drop either id concat])
+
+[tokenize] (require Compiler.Tokenize [tokenize])
+
+Token (type [: TokenType TokenValue TokenPos])
+
+TokenType (data
+  [Open-Paren:]
+  [Closed-Paren:]
+  [Open-Bracket:]
+  [Closed-Bracket:]
+  [Symbol:]
+  [Whitespace:]
+  [Regex:]
+  [String:]
+  [Char:])
+
+TokenValue (type String)
+
+TokenPos (type Int)
+
+S-Expression (data
+  [List: (List S-Expression)]
+  [Atom: Token])
+
+astize (fn [tokens]
+  (:: (List Token) (Either S-Expression AstError))
+  (fold maybe-astize-token [left: (list [List: (list)])] tokens))
+
+maybe-astize-token (fn [token stack-or-error]
+  (map-left (astize-token token) stack-or-error))
+
+astize-token (fn [token stack]
+  (match (token-type token)
+    [Open-Paren:] [left: (& [List: (list atom)] stack)]
+    [Closed-Paren:] (match rest-stack
+      [] [right: [: "Unexpected closing paren" (token-pos token)]]
+      [[List: parent-list] ..prev-stack] [left:
+        (& [List: (& [List: (& atom open-list)] parent-list)] prev-stack)])
+    _ [left: (& [List: (& atom open-list)] rest-stack)])
+  atom [Atom: token]
+  [[List: open-list] ..rest-stack] stack)
+
+token-type (fn [token]
+  kind
+  [: kind _ _] token)
+
+token-pos (fn [token]
+  pos
+  [: _ _ pos] token)
+
+map-left (fn [fun left-or-right]
+  (match left-or-right
+    [left: left] (fun left)
+    [right: right] right))
