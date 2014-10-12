@@ -1,4 +1,4 @@
-[const fst map drop length at drop] (require Tea.Prelude [const fst map drop length at drop])
+[const fst map drop length at drop either id concat] (require Tea.Prelude [const fst map drop length at drop either id concat])
 [match-regex join-regex] (require Tea.Regex [match-regex join-regex])
 
 Token (type [: TokenType TokenValue TokenPos])
@@ -37,11 +37,11 @@ tokenize-at (fn [pos rules source]
   (:: String (List TokenRule) (Either (List Token) TokenError))
   (match possible-token
     [Just: [: kind value]] (match (tokenize-at (+ (length value) pos) rules rest)
-      [Left: tokens] [Left: (& [: kind value pos] tokens)]
+      [left: tokens] [left: (& [: kind value pos] tokens)]
       error error)
     [None:] (if (= "" rest)
-      [Left: (list)]
-      [Error: rest]))
+      [left: (list)]
+      [right: [Error: rest]]))
   [: possible-token rest] (match-token rules-to-apply source)
   rules-to-apply (map rule-application rules))
 
@@ -70,5 +70,11 @@ find-first (fn [funs input]
       found found)))
 
 print-tokens (fn [tokens]
-  (match tokens
-    [Left: list] (show-list list)))
+  (either show-list id tokens))
+
+de-tokenize (fn [tokens]
+  (concat (either (map token-value) id tokens)))
+
+token-value (fn [token]
+  value
+  [: _ value _] token)
