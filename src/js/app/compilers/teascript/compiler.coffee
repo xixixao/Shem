@@ -636,7 +636,7 @@ trueMacros =
       control = if i is 0 then 'if' else ' else if'
       {precs, assigns} = patternMatch pattern, exp, mainCache
       vars = findDeclarables precs
-      if vars.length is 1
+      if vars.length >= 1
         mainCache = [precs[0]]
         varNames.push vars[1...]...
       else
