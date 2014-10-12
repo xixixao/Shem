@@ -798,6 +798,9 @@ var $listize = function (list) {
 };
 
 var and_ = function (x, xs) {
+  if (xs == null) {
+    throw new Error('Second argument to & must be a sequence');
+  }
   if (typeof xs == 'string' || xs instanceof String) {
     return x + xs;
   }
