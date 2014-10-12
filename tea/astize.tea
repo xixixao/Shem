@@ -1,4 +1,4 @@
-[const fold map drop length at drop either id concat] (require Tea.Prelude [const fold map drop length at drop either id concat])
+[const fold reduce map append length at drop either id concat join] (require Tea.Prelude [const fold reduce map append length at drop either id concat join])
 
 [tokenize] (require Compiler.Tokenize [tokenize])
 
@@ -25,21 +25,36 @@ S-Expression (data
 
 astize (fn [tokens]
   (:: (List Token) (Either S-Expression AstError))
-  (fold maybe-astize-token [left: (list [List: (list)])] tokens))
+  (map-left validate-stack (attempt-astize tokens)))
 
-maybe-astize-token (fn [token stack-or-error]
+attempt-astize (fn [tokens]
+  (reduce maybe-astize-token initial-stack tokens)
+  initial-stack [left: (list [List: []])])
+
+maybe-astize-token (fn [stack-or-error token]
   (map-left (astize-token token) stack-or-error))
 
 astize-token (fn [token stack]
   (match (token-type token)
-    [Open-Paren:] [left: (& [List: (list atom)] stack)]
+    [Open-Paren:] [left: (& (list-append atom []) stack)]
     [Closed-Paren:] (match rest-stack
       [] [right: [: "Unexpected closing paren" (token-pos token)]]
       [[List: parent-list] ..prev-stack] [left:
-        (& [List: (& [List: (& atom open-list)] parent-list)] prev-stack)])
-    _ [left: (& [List: (& atom open-list)] rest-stack)])
+        (& (list-append (list-append atom open-list) parent-list) prev-stack)])
+    _ [left: (& (list-append atom open-list) rest-stack)])
   atom [Atom: token]
-  [[List: open-list] ..rest-stack] stack)
+  [[List: open-list] ..rest-stack] stack
+  list-append (fn [expression onto]
+    [List: (append expression onto)]))
+
+validate-stack (fn [stack]
+  (if (> 1 (length stack))
+    [right: [:
+        (join "Missing matching " (brace-name (token-type head-token)))
+        (token-pos head-token)]]
+    [left: expression])
+[List: [[Atom: head-token] ..open-list]] expression
+[expression .._] stack)
 
 token-type (fn [token]
   kind
@@ -49,7 +64,12 @@ token-pos (fn [token]
   pos
   [: _ _ pos] token)
 
+brace-name (fn [token-type]
+  (match token-type
+    [Open-Paren:] "paren"
+    [Open-Bracket:] "bracket"))
+
 map-left (fn [fun left-or-right]
   (match left-or-right
     [left: left] (fun left)
-    [right: right] right))
+    right right))
