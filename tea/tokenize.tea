@@ -1,0 +1,68 @@
+[const fst map drop length at drop] (require Tea.Prelude [const fst map drop length at drop])
+[match-regex join-regex] (require Tea.Regex [match-regex join-regex])
+
+Token (data
+  [Open-Paren:]
+  [Closed-Paren:]
+  [Open-Bracket:]
+  [Closed-Bracket:]
+  [Symbol: String]
+  [Whitespace: String]
+  [Regex: String]
+  [String: String]
+  [Char: String])
+
+TokenRule (type (Tuple Regex (String Token)))
+
+tokenization-rules [
+  (: /\s+/ (fn [ws]
+      [Whitespace: ws]))
+  (: /\(/ (const [Open-Paren:]))
+  (: /\)/ (const [Closed-Paren:]))
+  (: /\[/ (const [Open-Bracket:]))
+  (: /\]/ (const [Closed-Bracket:]))
+  (: /"[^"]*?"/ (fn [string]
+      [String: string]))
+  (: /'\\?[^']'/ (fn [string]
+      [Char: string]))
+  (: /[^\(\)\[\]"'\s]+/ (fn [symbol]
+      [Symbol: symbol]))]
+
+tokenize (fn [rules source]
+  (:: String (List TokenRule) (Either (List Token) TokenError))
+  (match possible-token
+    [Just: token] (match (tokenize rules rest)
+      [Left: tokens] [Left: (& token tokens)]
+      error error)
+    [None:] (if (= "" rest)
+      [Left: (list)]
+      [Error: rest]))
+  [: possible-token rest] (match-token rules-to-apply source)
+  rules-to-apply (map rule-application rules))
+
+rule-application (fn [rule]
+  (:: TokenRule (String (Maybe (Tuple Token String))))
+  (fn [string]
+    (match (match-regex regex-at-start string)
+      [Just: token] [Just: (: (token-creator token) (drop (length token) string))]
+      none none))
+  [: regex token-creator] rule
+  regex-at-start (join-regex /^/ regex))
+
+match-token (fn [rules source]
+  (:: String (List (String (Maybe Token))) (Tuple (Maybe Token) String))
+  (match (find-first rules source)
+    [None:] [: [None:] source]
+    [Just: [: token rest]] [: [Just: token] rest]))
+
+find-first (fn [funs input]
+  (:: String (List (String (Maybe Token))) (Maybe (Tuple Token String)))
+  (match funs
+    [] [None:]
+    [f ..rest] (match (f input)
+      [None:] (find-first rest input)
+      found found)))
+
+print-tokens (fn [tokens]
+  (match tokens
+    [Left: list] (show-list list)))
