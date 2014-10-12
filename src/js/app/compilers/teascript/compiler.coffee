@@ -384,7 +384,7 @@ validIdentifier = (name) ->
     else
       name
         .replace(/\+/g, 'plus_')
-        .replace(/\-/g, 'minus_')
+        .replace(/\-/g, '__')
         .replace(/\*/g, 'times_')
         .replace(/\//g, 'over_')
         .replace(/\√/g, 'sqrt_')
@@ -858,7 +858,7 @@ var $listSlice = function (from, n, xs) {
   return $listSlice(from - 1, n, xs.tail);
 };
 
-var showminus_list = function (x) {
+var show__list = function (x) {
   var t = [];
   while (x.length != 0) {
     t.push(x.head);
@@ -879,7 +879,7 @@ var $curry = function (f) {
   return _curry();
 };
 
-var fromminus_nullable = function (jsValue) {
+var from__nullable = function (jsValue) {
   if (typeof jsValue === "undefined" || jsValue === null) {
     return {'None:': []};
   } else {
