@@ -630,8 +630,6 @@ macros =
     "(#{macros.access method, obj}(#{args.join ', '}))"
   'new': (clazz, args...) ->
     "(new #{clazz}(#{args.join ', '}))"
-  ':': (elems...) ->
-    "[#{elems.join ', '}]"
 
 
 trueMacros =
