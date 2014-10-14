@@ -325,15 +325,6 @@ compileDefinitionsInModule = (source) ->
   variableCounter = 1
   compileWheresInModule typifyDefinitions astize tokenize "(#{source})"
 
-isList = (node) ->
-  Array.isArray(node) and (node[0].token is '[')
-
-isTuple = (node) ->
-  Array.isArray(node) and (node[0].token is '{')
-
-isMap = (node) ->
-  isTuple(node) and (elems = inside node; elems.length > 0) and elems[0].label is 'label'
-
 compileImpl = (node) ->
   switch node.type
     when 'comment' then 'null'
@@ -364,6 +355,15 @@ compileImpl = (node) ->
         node.token
       else
         validIdentifier node.token
+
+isList = (node) ->
+  Array.isArray(node) and (node[0].token is '[')
+
+isTuple = (node) ->
+  Array.isArray(node) and (node[0].token is '{')
+
+isMap = (node) ->
+  isTuple(node) and (elems = inside node; elems.length > 0) and elems[0].label is 'label'
 
 compileMap = (elems) ->
   [constr, args...] = elems
