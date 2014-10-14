@@ -134,7 +134,7 @@ labelSimple = (ast) ->
       ['keyword', token in keywords]
       ['numerical', /^-?\d+/.test(token)]
       #['typename', /^[A-Z]/.test token]
-      ['label', /\w*:$/.test token]
+      ['label', /[:;]\w*$/.test token]
       ['string', /^["']/.test token]
       ['regex', /^\/[^ \/]/.test token]
       ['paren', token in ['(', ')']]
