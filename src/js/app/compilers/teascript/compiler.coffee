@@ -561,17 +561,6 @@ patternMatchingRules = [
   (pattern) ->
     [constr, elems...] = inside pattern
     label = "'#{constr.token}'"
-    trigger: constr.token is ':' and isMap pattern
-    cache: true
-    cond: (exp) ->
-      ["#{exp}.length == #{elems.length}"]
-    assignTo: (exp, value) ->
-      value ?= exp
-      recurse: (for elem, i in elems
-        [elem, "#{value}[#{i}]"])
-  (pattern) ->
-    [constr, elems...] = inside pattern
-    label = "'#{constr.token}'"
     trigger: isMap pattern
     cache: true
     cacheMore: (exp) -> if elems.length > 1 then ["#{exp}[#{label}]"] else []
@@ -581,7 +570,17 @@ patternMatchingRules = [
       value ?= "#{exp}[#{label}]"
       recurse: (for elem, i in elems
         [elem, "#{value}[#{i}]"])
-
+  (pattern) ->
+    [constr, elems...] = inside pattern
+    label = "'#{constr.token}'"
+    trigger: isTuple pattern
+    cache: true
+    cond: (exp) ->
+      ["#{exp}.length == #{elems.length}"]
+    assignTo: (exp, value) ->
+      value ?= exp
+      recurse: (for elem, i in elems
+        [elem, "#{value}[#{i}]"])
   (pattern) -> throw 'unrecognized pattern in pattern matching'
 
 ]
