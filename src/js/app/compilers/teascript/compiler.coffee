@@ -5,7 +5,7 @@ keywords = 'def defn data class fn proc match if type :: \\
             access call new
             require'.split ' '
 
-controls = '\\(\\)\\[\\]'
+controls = '\\(\\)\\[\\]\\{\\}'
 
 tokenize = (input) ->
   whitespace = ''
@@ -34,14 +34,17 @@ tokenize = (input) ->
     whitespace = ''
     {token, ws, pos}
 
+leftDelims = ['(', '[', '{']
+rightDelims = [')', ']', '}']
+
 astize = (tokens) ->
   tree = []
   current = []
   stack = [[]]
   for token in tokens
-    if token.token in ['(', '[']
+    if token.token in leftDelims
       stack.push [token]
-    else if token.token in [')', ']']
+    else if token.token in rightDelims
       closed = stack.pop()
       closed.push token
       stack[stack.length - 1].push closed
@@ -136,6 +139,7 @@ labelSimple = (ast) ->
       ['regex', /^\/[^ \/]/.test token]
       ['paren', token in ['(', ')']]
       ['bracket', token in ['[', ']']]
+      ['brace', token in ['{', '}']]
 
 labelMatches = (ast) ->
   macro 'match', ast, (node, args) ->
@@ -328,8 +332,11 @@ compileList = (elems) ->
 isList = (node) ->
   Array.isArray(node) and (node[0].token is '[')
 
+isTuple = (node) ->
+  Array.isArray(node) and (node[0].token is '{')
+
 isMap = (node) ->
-  (isList node) and (elems = inside node; elems.length > 0) and elems[0].label is 'label'
+  isTuple(node) and (elems = inside node; elems.length > 0) and elems[0].label is 'label'
 
 compileImpl = (node) ->
   switch node.type
@@ -342,6 +349,8 @@ compileImpl = (node) ->
         exps = inside node
         if isMap node
           compileMap exps
+        if isTuple
+          compileList exps
         else if isList node
           compileList exps
         else
