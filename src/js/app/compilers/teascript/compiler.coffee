@@ -325,10 +325,6 @@ compileDefinitionsInModule = (source) ->
   variableCounter = 1
   compileWheresInModule typifyDefinitions astize tokenize "(#{source})"
 
-compileList = (elems) ->
-  # "[#{elems.join ', '}]"
-  "[#{elems.map(compileImpl).join ', '}]"
-
 isList = (node) ->
   Array.isArray(node) and (node[0].token is '[')
 
@@ -372,10 +368,11 @@ compileImpl = (node) ->
 compileMap = (elems) ->
   [constr, args...] = elems
   items = args.map(compileImpl).join ', '
-  if constr.token == ':'
-    "[#{items}]"
-  else
-    "({\"#{constr.token}\": [#{items}]})"
+  "({\"#{constr.token}\": [#{items}]})"
+
+compileList = (elems) ->
+  # "[#{elems.join ', '}]"
+  "[#{elems.map(compileImpl).join ', '}]"
 
 expandMacro = (macro) ->
   macros[macro]?() ? macro
