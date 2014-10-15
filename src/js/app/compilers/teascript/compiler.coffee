@@ -134,7 +134,8 @@ labelSimple = (ast) ->
       ['keyword', token in keywords]
       ['numerical', /^-?\d+/.test(token)]
       #['typename', /^[A-Z]/.test token]
-      ['label', /[:;]\w*$/.test token]
+      ['label', /[:]\w*$/.test token]
+      ['const', /[;]\w*$/.test token]
       ['string', /^["']/.test token]
       ['regex', /^\/[^ \/]/.test token]
       ['paren', token in ['(', ')']]
@@ -336,9 +337,7 @@ compileImpl = (node) ->
         exps = inside node
         if isMap node
           compileMap exps
-        if isTuple
-          compileList exps
-        else if isList node
+        else if isTuple(node) or isList(node)
           compileList exps
         else
           [op, args...] = exps
@@ -351,16 +350,18 @@ compileImpl = (node) ->
             fn = compileImpl op
             # TODO: this expandMacro doesn't make sense
             "#{fn}(#{(args.map compileImpl).join ', '})"
+      else if node.label is 'const'
+        compileConst node
       else if node.token.match /^"/
         node.token
       else
         validIdentifier node.token
 
 isList = (node) ->
-  Array.isArray(node) and (node[0].token is '[')
+  Array.isArray(node) and node[0].token is '['
 
 isTuple = (node) ->
-  Array.isArray(node) and (node[0].token is '{')
+  Array.isArray(node) and node[0].token is '{'
 
 isMap = (node) ->
   isTuple(node) and (elems = inside node; elems.length > 0) and elems[0].label is 'label'
@@ -369,6 +370,9 @@ compileMap = (elems) ->
   [constr, args...] = elems
   items = args.map(compileImpl).join ', '
   "({\"#{constr.token}\": [#{items}]})"
+
+compileConst = (token) ->
+  "({'#{token.token}': true})"
 
 compileList = (elems) ->
   # "[#{elems.join ', '}]"
@@ -517,7 +521,10 @@ stripSplatFromName = (token) ->
 patternMatchingRules = [
   (pattern) ->
     trigger: pattern.label is 'numerical'
-    cond: (exp) -> ["#{exp} == #{pattern.token}"]
+    cond: (exp) -> ["#{exp}" + " == #{pattern.token}"]
+  (pattern) ->
+    trigger: pattern.label is 'const'
+    cond: (exp) -> ["'#{pattern.token}' in #{exp}"]
   (pattern) ->
     trigger: pattern.label is 'name'
     assignTo: (exp) ->
@@ -536,28 +543,11 @@ patternMatchingRules = [
   #       [tail, "#{exp}.tail"]
   #     ]
   (pattern) ->
+    # expect lists from here on
     if not Array.isArray pattern
       throw new Error "pattern match expected pattern but saw token #{pattern.token}"
-    elems = inside pattern
-    hasSplat = no
-    requiredElems = 0
-    for elem in elems
-      if isSplat elem
-        hasSplat = yes
-      else
-        requiredElems++
-    trigger: not isMap pattern
-    cache: true
-    cond: (exp) -> ["$sequenceSize(#{exp}) #{if hasSplat then '>=' else '=='} #{requiredElems}"]
-    assignTo: (exp) ->
-      recurse: (for elem, i in elems
-        if isSplat elem
-          [elem, "$sequenceSplat(#{i}, #{elems.length - i - 1}, #{exp})"]
-        else
-          [elem, "$sequenceAt(#{i}, #{exp})"])
-  (pattern) ->
     [constr, elems...] = inside pattern
-    label = "'#{constr.token}'"
+    label = "'#{constr.token}'" if constr
     trigger: isMap pattern
     cache: true
     cacheMore: (exp) -> if elems.length > 1 then ["#{exp}[#{label}]"] else []
@@ -567,6 +557,24 @@ patternMatchingRules = [
       value ?= "#{exp}[#{label}]"
       recurse: (for elem, i in elems
         [elem, "#{value}[#{i}]"])
+  (pattern) ->
+    elems = inside pattern
+    hasSplat = no
+    requiredElems = 0
+    for elem in elems
+      if isSplat elem
+        hasSplat = yes
+      else
+        requiredElems++
+    trigger: isList pattern
+    cache: true
+    cond: (exp) -> ["$sequenceSize(#{exp}) #{if hasSplat then '>=' else '=='} #{requiredElems}"]
+    assignTo: (exp) ->
+      recurse: (for elem, i in elems
+        if isSplat elem
+          [elem, "$sequenceSplat(#{i}, #{elems.length - i - 1}, #{exp})"]
+        else
+          [elem, "$sequenceAt(#{i}, #{exp})"])
   (pattern) ->
     [constr, elems...] = inside pattern
     label = "'#{constr.token}'"
