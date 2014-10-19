@@ -1,0 +1,13 @@
+[head] (require Tea.Prelude [head])
+[map-ok] (require Tea.Good [map-ok])
+
+matches-regex? (fn [regex string]
+  (call "test" regex string))
+
+join-regex (fn [what with]
+  (new RegExp (+
+      (access "source" what)
+      (access "source" with))))
+
+match-regex (fn [regex string]
+  (map-ok head (from-nullable (call "match" string regex))))

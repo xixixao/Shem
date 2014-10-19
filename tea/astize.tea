@@ -1,75 +1,60 @@
 [const fold reduce map append length at drop either id concat join] (require Tea.Prelude [const fold reduce map append length at drop either id concat join])
-
+[sieve-ok] (require Tea.Good [sieve-ok])
 [tokenize] (require Compiler.Tokenize [tokenize])
 
-Token (type [: TokenType TokenValue TokenPos])
-
-TokenType (data
-  [Open-Paren:]
-  [Closed-Paren:]
-  [Open-Bracket:]
-  [Closed-Bracket:]
-  [Symbol:]
-  [Whitespace:]
-  [Regex:]
-  [String:]
-  [Char:])
-
-TokenValue (type String)
-
-TokenPos (type Int)
-
 S-Expression (data
-  [List: (List S-Expression)]
-  [Atom: Token])
+  {:list (List S-Expression)}
+  {:atom Token})
 
 astize (fn [tokens]
   (:: (List Token) (Either S-Expression AstError))
-  (map-left validate-stack (attempt-astize tokens)))
+  (sieve-ok validate-stack (attempt-astize tokens)))
 
 attempt-astize (fn [tokens]
   (reduce maybe-astize-token initial-stack tokens)
-  initial-stack [left: (list [List: []])])
+  initial-stack {:good (list {:list []})})
 
 maybe-astize-token (fn [stack-or-error token]
-  (map-left (astize-token token) stack-or-error))
+  (:: Stack Token Stack)
+  (sieve-ok (astize-token token) stack-or-error))
+
+Stack (type
+  (GoodOrBad (List S-Expression)))
 
 astize-token (fn [token stack]
+  (:: Token Stack Stack)
   (match (token-type token)
-    [Open-Paren:] [left: (& (list-append atom []) stack)]
-    [Closed-Paren:] (match rest-stack
-      [] [right: [: "Unexpected closing paren" (token-pos token)]]
-      [[List: parent-list] ..prev-stack] [left:
-        (& (list-append (list-append atom open-list) parent-list) prev-stack)])
-    _ [left: (& (list-append atom open-list) rest-stack)])
-  atom [Atom: token]
-  [[List: open-list] ..rest-stack] stack
+    ;open-paren {:good (& (list-append atom []) stack)}
+    ;closed-paren (match rest-stack
+      [] {:bad {"Unexpected closing paren" (token-pos token)}}
+      [{:list parent-list} ..prev-stack] {:good
+        (& (list-append (list-append atom open-list) parent-list) prev-stack)})
+    _ {:good (& (list-append atom open-list) rest-stack)})
+  atom {:atom token}
+  [{:list open-list} ..rest-stack] stack
   list-append (fn [expression onto]
-    [List: (append expression onto)]))
+    {:list (append expression onto)}))
 
 validate-stack (fn [stack]
   (if (> 1 (length stack))
-    [right: [:
-        (join "Missing matching " (brace-name (token-type head-token)))
-        (token-pos head-token)]]
-    [left: expression])
-[List: [[Atom: head-token] ..open-list]] expression
-[expression .._] stack)
+    {:bad (missing-delim expression)}
+    {:good expression})
+  [expression .._] stack)
 
 token-type (fn [token]
   kind
-  [: kind _ _] token)
+  {kind _ _} token)
 
 token-pos (fn [token]
   pos
-  [: _ _ pos] token)
+  {_ _ pos} token)
 
-brace-name (fn [token-type]
+missing-delim (fn [expression] {
+    (join "Missing matching " (delim-name (token-type head-token)))
+    (token-pos head-token)}
+  {:list [{:atom head-token} ..open-list]} expression)
+
+delim-name (fn [token-type]
   (match token-type
-    [Open-Paren:] "paren"
-    [Open-Bracket:] "bracket"))
-
-map-left (fn [fun left-or-right]
-  (match left-or-right
-    [left: left] (fun left)
-    right right))
+    ;open-paren "paren"
+    ;open-bracket "bracket"))

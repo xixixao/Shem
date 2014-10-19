@@ -1,18 +1,18 @@
 [const fst map drop length at drop either id concat] (require Tea.Prelude [const fst map drop length at drop either id concat])
 [match-regex join-regex] (require Tea.Regex [match-regex join-regex])
 
-Token (type [: TokenType TokenValue TokenPos])
+Token (type {TokenType TokenValue TokenPos})
 
 TokenType (data
-  [Open-Paren:]
-  [Closed-Paren:]
-  [Open-Bracket:]
-  [Closed-Bracket:]
-  [Symbol:]
-  [Whitespace:]
-  [Regex:]
-  [String:]
-  [Char:])
+  ;open-paren
+  ;closed-paren
+  ;open-bracket
+  ;closed-bracket
+  ;symbol
+  ;whitespace
+  ;regex
+  ;string
+  ;char)
 
 TokenValue (type String)
 
@@ -21,14 +21,14 @@ TokenPos (type Int)
 TokenRule (type (Tuple Regex Token))
 
 tokenization-rules [
-  (: /\s+/ [Whitespace:])
-  (: /\(/ [Open-Paren:])
-  (: /\)/ [Closed-Paren:])
-  (: /\[/ [Open-Bracket:])
-  (: /\]/ [Closed-Bracket:])
-  (: /"[^"]*?"/ [String:])
-  (: /'\\?[^']'/ [Char:])
-  (: /[^\(\)\[\]"'\s]+/ [Symbol:])]
+  {/\s+/ ;whitespace}
+  {/\(/ ;open-paren}
+  {/\)/ ;closed-paren}
+  {/\[/ ;open-bracket}
+  {/\]/ ;closed-bracket}
+  {/"[^"]*?"/ ;string}
+  {/'\\?[^']'/ ;char}
+  {/[^\(\)\[\]"'\s]+/ ;symbol}]
 
 tokenize (fn [source]
   (tokenize-at 0 tokenization-rules source))
@@ -36,37 +36,37 @@ tokenize (fn [source]
 tokenize-at (fn [pos rules source]
   (:: String (List TokenRule) (Either (List Token) TokenError))
   (match possible-token
-    [Just: [: kind value]] (match (tokenize-at (+ (length value) pos) rules rest)
-      [left: tokens] [left: (& [: kind value pos] tokens)]
+    {:just {kind value}} (match (tokenize-at (+ (length value) pos) rules rest)
+      {:good tokens} {:good (& {kind value pos} tokens)}
       error error)
-    [None:] (if (= "" rest)
-      [left: (list)]
-      [right: [Error: rest]]))
-  [: possible-token rest] (match-token rules-to-apply source)
+    ;none (if (= "" rest)
+      {:good (list)}
+      {:bad {:error rest}}))
+  {possible-token rest} (match-token rules-to-apply source)
   rules-to-apply (map rule-application rules))
 
 rule-application (fn [rule string]
   (:: TokenRule TokenRuleApplication)
   (match (match-regex regex-at-start string)
-    [Just: token] [Just: [: kind token (drop (length token) string)]]
+    {:just token} {:just {kind token (drop (length token) string)}}
     none none)
-  [: regex kind] rule
+  {regex kind} rule
   regex-at-start (join-regex /^/ regex))
 
-TokenRuleApplication (type (String (Maybe [: TokenType TokenValue String])))
+TokenRuleApplication (type (String (Maybe {TokenType TokenValue String})))
 
 match-token (fn [rules source]
-  (:: (List TokenRuleApplication) String [: (Maybe [: TokenType TokenValue]) String])
+  (:: (List TokenRuleApplication) String {(Maybe { TokenType TokenValue}) String})
   (match (find-first rules source)
-    [None:] [: [None:] source]
-    [Just: [: kind value rest]] [: [Just: [: kind value]] rest]))
+    ;none {;none source}
+    {:just {kind value rest}} {{:just {kind value}} rest}))
 
 find-first (fn [funs input]
-  (:: (List TokenRuleApplication) String (Maybe [: TokenType TokenValue String]))
+  (:: (List TokenRuleApplication) String (Maybe {TokenType TokenValue String}))
   (match funs
-    [] [None:]
+    [] ;none
     [f ..rest] (match (f input)
-      [None:] (find-first rest input)
+      ;none (find-first rest input)
       found found)))
 
 print-tokens (fn [tokens]
@@ -77,4 +77,4 @@ de-tokenize (fn [tokens]
 
 token-value (fn [token]
   value
-  [: _ value _] token)
+  {_ value _} token)
