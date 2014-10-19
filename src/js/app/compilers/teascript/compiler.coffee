@@ -662,7 +662,7 @@ trueMacros =
     varDecls = if varNames.length > 0 then ["var #{varNames.join ', '};"] else []
     content = mainCache.concat(varDecls, compiledCases.join '').join '\n'
     """(function(){
-      #{content}}())"""
+      #{content} else {throw new Error('match failed to match');}}())"""
   'require': (from, list) ->
     args = inside(list).map(compileImpl).map(toJsString).join ', '
     "$listize(window.requireModule(#{toJsString from.token}, [#{args}]))"
@@ -903,9 +903,9 @@ var $curry = function (f) {
 
 var from__nullable = function (jsValue) {
   if (typeof jsValue === "undefined" || jsValue === null) {
-    return {'None:': []};
+    return {';none': true};
   } else {
-    return {'Just:': [jsValue]};
+    return {':just': [jsValue]};
   }
 };
 
