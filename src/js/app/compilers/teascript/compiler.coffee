@@ -200,7 +200,7 @@ labelFnBody = (node) ->
 
 labelNames = (pattern) ->
   if Array.isArray pattern
-    if isList pattern
+    if isList(pattern) or isTuple pattern
       (inside pattern).map labelNames
     else
       [op, args...] = inside pattern
@@ -576,8 +576,7 @@ patternMatchingRules = [
         else
           [elem, "$sequenceAt(#{i}, #{exp})"])
   (pattern) ->
-    [constr, elems...] = inside pattern
-    label = "'#{constr.token}'"
+    elems = inside pattern
     trigger: isTuple pattern
     cache: true
     cond: (exp) ->
