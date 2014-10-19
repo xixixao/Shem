@@ -24,6 +24,7 @@ npm-debug.log
 azure_error
 what
 *.sublime-workspace
+*.sublime-project
 
 # Output folder
 /build
