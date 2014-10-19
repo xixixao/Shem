@@ -808,7 +808,7 @@ var $listize = function (list) {
 };
 
 var and_ = function (x, xs) {
-  if (!xs) {
+  if (typeof xs === "undefined" || xs === null) {
     throw new Error('Second argument to & must be a sequence');
   }
   if (typeof xs == 'string' || xs instanceof String) {
@@ -824,7 +824,7 @@ var and_ = function (x, xs) {
 };
 
 var $sequenceSize = function (xs) {
-  if (!xs) {
+  if (typeof xs === "undefined" || xs === null) {
     throw new Error('Pattern matching on size of undefined');
   }
   if (xs.length != null) {
@@ -834,7 +834,7 @@ var $sequenceSize = function (xs) {
 };
 
 var $sequenceAt = function (i, xs) {
-  if (!xs) {
+  if (typeof xs === "undefined" || xs === null) {
     throw new Error('Pattern matching required sequence got undefined');
   }
   if (xs.length) {
@@ -855,7 +855,7 @@ var $sequenceSplat = function (from, leave, xs) {
 
 // temporary, will be replaced by typed 0-argument function
 var $empty = function (xs) {
-  if (!xs) {
+  if (typeof xs === "undefined" || xs === null) {
     throw new Error('Empty needs a sequence');
   }
   if (typeof xs == 'string' || xs instanceof String) {
