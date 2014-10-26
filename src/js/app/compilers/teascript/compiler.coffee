@@ -263,13 +263,13 @@ typifyMost = (ast) ->
   apply ast, typeComments, typeDatas, typeTypes, labelSimple, labelMatches, labelFns
 
 typify = (ast) ->
-  apply ast, typifyMost, labelComments
+  apply ast, typifyMost, labelComments, labelOperators
 
 typifyTop = (ast) ->
-  apply ast, typifyMost, labelTop, labelComments
+  apply ast, typifyMost, labelTop, labelComments, labelOperators
 
 typifyDefinitions = (ast) ->
-  apply ast, typifyMost, labelDefinitions, labelComments
+  apply ast, typifyMost, labelDefinitions, labelComments, labelOperators
 
 toHtml = (highlighted) ->
   crawl highlighted, (word) ->
