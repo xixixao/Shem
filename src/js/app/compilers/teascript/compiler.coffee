@@ -347,9 +347,7 @@ compileImpl = (node) ->
           else if opName and expander = macros[opName]
             expander (args.map compileImpl)...
           else
-            fn = compileImpl op
-            # TODO: this expandMacro doesn't make sense
-            "#{fn}(#{(args.map compileImpl).join ', '})"
+            compileFunctionCall op, args
       else if node.label is 'const'
         compileConst node
       else if node.token.match /^"/
@@ -377,6 +375,13 @@ compileConst = (token) ->
 compileList = (elems) ->
   # "[#{elems.join ', '}]"
   "[#{elems.map(compileImpl).join ', '}]"
+
+compileFunctionCall = (op, args) ->
+  fn = compileImpl op
+  # Ignore labels for now
+  params = for arg in args when arg.label isnt 'label'
+    compileImpl arg
+  "#{fn}(#{params.join ', '})"
 
 expandMacro = (macro) ->
   macros[macro]?() ? macro
