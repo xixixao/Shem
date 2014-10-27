@@ -1,6 +1,3 @@
-colorize = (color, string) ->
-  "<span style=\"color: #{color}\">#{string}</span>"
-
 keywords = 'def defn data class fn proc match if type :: \\
             access call new
             require'.split ' '
@@ -311,20 +308,42 @@ variableCounter = 1
 # exp followed by list of definitions
 compiled = (source) ->
   variableCounter = 1
-  toJs typifyTop astize tokenize "(#{source})"
+  compileTop parentize typifyTop astize tokenize "(#{source})"
 
 # single exp
 compiledExp = (source) ->
   variableCounter = 1
-  "(#{compileImpl typify astize tokenize source})"
+  "(#{compileImpl parentize typify astize tokenize source})"
 
+# list of definitions
 compileDefinitions = (source) ->
   variableCounter = 1
-  compileWheres typifyDefinitions astize tokenize "(#{source})"
+  compileWheres parentize typifyDefinitions astize tokenize "(#{source})"
 
+# exported list of definitions
 compileDefinitionsInModule = (source) ->
   variableCounter = 1
-  compileWheresInModule typifyDefinitions astize tokenize "(#{source})"
+  compileWheresInModule parentize typifyDefinitions astize tokenize "(#{source})"
+
+pushScope = ({parent, ids, children}) ->
+  child =
+    parent:
+      parent: parent
+      ids: ids
+    ids: []
+    children: []
+  child.parent.children = children.concat [child]
+  child
+
+topScope = ->
+  parent: null
+  ids: []
+  children: []
+
+addIdToScope = ({parent, ids, children}, addedIds...) ->
+  parent: parent
+  ids: ids.concat addIds
+  children: children
 
 compileImpl = (node) ->
   switch node.type
@@ -353,7 +372,11 @@ compileImpl = (node) ->
       else if node.token.match /^"/
         node.token
       else
-        validIdentifier node.token
+        name = validIdentifier node.token
+        defLocation = lookupIdentifier name, node
+        if not defLocation
+          throw new Error "#{name} used but not defined"
+        name
 
 isList = (node) ->
   Array.isArray(node) and node[0].token is '['
@@ -411,13 +434,35 @@ validIdentifier = (name) ->
         .replace(/^with$/, 'with_')
         .replace(/^in$/, 'in_')
 
+lookupIdentifier = (name, node) ->
+  while node.parent
+    node = node.parent
+    if node.scope and name of node.scope
+      return node
+  null
+
 compileFn = (node) ->
   {params, body, wheres} = fnDefinition node
   if !params?
     throw new Error 'missing parameter list'
-  """$curry(function (#{params.map(getToken).map(validIdentifier).join ', '}) {
-       #{compileFnImpl body, wheres, yes}
-     })"""
+  paramNames = params.map(getToken).map(validIdentifier)
+  node.scope = toMap paramNames
+  curry paramNames, """
+    (function (#{paramNames.join ', '}) {
+      #{compileFnImpl body, wheres, yes}
+    })"""
+
+curry = (paramNames, fnDef) ->
+  if paramNames.length > 1
+    """$curry#{fnDef}"""
+  else
+    fnDef
+
+toMap = (array) ->
+  map = {}
+  for x in array
+    map[x] = true
+  map
 
 getToken = (word) -> word.token
 
@@ -800,10 +845,6 @@ compileExportedDef = ([name, def]) ->
     "var #{identifier} = exports['#{identifier}'] = #{compileImpl def};"
   else
     compileDef [name, def]
-
-toJs = (typified) ->
-  compileTop typified
-
 
 library = """
 var $listize = function (list) {
