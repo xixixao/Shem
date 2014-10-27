@@ -818,7 +818,11 @@ var and_ = function (x, xs) {
     throw new Error('Second argument to & must be a sequence');
   }
   if (typeof xs == 'string' || xs instanceof String) {
-    return x + xs;
+    if (xs == '' && !(typeof x == 'string' || x instanceof String)) {
+      return [x];
+    } else {
+      return x + xs;
+    }
   }
   if (xs.unshift) {
     return [x].concat(xs);
