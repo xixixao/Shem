@@ -409,6 +409,7 @@ validIdentifier = (name) ->
         .replace(/^const$/, 'const_')
         .replace(/^default$/, 'default_')
         .replace(/^with$/, 'with_')
+        .replace(/^in$/, 'in_')
 
 compileFn = (node) ->
   {params, body, wheres} = fnDefinition node
