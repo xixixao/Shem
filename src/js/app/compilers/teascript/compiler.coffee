@@ -345,6 +345,28 @@ addIdToScope = ({parent, ids, children}, addedIds...) ->
   ids: ids.concat addIds
   children: children
 
+
+compileTop = (ast) ->
+  {body, wheres} = fnImplementation inside ast
+  compileFnImpl body, wheres
+
+compileWheres = (ast) ->
+  wheres = whereList inside ast
+  compileWhereImpl wheres
+
+compileWheresInModule = (ast) ->
+  wheres = whereList inside ast
+  "#{wheres.map(compileExportedDef).join '\n'}"
+
+compileExportedDef = ([name, def]) ->
+  if !def?
+    throw new Error 'missing definition in top level assignment'
+  if name.token
+    identifier = validIdentifier name.token
+    "var #{identifier} = exports['#{identifier}'] = #{compileImpl def};"
+  else
+    compileDef [name, def]
+
 compileImpl = (node) ->
   switch node.type
     when 'comment' then 'null'
@@ -824,27 +846,6 @@ expandBuiltings invertedBinaryOpMapping, (to) ->
       "function(__b){return __b #{to} #{x};}"
     else
       "function(__a, __b){return __b #{to} __a;}"
-
-compileTop = (ast) ->
-  {body, wheres} = fnImplementation inside ast
-  compileFnImpl body, wheres
-
-compileWheres = (ast) ->
-  wheres = whereList inside ast
-  compileWhereImpl wheres
-
-compileWheresInModule = (ast) ->
-  wheres = whereList inside ast
-  "#{wheres.map(compileExportedDef).join '\n'}"
-
-compileExportedDef = ([name, def]) ->
-  if !def?
-    throw new Error 'missing definition in top level assignment'
-  if name.token
-    identifier = validIdentifier name.token
-    "var #{identifier} = exports['#{identifier}'] = #{compileImpl def};"
-  else
-    compileDef [name, def]
 
 library = """
 var $listize = function (list) {
