@@ -345,16 +345,18 @@ addIdToScope = ({parent, ids, children}, addedIds...) ->
   ids: ids.concat addIds
   children: children
 
-
 compileTop = (ast) ->
+  ast.scope = {}
   {body, wheres} = fnImplementation inside ast
   compileFnImpl body, wheres
 
 compileWheres = (ast) ->
+  ast.scope = {}
   wheres = whereList inside ast
   compileWhereImpl wheres
 
 compileWheresInModule = (ast) ->
+  ast.scope = {}
   wheres = whereList inside ast
   "#{wheres.map(compileExportedDef).join '\n'}"
 
@@ -363,6 +365,7 @@ compileExportedDef = ([name, def]) ->
     throw new Error 'missing definition in top level assignment'
   if name.token
     identifier = validIdentifier name.token
+    addToEnclosingScope name.token, def
     "var #{identifier} = exports['#{identifier}'] = #{compileImpl def};"
   else
     compileDef [name, def]
@@ -395,9 +398,10 @@ compileImpl = (node) ->
         node.token
       else
         name = validIdentifier node.token
-        defLocation = lookupIdentifier name, node
-        if not defLocation
-          throw new Error "#{name} used but not defined"
+        if not node.label
+          defLocation = lookupIdentifier name, node
+          if not defLocation
+            throw new Error "#{name} used but not defined"
         name
 
 isList = (node) ->
@@ -462,6 +466,14 @@ lookupIdentifier = (name, node) ->
     if node.scope and name of node.scope
       return node
   null
+
+addToEnclosingScope = (name, node) ->
+  while node.parent
+    node = node.parent
+    if node.scope
+      node.scope[name] = true
+      return
+  throw new Error "Defining #{name} without enclosing scope"
 
 compileFn = (node) ->
   {params, body, wheres} = fnDefinition node
