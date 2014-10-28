@@ -350,7 +350,7 @@ compileWheres = (ast) ->
 
 compileWheresInModule = (ast) ->
   ast.scope = topScopeDefines()
-  wheres = whereList inside ast
+  wheres = sortWheres whereList inside ast
   "#{wheres.map(compileExportedDef).join '\n'}"
 
 compileExportedDef = ([name, def]) ->
@@ -358,7 +358,7 @@ compileExportedDef = ([name, def]) ->
     throw new Error 'missing definition in top level assignment'
   if name.token
     identifier = validIdentifier name.token
-    addToEnclosingScope name.token, def
+    addToEnclosingScope identifier, def
     "var #{identifier} = exports['#{identifier}'] = #{compileImpl def};"
   else
     compileDef [name, def]
@@ -370,12 +370,12 @@ compileImpl = (node, hoistableWheres = []) ->
     if op.type is 'operator' and op.token is 'match'
       return trueMacros[op.token] hoistableWheres, args...
 
-    ###
-    if hoistableWheres.length > 0
-      allNames = []
-      for [_, _, names] in hoistableWheres
-        allNames.push names...
-      throw new Error "#{allNames.join ','} used but not defined yet"###
+  # If this isn't match there should be no hoistableWheres
+  if hoistableWheres.length > 0
+    allNames = []
+    for [_, _, names] in hoistableWheres
+      allNames.push names...
+    throw new Error "#{allNames.join ','} used but not defined yet"
 
   switch node.type
     when 'comment' then 'null'
@@ -541,7 +541,6 @@ findHoistableWheres = (wheres) ->
       if node.label is 'name'
         names[node.token] = yes
   for [pattern, def], i in wheres
-    log "def", printAst def
     decided = no
     crawl def, (node) ->
       if not node.label
@@ -558,8 +557,11 @@ findHoistableWheres = (wheres) ->
 
 
 compileWhereImpl = (wheres) ->
-  sorted = (sortTopologically constructDependencyGraph wheres).map ({def}) -> def
+  sorted = sortWheres wheres
   "#{sorted.map(compileDef).join '\n'}"
+
+sortWheres = (wheres) ->
+  (sortTopologically constructDependencyGraph wheres).map ({def}) -> def
 
 sortTopologically = ([graph, dependencies]) ->
   reversedDependencies = reverseGraph graph
@@ -807,7 +809,6 @@ trueMacros =
 hoistWheres = (possible, assigns) ->
   defined = (n for [n, _] in assigns)
   hoisted = []
-  log printAst possible
   for [pattern, def, names] in possible
     canHoist = yes
     for name in names when name not in defined
@@ -923,7 +924,6 @@ expandBuiltings invertedBinaryOpMapping, (to) ->
       "function(__b){return __b #{to} #{x};}"
     else
       "function(__a, __b){return __b #{to} __a;}"
-
 
 topScopeDefines = ->
   ids = 'and_ $empty show__list from__nullable'.split(' ')
