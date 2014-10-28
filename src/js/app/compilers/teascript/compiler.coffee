@@ -358,7 +358,7 @@ compileExportedDef = ([name, def]) ->
     throw new Error 'missing definition in top level assignment'
   if name.token
     identifier = validIdentifier name.token
-    addToEnclosingScope identifier, def
+    addToEnclosingScope name.token, def
     "var #{identifier} = exports['#{identifier}'] = #{compileImpl def};"
   else
     compileDef [name, def]
