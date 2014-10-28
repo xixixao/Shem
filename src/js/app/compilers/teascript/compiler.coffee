@@ -342,7 +342,8 @@ compiled = (source) ->
   variableCounter = 1
   compileTop preCompileTop source
 
-# list of definitions followed by an expression
+# list of definitions followed by an expression, returns only
+# the expression part
 compiledBottom = (source) ->
   variableCounter = 1
   compileBottom preCompileBottom source
@@ -386,7 +387,8 @@ compileTop = (ast) ->
 compileBottom = (ast) ->
   ast.scope = topScopeDefines()
   {body, wheres} = bottomImplementation inside ast
-  compileFnImpl body, wheres
+  [wheresDef, bodyDef] = compileFnImplParts body, wheres
+  bodyDef
 
 compileWheres = (ast) ->
   ast.scope = topScopeDefines()
@@ -560,13 +562,7 @@ toMap = (array) ->
 getToken = (word) -> word.token
 
 compileFnImpl = (body, wheres, doReturn) ->
-  if not body
-    throw new Error "Missing definition of a function"
-  # Find invalid (hoistable) wheres and let the function body
-  # define them
-  [validWheres, hoistableWheres] = findHoistableWheres wheres
-  wheresDef = compileWhereImpl validWheres
-  bodyDef = compileImpl body, hoistableWheres
+  [wheresDef, bodyDef] = compileFnImplParts body, wheres
   [
     wheresDef
   ,
@@ -575,6 +571,16 @@ compileFnImpl = (body, wheres, doReturn) ->
     else
       bodyDef
   ].join '\n'
+
+compileFnImplParts = (body, wheres) ->
+  if not body
+    throw new Error "Missing definition of a function"
+  # Find invalid (hoistable) wheres and let the function body
+  # define them
+  [validWheres, hoistableWheres] = findHoistableWheres wheres
+  wheresDef = compileWhereImpl validWheres
+  bodyDef = compileImpl body, hoistableWheres
+  [wheresDef, bodyDef]
 
 # Returns two lists, first the wheres that can be defined, second
 # the wheres which use an identifier which is not in scope (possibly
