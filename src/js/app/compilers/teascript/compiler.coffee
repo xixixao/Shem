@@ -75,6 +75,16 @@ crawl = (ast, cb) ->
   else
     cb ast, ast.token
 
+crawlWhile = (ast, cond, cb) ->
+  if Array.isArray ast
+    if cond ast
+      typed ast, (for node in ast
+        crawl node, cb)
+    else
+      ast
+  else
+    cb ast, ast.token
+
 inside = (node) -> node[1...-1]
 
 matchNode = (to, node) ->
@@ -584,15 +594,18 @@ findHoistableWheres = (wheres) ->
         names[node.token] = yes
   for [pattern, def], i in wheres
     decided = no
-    crawl def, (node) ->
-      if not node.label
-        name = node.token
-        if not names[name] and not lookupIdentifier name, node
-          if not decided
-            hoistable.push [pattern, def]
-            decided = yes
-          # also save all undefined names
-          (hoistable[hoistable.length - 1][2] ?= []).push name
+    crawlWhile def,
+      (node) ->
+        node.type != 'function'
+      (node) ->
+        if not node.label and not node.type
+          name = node.token
+          if not names[name] and not lookupIdentifier name, node
+            if not decided
+              hoistable.push [pattern, def]
+              decided = yes
+            # also save all undefined names
+            (hoistable[hoistable.length - 1][2] ?= []).push name
     if not decided
       valid.push [pattern, def]
   [valid, hoistable]
