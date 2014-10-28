@@ -313,7 +313,7 @@ compiled = (source) ->
 # single exp
 compiledExp = (source) ->
   variableCounter = 1
-  "(#{compileImpl preCompileExp source})"
+  "(#{compileSingleExp preCompileExp source})"
 
 # list of definitions
 compileDefinitions = (source) ->
@@ -334,18 +334,22 @@ preCompileTop = (source) ->
 preCompileDefs = (source) ->
   parentize typifyDefinitions astize tokenize "(#{source})"
 
+compileSingleExp = (ast) ->
+  ast.scope = topScopeDefines()
+  compileImpl ast
+
 compileTop = (ast) ->
-  ast.scope = {}
+  ast.scope = topScopeDefines()
   {body, wheres} = fnImplementation inside ast
   compileFnImpl body, wheres
 
 compileWheres = (ast) ->
-  ast.scope = {}
+  ast.scope = topScopeDefines()
   wheres = whereList inside ast
   compileWhereImpl wheres
 
 compileWheresInModule = (ast) ->
-  ast.scope = {}
+  ast.scope = topScopeDefines()
   wheres = whereList inside ast
   "#{wheres.map(compileExportedDef).join '\n'}"
 
@@ -1036,6 +1040,20 @@ var from__nullable = function (jsValue) {
 
 ;
 """
+
+topScopeDefines = ->
+  ids = 'and_ $empty show__list from__nullable'.split ' '
+    .concat unaryFnMapping.from,
+      binaryOpMapping.from,
+      binaryFnMapping.from,
+      invertedBinaryOpMapping.from,
+      invertedBinaryFnMapping.from,
+      (key for own key of macros),
+      (key for own key of trueMacros)
+  scope = {}
+  for id in ids
+    scope[id] = true
+  scope
 
 exports.compile = (source) ->
   library + compileDefinitions source
