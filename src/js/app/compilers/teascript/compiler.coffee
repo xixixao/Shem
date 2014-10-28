@@ -167,6 +167,11 @@ fnImplementation = (defs) ->
   wheres = whereList where
   {body, wheres}
 
+bottomImplementation = (defs) ->
+  [where..., body] = defs
+  wheres = whereList where
+  {body, wheres}
+
 whereList = (defs) ->
   pairs defs
 
@@ -176,6 +181,11 @@ pairs = (list) ->
 
 labelTop = (ast) ->
   {wheres} = fnImplementation inside ast
+  labelWhere wheres
+  ast
+
+labelBottom = (ast) ->
+  {wheres} = bottomImplementation inside ast
   labelWhere wheres
   ast
 
@@ -222,6 +232,15 @@ labelRecursiveCall = (ast, fnname) ->
   mapTokens [fnname], ast, (word) ->
     word.label = 'recurse' if word.label isnt 'param'
 
+# Ideally shouldnt have to, just doing it to get around the def checking
+labelRequires = (ast) ->
+  macro 'require', ast, (node, words) ->
+    [req, module, list] = words
+    module.label = 'symbol'
+    for fun in inside list
+      fun.lable = 'symbol'
+    node
+
 typeDatas = (ast) ->
   macro 'data', ast, (node) ->
     node.type = 'data'
@@ -257,13 +276,16 @@ apply = (onto, fns...) ->
   result
 
 typifyMost = (ast) ->
-  apply ast, typeComments, typeDatas, typeTypes, labelSimple, labelMatches, labelFns
+  apply ast, typeComments, typeDatas, typeTypes, labelSimple, labelMatches, labelFns, labelRequires
 
 typify = (ast) ->
   apply ast, typifyMost, labelComments, labelOperators
 
 typifyTop = (ast) ->
   apply ast, typifyMost, labelTop, labelComments, labelOperators
+
+typifyBottom = (ast) ->
+  apply ast, typifyMost, labelBottom, labelComments, labelOperators
 
 typifyDefinitions = (ast) ->
   apply ast, typifyMost, labelDefinitions, labelComments, labelOperators
@@ -310,6 +332,11 @@ compiled = (source) ->
   variableCounter = 1
   compileTop preCompileTop source
 
+# list of definitions followed by an expression
+compiledBottom = (source) ->
+  variableCounter = 1
+  compileBottom preCompileBottom source
+
 # single exp
 compiledExp = (source) ->
   variableCounter = 1
@@ -328,6 +355,9 @@ compileDefinitionsInModule = (source) ->
 preCompileExp = (source) ->
   parentize typify astize tokenize source
 
+preCompileBottom = (source) ->
+  parentize typifyBottom astize tokenize "(#{source})"
+
 preCompileTop = (source) ->
   parentize typifyTop astize tokenize "(#{source})"
 
@@ -341,6 +371,11 @@ compileSingleExp = (ast) ->
 compileTop = (ast) ->
   ast.scope = topScopeDefines()
   {body, wheres} = fnImplementation inside ast
+  compileFnImpl body, wheres
+
+compileBottom = (ast) ->
+  ast.scope = topScopeDefines()
+  {body, wheres} = bottomImplementation inside ast
   compileFnImpl body, wheres
 
 compileWheres = (ast) ->
@@ -815,10 +850,13 @@ trueMacros =
     """(function(){
       #{content} else {throw new Error('match failed to match');}}())"""
   'require': (from, list) ->
-    args = inside(list).map(compileImpl).map(toJsString).join ', '
+    args = inside(list).map(compileName).map(toJsString).join ', '
     "$listize(window.requireModule(#{toJsString from.token}, [#{args}]))"
   'list': (items...) ->
     "$listize(#{compileList items})"
+
+compileName = (node) ->
+  validIdentifier node.token
 
 hoistWheres = (possible, assigns) ->
   defined = (n for [n, _] in assigns)
@@ -1081,7 +1119,7 @@ exports.compileModule = (source) ->
   exports"""
 
 exports.compileExp = (source) ->
-  compiledExp source
+  compiledBottom source
 
 exports.tokenize = (source) ->
   tokenizedDefinitions source
