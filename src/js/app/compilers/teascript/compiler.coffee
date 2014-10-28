@@ -401,15 +401,26 @@ compileImpl = (node, hoistableWheres = []) ->
             compileFunctionCall op, args
       else if node.label is 'const'
         compileConst node
-      else if node.token.match /^"/
-        node.token
       else
-        name = validIdentifier node.token
-        if not node.label
-          defLocation = lookupIdentifier name, node
-          if not defLocation
-            throw new Error "#{name} used but not defined"
-        name
+        name = node.token
+        if name.match /^"/
+          name
+        else if macros[name]
+          expandMacro name
+        else
+          [firstChar] = name
+          if firstChar is '-'
+            "(- #{validIdentifier name[1...]})"
+          else if firstChar is '/'
+            # regex
+            name
+          else
+            escapedName = validIdentifier name
+            if not node.label
+              defLocation = lookupIdentifier escapedName, node
+              if not defLocation
+                throw new Error "#{name} used but not defined"
+            escapedName
 
 isList = (node) ->
   Array.isArray(node) and node[0].token is '['
@@ -443,29 +454,28 @@ expandMacro = (macro) ->
   macros[macro]?() ? macro
 
 validIdentifier = (name) ->
-  if macros[name]
-    expandMacro name
+  [firstChar] = name
+  if firstChar is '-'
+    throw new Error "Identifier expected, but got minus #{name}"
+  else if firstChar is '/'
+    throw new Error "Identifier expected, but found regex #{name}"
   else
-    [firstChar] = name
-    if firstChar is '-'
-      "(- #{validIdentifier name[1...]})"
-    else if firstChar is '/'
-      # regex
-      name
-    else
-      name
-        .replace(/\+/g, 'plus_')
-        .replace(/\-/g, '__')
-        .replace(/\*/g, 'times_')
-        .replace(/\//g, 'over_')
-        .replace(/\√/g, 'sqrt_')
-        .replace(/\./g, 'dot_')
-        .replace(/\&/g, 'and_')
-        .replace(/\?/g, 'p_')
-        .replace(/^const$/, 'const_')
-        .replace(/^default$/, 'default_')
-        .replace(/^with$/, 'with_')
-        .replace(/^in$/, 'in_')
+    name
+      .replace(/\+/g, 'plus_')
+      .replace(/\-/g, '__')
+      .replace(/\*/g, 'times_')
+      .replace(/\//g, 'over_')
+      .replace(/\√/g, 'sqrt_')
+      .replace(/\./g, 'dot_')
+      .replace(/\&/g, 'and_')
+      .replace(/\?/g, 'p_')
+      .replace(/^const$/, 'const_')
+      .replace(/^default$/, 'default_')
+      .replace(/^with$/, 'with_')
+      .replace(/^in$/, 'in_')
+
+
+
 
 lookupIdentifier = (name, node) ->
   while node.parent
@@ -926,7 +936,7 @@ expandBuiltings invertedBinaryOpMapping, (to) ->
       "function(__a, __b){return __b #{to} __a;}"
 
 topScopeDefines = ->
-  ids = 'and_ $empty show__list from__nullable'.split(' ')
+  ids = 'true false and_ $empty show__list from__nullable'.split(' ')
     .concat unaryFnMapping.from,
       binaryOpMapping.from,
       binaryFnMapping.from,
