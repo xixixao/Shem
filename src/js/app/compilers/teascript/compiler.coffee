@@ -926,7 +926,7 @@ expandBuiltings invertedBinaryOpMapping, (to) ->
 
 
 topScopeDefines = ->
-  ids = 'and_ $empty show__list from__nullable'.split ' '
+  ids = 'and_ $empty show__list from__nullable'.split(' ')
     .concat unaryFnMapping.from,
       binaryOpMapping.from,
       binaryFnMapping.from,
