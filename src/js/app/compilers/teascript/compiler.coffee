@@ -308,42 +308,31 @@ variableCounter = 1
 # exp followed by list of definitions
 compiled = (source) ->
   variableCounter = 1
-  compileTop parentize typifyTop astize tokenize "(#{source})"
+  compileTop preCompileTop source
 
 # single exp
 compiledExp = (source) ->
   variableCounter = 1
-  "(#{compileImpl parentize typify astize tokenize source})"
+  "(#{compileImpl preCompileExp source})"
 
 # list of definitions
 compileDefinitions = (source) ->
   variableCounter = 1
-  compileWheres parentize typifyDefinitions astize tokenize "(#{source})"
+  compileWheres preCompileDefs source
 
 # exported list of definitions
 compileDefinitionsInModule = (source) ->
   variableCounter = 1
-  compileWheresInModule parentize typifyDefinitions astize tokenize "(#{source})"
+  compileWheresInModule preCompileDefs source
 
-pushScope = ({parent, ids, children}) ->
-  child =
-    parent:
-      parent: parent
-      ids: ids
-    ids: []
-    children: []
-  child.parent.children = children.concat [child]
-  child
+preCompileExp = (source) ->
+  parentize typify astize tokenize source
 
-topScope = ->
-  parent: null
-  ids: []
-  children: []
+preCompileTop = (source) ->
+  parentize typifyTop astize tokenize "(#{source})"
 
-addIdToScope = ({parent, ids, children}, addedIds...) ->
-  parent: parent
-  ids: ids.concat addIds
-  children: children
+preCompileDefs = (source) ->
+  parentize typifyDefinitions astize tokenize "(#{source})"
 
 compileTop = (ast) ->
   ast.scope = {}
@@ -370,12 +359,26 @@ compileExportedDef = ([name, def]) ->
   else
     compileDef [name, def]
 
-compileImpl = (node) ->
+compileImpl = (node, hoistableWheres = []) ->
+  # For now special case match to allow definition hoisting up one level
+  if Array.isArray(node) and node.length > 0
+    [op, args...] = inside node
+    if op.type is 'operator' and op.token is 'match'
+      return trueMacros[op.token] hoistableWheres, args...
+
+    ###
+    if hoistableWheres.length > 0
+      allNames = []
+      for [_, _, names] in hoistableWheres
+        allNames.push names...
+      throw new Error "#{allNames.join ','} used but not defined yet"###
+
   switch node.type
     when 'comment' then 'null'
     when 'data' then 'null'
     when 'type' then 'null'
-    when 'function' then compileFn node
+    when 'function'
+      compileFn node
     else
       if Array.isArray node
         exps = inside node
@@ -503,14 +506,52 @@ getToken = (word) -> word.token
 compileFnImpl = (body, wheres, doReturn) ->
   if not body
     throw new Error "Missing definition of a function"
+  # Find invalid (hoistable) wheres and let the function body
+  # define them
+  [validWheres, hoistableWheres] = findHoistableWheres wheres
+  wheresDef = compileWhereImpl validWheres
+  bodyDef = compileImpl body, hoistableWheres
   [
-    compileWhereImpl wheres
+    wheresDef
   ,
     if doReturn
-      "return #{compileImpl body};"
+      "return #{bodyDef};"
     else
-      compileImpl body
+      bodyDef
   ].join '\n'
+
+# Returns two lists, first the wheres that can be defined, second
+# the wheres which use an identifier which is not in scope (possibly
+# defined inside match)
+
+  # get list of names from wheres
+  # for each where, get list of used names
+  #   if some used name is not in newly defined or any parent scope
+  #     save it for later, maybe it's defined inside body
+findHoistableWheres = (wheres) ->
+  names = {}
+  hoistable = []
+  valid = []
+  for [pattern, def], i in wheres
+    crawl pattern, (node) ->
+      if node.label is 'name'
+        names[node.token] = yes
+  for [pattern, def], i in wheres
+    log "def", printAst def
+    decided = no
+    crawl def, (node) ->
+      if not node.label
+        name = node.token
+        if not names[name] and not lookupIdentifier name, node
+          if not decided
+            hoistable.push [pattern, def]
+            decided = yes
+          # also save all undefined names
+          (hoistable[hoistable.length - 1][2] ?= []).push name
+    if not decided
+      valid.push [pattern, def]
+  [valid, hoistable]
+
 
 compileWhereImpl = (wheres) ->
   sorted = (sortTopologically constructDependencyGraph wheres).map ({def}) -> def
@@ -614,6 +655,7 @@ patternMatchingRules = [
     trigger: pattern.label is 'name'
     assignTo: (exp) ->
       if exp isnt identifier = validIdentifier stripSplatFromName pattern.token
+        addToEnclosingScope identifier, pattern
         [[identifier, exp]]
       else
         []
@@ -722,7 +764,8 @@ macros =
 
 
 trueMacros =
-  'match': (onwhat, cases...) ->
+  'match': (hoistableWheres, onwhat, cases...) ->
+    #log printAst hoistableWheres
     varNames = []
     if not onwhat
       throw new Error 'match `onwhat` missing'
@@ -737,8 +780,11 @@ trueMacros =
       else
         varNames.push vars...
       {conds, preassigns} = constructCond precs
+      hoistedWheres = hoistWheres hoistableWheres, assigns
+      #log "assigns", printAst assigns
       """#{control} (#{conds}) {
            #{preassigns.concat(assigns).map(compileAssign).join '\n'}
+           #{hoistedWheres}
            return #{compileImpl result};
         }"""
       )
@@ -753,6 +799,21 @@ trueMacros =
     "$listize(window.requireModule(#{toJsString from.token}, [#{args}]))"
   'list': (items...) ->
     "$listize(#{compileList items})"
+
+hoistWheres = (possible, assigns) ->
+  defined = (n for [n, _] in assigns)
+  hoisted = []
+  log printAst possible
+  for [pattern, def, names] in possible
+    canHoist = yes
+    for name in names when name not in defined
+      canHoist = no
+    if canHoist
+      hoisted.push [pattern, def]
+  if hoisted.length > 0
+    compileWhereImpl hoisted
+  else
+    ''
 
 toJsString = (token) ->
   "'#{token}'"
