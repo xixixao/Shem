@@ -728,8 +728,9 @@ patternMatchingRules = [
   (pattern) ->
     trigger: pattern.label is 'name'
     assignTo: (exp) ->
-      if exp isnt identifier = validIdentifier stripSplatFromName pattern.token
-        addToEnclosingScope identifier, pattern
+      name = stripSplatFromName pattern.token
+      if exp isnt identifier = validIdentifier name
+        addToEnclosingScope name, pattern
         [[identifier, exp]]
       else
         []
@@ -1052,7 +1053,10 @@ var $sequenceAt = function (i, xs) {
   if (typeof xs === "undefined" || xs === null) {
     throw new Error('Pattern matching required sequence got undefined');
   }
-  if (xs.length) {
+  if (xs.length != null) {
+    if (i >= xs.length) {
+      throw new Error('Pattern matching required a list of size at least ' + (i + 1));
+    }
     return xs[i];
   }
   if (i == 0) {
