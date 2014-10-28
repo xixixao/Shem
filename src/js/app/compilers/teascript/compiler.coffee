@@ -350,7 +350,7 @@ compileWheres = (ast) ->
 
 compileWheresInModule = (ast) ->
   ast.scope = topScopeDefines()
-  wheres = sortWheres whereList inside ast
+  wheres = checkEvenness sortWheres whereList inside ast
   "#{wheres.map(compileExportedDef).join '\n'}"
 
 compileExportedDef = ([name, def]) ->
@@ -365,7 +365,7 @@ compileExportedDef = ([name, def]) ->
 
 compileImpl = (node, hoistableWheres = []) ->
   # For now special case match to allow definition hoisting up one level
-  if Array.isArray(node) and node.length > 0
+  if Array.isArray(node) and node.length > 2
     [op, args...] = inside node
     if op.type is 'operator' and op.token is 'match'
       return trueMacros[op.token] hoistableWheres, args...
@@ -417,7 +417,7 @@ compileImpl = (node, hoistableWheres = []) ->
           else
             escapedName = validIdentifier name
             if not node.label
-              defLocation = lookupIdentifier escapedName, node
+              defLocation = lookupIdentifier name, node
               if not defLocation
                 throw new Error "#{name} used but not defined"
             escapedName
@@ -473,9 +473,6 @@ validIdentifier = (name) ->
       .replace(/^default$/, 'default_')
       .replace(/^with$/, 'with_')
       .replace(/^in$/, 'in_')
-
-
-
 
 lookupIdentifier = (name, node) ->
   while node.parent
@@ -567,8 +564,15 @@ findHoistableWheres = (wheres) ->
 
 
 compileWhereImpl = (wheres) ->
-  sorted = sortWheres wheres
+  sorted = checkEvenness sortWheres wheres
   "#{sorted.map(compileDef).join '\n'}"
+
+checkEvenness = (wheres) ->
+  if wheres.length > 0
+    [_, lastDef] = wheres[wheres.length - 1]
+    if !lastDef?
+      throw new Error "Mising definition in definition list"
+  wheres
 
 sortWheres = (wheres) ->
   (sortTopologically constructDependencyGraph wheres).map ({def}) -> def
@@ -936,7 +940,7 @@ expandBuiltings invertedBinaryOpMapping, (to) ->
       "function(__a, __b){return __b #{to} __a;}"
 
 topScopeDefines = ->
-  ids = 'true false and_ $empty show__list from__nullable'.split(' ')
+  ids = 'true false & show-list from-nullable'.split(' ')
     .concat unaryFnMapping.from,
       binaryOpMapping.from,
       binaryFnMapping.from,
