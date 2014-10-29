@@ -583,7 +583,6 @@ compileFnImplParts = (body, wheres) ->
     throw new Error "Missing definition of a function"
   # Find invalid (hoistable) wheres and let the function body
   # define them
-  log printAst wheres
   if (unpairs wheres).length % 2 != 0
     throw new Error "Missing definition for last assignement inside function"
   [readyWheres, hoistableWheres] = wheresWithHoisting wheres
@@ -903,7 +902,6 @@ trueMacros =
         varNames.push vars...
       {conds, preassigns} = constructCond precs
       [hoistedWheres, furtherHoistable] = hoistWheres hoistableWheres, assigns
-      #log "assigns", printAst assigns
       """#{control} (#{conds}) {
            #{preassigns.concat(assigns).map(compileAssign).join '\n'}
            #{hoistedWheres.map(compileDef).join '\n'}
