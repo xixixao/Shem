@@ -68,7 +68,7 @@ walkOnly = (ast, cb) ->
       walk node, cb
   ast
 
-crawl = (ast, cb) ->
+crawl = (ast, cb, parent) ->
   if Array.isArray ast
     typed ast, (for node in ast
       crawl node, cb)
@@ -78,12 +78,11 @@ crawl = (ast, cb) ->
 crawlWhile = (ast, cond, cb) ->
   if Array.isArray ast
     if cond ast
-      typed ast, (for node in ast
-        crawl node, cb)
-    else
-      ast
+      for node in ast
+        crawlWhile node, cond, cb
   else
     cb ast, ast.token
+  return
 
 inside = (node) -> node[1...-1]
 
@@ -577,10 +576,15 @@ compileFnImplParts = (body, wheres) ->
     throw new Error "Missing definition of a function"
   # Find invalid (hoistable) wheres and let the function body
   # define them
+
   [validWheres, hoistableWheres] = findHoistableWheres wheres
   wheresDef = compileWhereImpl validWheres
   bodyDef = compileImpl body, hoistableWheres
   [wheresDef, bodyDef]
+
+compileWhereWithHoisting = (wheres) ->
+  graph = constructDependencyGraph wheres
+
 
 # Returns two lists, first the wheres that can be defined, second
 # the wheres which use an identifier which is not in scope (possibly
@@ -590,31 +594,32 @@ compileFnImplParts = (body, wheres) ->
   # for each where, get list of used names
   #   if some used name is not in newly defined or any parent scope
   #     save it for later, maybe it's defined inside body
-findHoistableWheres = (wheres) ->
-  names = {}
+findHoistableWheres = ([graph, lookupTable]) ->
+  reversedDependencies = reverseGraph graph
+  hoistableNames = {}
   hoistable = []
   valid = []
-  for [pattern, def], i in wheres
-    crawl pattern, (node) ->
-      if node.label is 'name'
-        names[node.token] = yes
-  for [pattern, def], i in wheres
-    decided = no
-    crawlWhile def,
-      (node) ->
-        node.type != 'function'
-      (node) ->
-        if not node.label and not node.type
-          name = node.token
-          if not names[name] and not lookupIdentifier name, node
-            if not decided
-              hoistable.push [pattern, def]
-              decided = yes
-            # also save all undefined names
-            (hoistable[hoistable.length - 1][2] ?= []).push name
-    if not decided
-      valid.push [pattern, def]
-  [valid, hoistable]
+  for {missing, names} in graph
+    # This def needs hoisting
+    if missing.length > 0
+      hoistableNames[n] = yes for n in names
+      # So do all defs depending on it
+      for name in names
+        for dep in reversedDependencies[name]
+          for n in dep.names
+            hoistableNames[n] = yes
+  for where in graph
+    {def, names} = where
+    hoisted = no
+    for n in names
+      # if one of the names needs hoisting
+      if hoistableNames[n]
+        hoistable.push def
+        hoisted = yes
+        break
+    if not hoisted
+      valid.push where
+  return [hoistable, [valid, lookupTable]]
 
 
 compileWhereImpl = (wheres) ->
@@ -629,7 +634,9 @@ checkEvenness = (wheres) ->
   wheres
 
 sortWheres = (wheres) ->
-  (sortTopologically constructDependencyGraph wheres).map ({def}) -> def
+  xs = (sortTopologically constructDependencyGraph wheres).map ({def}) -> def
+  log printAst xs
+  xs
 
 sortTopologically = ([graph, dependencies]) ->
   reversedDependencies = reverseGraph graph
@@ -661,25 +668,42 @@ reverseGraph = (nodes) ->
       (reversed[dependencyName] ?= []).push child
   reversed
 
+# Graph:
+#   [{def: [pattern, def], set: [names that depend on this], names: [names in pattern]}]
+# Lookup by name:
+#   Map (name -> GraphElement)
 constructDependencyGraph = (wheres) ->
   lookupByName = {}
   deps = dependencySet()
   # find all defined names
   graph = []
   for [pattern, def], i in wheres
-    graph[i] = whereDef = def: [pattern, def], set: dependencySet(), names: []
+    graph[i] = whereDef =
+      def: [pattern, def]
+      set: dependencySet()
+      names: []
+      missing: []
     crawl pattern, (node) ->
       if node.label is 'name'
         whereDef.names.push node.token
         lookupByName[node.token] = whereDef
   # then construct local graph
   for [pattern, def], i in wheres
-    crawl def, (node) ->
-      if node.token of lookupByName
-        child = graph[i]
-        parent = lookupByName[node.token]
-        addDependency child.set, name for name in parent.names unless child is parent
-        addDependency deps, parent
+
+    child = graph[i]
+    # todo write crawlTagged
+    crawlWhile def,
+      (node) ->
+        node.type isnt 'function'
+      (node, token) ->
+        definingScope = lookupIdentifier token, node
+        parent = lookupByName[token]
+        if parent
+          addDependency child.set, name for name in parent.names unless child is parent
+          addDependency deps, parent
+        else if !node.label and !lookupIdentifier token, node
+          child.missing.push node.token
+
   [graph, lookupByName]
 
 dependencySet = ->
