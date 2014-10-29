@@ -412,7 +412,11 @@ compileWhereImpl = (tokens) ->
 compileExportedDef = ([name, def]) ->
   if name.token
     identifier = validIdentifier name.token
-    "var #{identifier} = exports['#{identifier}'] = #{compileImpl def};"
+    # ignore _s for now
+    if identifier is '_'
+      ''
+    else
+      "var #{identifier} = exports['#{identifier}'] = #{compileImpl def};"
   else
     compileDef [name, def]
 
@@ -696,7 +700,6 @@ constructDependencyGraph = (wheres) ->
   for [pattern, def], i in wheres
 
     child = graph[i]
-    # todo write crawlTagged
     crawlWhile def,
       (node) ->
         node.type isnt 'function'
@@ -708,7 +711,6 @@ constructDependencyGraph = (wheres) ->
           addDependency deps, parent
         else if !node.label and !lookupIdentifier token, node
           child.missing.push node.token
-
   [graph, lookupByName]
 
 lookupTableForGraph = (graph) ->
@@ -887,10 +889,10 @@ trueMacros =
   'match': (hoistableWheres, onwhat, cases...) ->
     varNames = []
     if not onwhat
-      throw new Error 'match `onwhat:` missing'
-    exp = compileImpl onwhat
+      throw new Error 'match `onwhat` missing'
     if cases.length % 2 != 0
       throw new Error 'match missing result for last pattern'
+    exp = compileImpl onwhat
     compiledCases = (for [pattern, result], i in pairs cases
       control = if i is 0 then 'if' else ' else if'
       {precs, assigns} = patternMatch pattern, exp, mainCache
@@ -902,6 +904,7 @@ trueMacros =
         varNames.push vars...
       {conds, preassigns} = constructCond precs
       [hoistedWheres, furtherHoistable] = hoistWheres hoistableWheres, assigns
+      #log "assigns", printAst assigns
       """#{control} (#{conds}) {
            #{preassigns.concat(assigns).map(compileAssign).join '\n'}
            #{hoistedWheres.map(compileDef).join '\n'}
