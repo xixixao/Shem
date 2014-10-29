@@ -403,8 +403,8 @@ compileWhereImpl = (tokens) ->
   [readyWheres, hoistableWheres] = wheresWithHoisting whereList tokens
   if hoistableWheres.length > 0
     undefinedNames = []
-    for {names} in hoistableWheres
-      undefinedNames.push names...
+    for {missing} in hoistableWheres
+      undefinedNames.push (setToArray missing)...
     throw new Error "#{undefinedNames.join ', '} used but not defined"
   addToScopeAllNames readyWheres
   graphToWheres readyWheres
@@ -585,7 +585,7 @@ compileFnImplParts = (body, wheres) ->
   [readyWheres, hoistableWheres] = wheresWithHoisting wheres
   addToScopeAllNames readyWheres
   wheresDef = (graphToWheres readyWheres).map(compileDef).join '\n'
-  bodyDef = compileImpl body, graphToWheres hoistableWheres
+  bodyDef = compileImpl body, hoistableWheres
   [wheresDef, bodyDef]
 
 unpairs = (pairs) ->
@@ -620,7 +620,7 @@ findHoistableWheres = ([graph, lookupTable]) ->
   valid = []
   for {missing, names} in graph
     # This def needs hoisting
-    if missing.length > 0
+    if missing.numDependencies > 0
       hoistableNames[n] = yes for n in names
       # So do all defs depending on it
       for name in names
@@ -685,7 +685,7 @@ constructDependencyGraph = (wheres) ->
     def: [pattern, def]
     set: dependencySet()
     names: findNames pattern
-    missing: []
+    missing: dependencySet()
 
   lookupByName = lookupTableForGraph graph
 
@@ -703,7 +703,7 @@ constructDependencyGraph = (wheres) ->
           addDependency child.set, name for name in parent.names unless child is parent
           addDependency deps, parent
         else if !node.label and !lookupIdentifier token, node
-          child.missing.push node.token
+          addDependency child.missing, node.token
   [graph, lookupByName]
 
 lookupTableForGraph = (graph) ->
@@ -735,6 +735,12 @@ removeDependency = (set, parentName) ->
   return if !set.dependencies[parentName]
   set.numDependencies -= 1
   delete set.dependencies[parentName]
+
+cloneDependencySet = (set) ->
+  clone = {}
+  for own parentName of set
+    clone[parentName] = true
+  clone
 
 compileDef = ([name, def]) ->
   if !def?
@@ -898,9 +904,9 @@ trueMacros =
       {conds, preassigns} = constructCond precs
       [hoistedWheres, furtherHoistable] = hoistWheres hoistableWheres, assigns
       """#{control} (#{conds}) {
-           #{preassigns.concat(assigns).map(compileAssign).join '\n'}
-           #{hoistedWheres.map(compileDef).join '\n'}
-           return #{compileImpl result, furtherHoistable};
+          #{preassigns.concat(assigns).map(compileAssign).join '\n  '}
+          #{hoistedWheres.map(compileDef).join '\n  '}
+          return #{compileImpl result, furtherHoistable};
         }"""
       )
     mainCache ?= []
@@ -918,17 +924,40 @@ trueMacros =
 compileName = (node) ->
   validIdentifier node.token
 
-hoistWheres = (possible, assigns) ->
-  defined = (n for [n, _] in assigns)
+hoistWheres = (hoistable, assigns) ->
+  defined = addAllTo dependencySet(), (n for [n, _] in assigns)
+  hoistedNames = dependencySet()
   hoisted = []
   notHoisted = []
-  for [pattern, def, missingNames] in possible
-    stillMissingNames = (name for name in missingNames when name not in defined)
-    if stillMissingNames.length == 0
-      hoisted.push [pattern, def]
+  for where in hoistable
+    {missing, names, def, set} = where
+    stillMissingNames = addAllTo dependencySet(), (name for name of missing when not defined[name])
+    if stillMissingNames.numDependencies == 0 and set.numDependencies == 0
+      hoisted.push def
+      addAllTo hoistedNames, names
     else
-      notHoisted.push [pattern, def, stillMissingNames]
+      notHoisted.push
+        def: def
+        names: names
+        missing: stillMissingNames
+        set: removeAll (cloneDependencySet set), setToArray hoistedNames
+
   [hoisted, notHoisted]
+
+addAllTo = (set, array) ->
+  for v in array
+    addDependency set, v
+  set
+
+removeAll = (set, array) ->
+  for v in array
+    removeDependency set, v
+  set
+
+setToArray = (set) ->
+  for n of set.dependencies
+    n
+
 
 toJsString = (token) ->
   "'#{token}'"
