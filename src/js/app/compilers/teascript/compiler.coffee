@@ -427,13 +427,6 @@ compileImpl = (node, hoistableWheres = []) ->
     if op.type is 'operator' and op.token is 'match'
       return trueMacros[op.token] hoistableWheres, args...
 
-  # If this isn't match there should be no hoistableWheres
-  if hoistableWheres.length > 0
-    allNames = []
-    for [_, _, names] in hoistableWheres
-      allNames.push names...
-    throw new Error "#{allNames.join ','} used but not defined yet"
-
   switch node.type
     when 'comment' then 'null'
     when 'data' then 'null'
@@ -904,7 +897,6 @@ trueMacros =
         varNames.push vars...
       {conds, preassigns} = constructCond precs
       [hoistedWheres, furtherHoistable] = hoistWheres hoistableWheres, assigns
-      #log "assigns", printAst assigns
       """#{control} (#{conds}) {
            #{preassigns.concat(assigns).map(compileAssign).join '\n'}
            #{hoistedWheres.map(compileDef).join '\n'}
