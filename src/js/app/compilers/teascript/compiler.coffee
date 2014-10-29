@@ -618,7 +618,7 @@ findHoistableWheres = ([graph, lookupTable]) ->
       hoistableNames[n] = yes for n in names
       # So do all defs depending on it
       for name in names
-        for dep in reversedDependencies[name]
+        for dep in (reversedDependencies[name] or [])
           for n in dep.names
             hoistableNames[n] = yes
   for where in graph
@@ -636,17 +636,6 @@ findHoistableWheres = ([graph, lookupTable]) ->
     [hoistable, lookupTableForGraph hoistable]
     [valid, lookupTableForGraph valid]
   ]
-
-
-#compileWhereImpl = (wheres) ->
-#  sorted = checkEvenness sortWheres wheres
-#  "#{sorted.map(compileDef).join '\n'}"
-
-
-sortWheres = (wheres) ->
-  xs = (sortTopologically constructDependencyGraph wheres).map ({def}) -> def
-  log printAst xs
-  xs
 
 sortTopologically = ([graph, dependencies]) ->
   reversedDependencies = reverseGraph graph
@@ -887,7 +876,6 @@ macros =
 
 trueMacros =
   'match': (hoistableWheres, onwhat, cases...) ->
-    #log printAst hoistableWheres
     varNames = []
     if not onwhat
       throw new Error 'match `onwhat` missing'
