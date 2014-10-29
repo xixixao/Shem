@@ -583,11 +583,21 @@ compileFnImplParts = (body, wheres) ->
     throw new Error "Missing definition of a function"
   # Find invalid (hoistable) wheres and let the function body
   # define them
+  log printAst wheres
+  if (unpairs wheres).length % 2 != 0
+    throw new Error "Missing definition for last assignement inside function"
   [readyWheres, hoistableWheres] = wheresWithHoisting wheres
   addToScopeAllNames readyWheres
   wheresDef = (graphToWheres readyWheres).map(compileDef).join '\n'
   bodyDef = compileImpl body, graphToWheres hoistableWheres
   [wheresDef, bodyDef]
+
+unpairs = (pairs) ->
+  unpaired = []
+  for [a, b] in pairs
+    unpaired.push a if a?
+    unpaired.push b if b?
+  unpaired
 
 addToScopeAllNames = (graph) ->
   for {names, def: [pattern, def]} in graph
@@ -604,7 +614,7 @@ wheresWithHoisting = (wheres) ->
   ]
 
 graphToWheres = (graph) ->
-  graph.map ({def}) -> def
+  graph.map ({def: [pattern, def], missing}) -> [pattern, def, missing]
 
 # Returns two new graphs, one which needs hoisting and one which doesnt
 findHoistableWheres = ([graph, lookupTable]) ->
@@ -878,8 +888,10 @@ trueMacros =
   'match': (hoistableWheres, onwhat, cases...) ->
     varNames = []
     if not onwhat
-      throw new Error 'match `onwhat` missing'
+      throw new Error 'match `onwhat:` missing'
     exp = compileImpl onwhat
+    if cases.length % 2 != 0
+      throw new Error 'match missing result for last pattern'
     compiledCases = (for [pattern, result], i in pairs cases
       control = if i is 0 then 'if' else ' else if'
       {precs, assigns} = patternMatch pattern, exp, mainCache
@@ -890,12 +902,12 @@ trueMacros =
       else
         varNames.push vars...
       {conds, preassigns} = constructCond precs
-      hoistedWheres = hoistWheres hoistableWheres, assigns
+      [hoistedWheres, furtherHoistable] = hoistWheres hoistableWheres, assigns
       #log "assigns", printAst assigns
       """#{control} (#{conds}) {
            #{preassigns.concat(assigns).map(compileAssign).join '\n'}
-           #{hoistedWheres}
-           return #{compileImpl result};
+           #{hoistedWheres.map(compileDef).join '\n'}
+           return #{compileImpl result, furtherHoistable};
         }"""
       )
     mainCache ?= []
@@ -916,16 +928,14 @@ compileName = (node) ->
 hoistWheres = (possible, assigns) ->
   defined = (n for [n, _] in assigns)
   hoisted = []
-  for [pattern, def, names] in possible
-    canHoist = yes
-    for name in names when name not in defined
-      canHoist = no
-    if canHoist
+  notHoisted = []
+  for [pattern, def, missingNames] in possible
+    stillMissingNames = (name for name in missingNames when name not in defined)
+    if stillMissingNames.length == 0
       hoisted.push [pattern, def]
-  if hoisted.length > 0
-    compileWhereImpl hoisted
-  else
-    ''
+    else
+      notHoisted.push [pattern, def, stillMissingNames]
+  [hoisted, notHoisted]
 
 toJsString = (token) ->
   "'#{token}'"
