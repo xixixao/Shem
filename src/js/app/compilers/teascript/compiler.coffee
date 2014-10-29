@@ -128,6 +128,9 @@ theme =
   operator: '#cceeff'
   normal: 'white'
 
+colorize = (color, string) ->
+  "<span style=\"color: #{color}\">#{string}</span>"
+
 labelMapping = (word, rules...) ->
   for [label, cond] in rules when cond
     word.label = label
@@ -326,7 +329,7 @@ syntaxed = (source) ->
   collapse inside toHtml typifyTop astize tokenize "(#{source})"
 
 syntaxedExp = (source) ->
-  collapse inside toHtml typify astize tokenize source
+  collapse toHtml typify astize tokenize source
 
 tokenizedDefinitions = (source) ->
   (parentize shiftPos [inside typifyDefinitions astize tokenize "(#{source})"])[0]
@@ -335,6 +338,8 @@ tokenizedExp = (source) ->
   parentize typify astize tokenize source
 
 variableCounter = 1
+warnings = []
+nonstrict = no
 
 # exp followed by list of definitions
 compiled = (source) ->
@@ -345,11 +350,15 @@ compiled = (source) ->
 # the expression part
 compiledBottom = (source) ->
   variableCounter = 1
-  compileBottom preCompileBottom source
+  warnings = []
+  nonstrict = yes
+  [(compileBottom preCompileBottom source), warnings]
 
 # single exp
 compiledExp = (source) ->
   variableCounter = 1
+  warnings = []
+  nonstrict = yes
   "(#{compileSingleExp preCompileExp source})"
 
 # list of definitions
@@ -469,7 +478,10 @@ compileImpl = (node, hoistableWheres = []) ->
             if not node.label
               defLocation = lookupIdentifier name, node
               if not defLocation
-                throw new Error "#{name} used but not defined"
+                if nonstrict
+                  warnings.push "#{name} used but not defined"
+                else
+                  throw new Error "#{name} used but not defined"
             escapedName
 
 isList = (node) ->
@@ -1208,14 +1220,13 @@ exports.compileModule = (source) ->
   #{compileDefinitionsInModule source}
   exports"""
 
-exports.compileExp = (source) ->
-  compiledBottom source
+exports.compileExp = compiledBottom
 
-exports.tokenize = (source) ->
-  tokenizedDefinitions source
+exports.tokenize = tokenizedDefinitions
 
-exports.tokenizeExp = (source) ->
-  tokenizedExp source
+exports.tokenizeExp = tokenizedExp
+
+exports.syntaxedExpHtml = syntaxedExp
 
 exports.library = library
 
