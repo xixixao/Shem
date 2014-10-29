@@ -391,20 +391,27 @@ compileBottom = (ast) ->
 
 compileWheres = (ast) ->
   ast.scope = topScopeDefines()
-  wheres = whereList inside ast
-  compileWhereImpl wheres
+  (compileWhereImpl inside ast).map(compileDef).join '\n'
 
 compileWheresInModule = (ast) ->
   ast.scope = topScopeDefines()
-  wheres = checkEvenness sortWheres whereList inside ast
-  "#{wheres.map(compileExportedDef).join '\n'}"
+  (compileWhereImpl inside ast).map(compileExportedDef).join '\n'
+
+compileWhereImpl = (tokens) ->
+  if tokens.length % 2 != 0
+    throw new Error "missing definition in top level assignment"
+  [readyWheres, hoistableWheres] = wheresWithHoisting whereList tokens
+  if hoistableWheres.length > 0
+    undefinedNames = []
+    for {names} in hoistableWheres
+      undefinedNames.push names...
+    throw new Error "#{undefinedNames.join ', '} used but not defined"
+  addToScopeAllNames readyWheres
+  graphToWheres readyWheres
 
 compileExportedDef = ([name, def]) ->
-  if !def?
-    throw new Error 'missing definition in top level assignment'
   if name.token
     identifier = validIdentifier name.token
-    addToEnclosingScope name.token, def
     "var #{identifier} = exports['#{identifier}'] = #{compileImpl def};"
   else
     compileDef [name, def]
@@ -576,24 +583,30 @@ compileFnImplParts = (body, wheres) ->
     throw new Error "Missing definition of a function"
   # Find invalid (hoistable) wheres and let the function body
   # define them
-
-  [validWheres, hoistableWheres] = findHoistableWheres wheres
-  wheresDef = compileWhereImpl validWheres
-  bodyDef = compileImpl body, hoistableWheres
+  [readyWheres, hoistableWheres] = wheresWithHoisting wheres
+  addToScopeAllNames readyWheres
+  wheresDef = (graphToWheres readyWheres).map(compileDef).join '\n'
+  bodyDef = compileImpl body, graphToWheres hoistableWheres
   [wheresDef, bodyDef]
 
-compileWhereWithHoisting = (wheres) ->
+addToScopeAllNames = (graph) ->
+  for {names, def: [pattern, def]} in graph
+    for name in names
+      addToEnclosingScope name, def
+  return
+
+wheresWithHoisting = (wheres) ->
   graph = constructDependencyGraph wheres
+  [hoistableGraph, readyGraph] = findHoistableWheres graph
+  [
+    sortTopologically readyGraph
+    sortTopologically hoistableGraph
+  ]
 
+graphToWheres = (graph) ->
+  graph.map ({def}) -> def
 
-# Returns two lists, first the wheres that can be defined, second
-# the wheres which use an identifier which is not in scope (possibly
-# defined inside match)
-
-  # get list of names from wheres
-  # for each where, get list of used names
-  #   if some used name is not in newly defined or any parent scope
-  #     save it for later, maybe it's defined inside body
+# Returns two new graphs, one which needs hoisting and one which doesnt
 findHoistableWheres = ([graph, lookupTable]) ->
   reversedDependencies = reverseGraph graph
   hoistableNames = {}
@@ -609,29 +622,26 @@ findHoistableWheres = ([graph, lookupTable]) ->
           for n in dep.names
             hoistableNames[n] = yes
   for where in graph
-    {def, names} = where
+    {names} = where
     hoisted = no
     for n in names
       # if one of the names needs hoisting
       if hoistableNames[n]
-        hoistable.push def
+        hoistable.push where
         hoisted = yes
         break
     if not hoisted
       valid.push where
-  return [hoistable, [valid, lookupTable]]
+  [
+    [hoistable, lookupTableForGraph hoistable]
+    [valid, lookupTableForGraph valid]
+  ]
 
 
-compileWhereImpl = (wheres) ->
-  sorted = checkEvenness sortWheres wheres
-  "#{sorted.map(compileDef).join '\n'}"
+#compileWhereImpl = (wheres) ->
+#  sorted = checkEvenness sortWheres wheres
+#  "#{sorted.map(compileDef).join '\n'}"
 
-checkEvenness = (wheres) ->
-  if wheres.length > 0
-    [_, lastDef] = wheres[wheres.length - 1]
-    if !lastDef?
-      throw new Error "Mising definition in definition list"
-  wheres
 
 sortWheres = (wheres) ->
   xs = (sortTopologically constructDependencyGraph wheres).map ({def}) -> def
@@ -676,17 +686,14 @@ constructDependencyGraph = (wheres) ->
   lookupByName = {}
   deps = dependencySet()
   # find all defined names
-  graph = []
-  for [pattern, def], i in wheres
-    graph[i] = whereDef =
-      def: [pattern, def]
-      set: dependencySet()
-      names: []
-      missing: []
-    crawl pattern, (node) ->
-      if node.label is 'name'
-        whereDef.names.push node.token
-        lookupByName[node.token] = whereDef
+  graph = for [pattern, def], i in wheres
+    def: [pattern, def]
+    set: dependencySet()
+    names: findNames pattern
+    missing: []
+
+  lookupByName = lookupTableForGraph graph
+
   # then construct local graph
   for [pattern, def], i in wheres
 
@@ -705,6 +712,22 @@ constructDependencyGraph = (wheres) ->
           child.missing.push node.token
 
   [graph, lookupByName]
+
+lookupTableForGraph = (graph) ->
+  table = {}
+  for where in graph
+    {names} = where
+    for name in names
+      table[name] = where
+  table
+
+findNames = (pattern) ->
+  names = []
+  crawl pattern, (node) ->
+    if node.label is 'name'
+      names.push node.token
+  names
+
 
 dependencySet = ->
   numDependencies: 0
