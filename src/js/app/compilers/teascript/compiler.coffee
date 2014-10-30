@@ -667,6 +667,9 @@ sortTopologically = ([graph, dependencies]) ->
   reversedDependencies = reverseGraph graph
   independent = []
 
+  for node in graph
+    node.origSet = cloneSet node.set
+
   moveToIndependent = (node) ->
     independent.push node
     delete dependencies[name] for name in node.names
@@ -681,6 +684,9 @@ sortTopologically = ([graph, dependencies]) ->
     for child in reversedDependencies[finishedParent.names[0]] or []
       removeDependency child.set, name for name in finishedParent.names
       moveToIndependent child if child.set.numDependencies is 0
+
+  for node in sorted
+    node.set = node.origSet
 
   for parent of dependencies
     throw new Error "Cyclic definitions between #{(name for name of dependencies).join ','}"
@@ -947,7 +953,8 @@ hoistWheres = (hoistable, assigns) ->
     {missing, names, def, set} = where
     stillMissingNames = addAllTo dependencySet(),
       (name for name in (setToArray missing) when not inSet defined, name)
-    if stillMissingNames.numDependencies == 0 and set.numDependencies == 0
+    stillMissingDeps = removeAll (cloneSet set), setToArray hoistedNames
+    if stillMissingNames.numDependencies == 0 and stillMissingDeps.numDependencies == 0
       hoisted.push def
       addAllTo hoistedNames, names
     else
@@ -955,7 +962,7 @@ hoistWheres = (hoistable, assigns) ->
         def: def
         names: names
         missing: stillMissingNames
-        set: removeAll (cloneSet set), setToArray hoistedNames
+        set: stillMissingDeps
   [hoisted, notHoisted]
 
 addAllTo = (set, array) ->
