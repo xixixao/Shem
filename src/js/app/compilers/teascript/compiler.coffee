@@ -259,7 +259,7 @@ typeDatas = (ast) ->
     node
 
 typeTypes = (ast) ->
-  macro 'type', ast, (node) ->
+  macro '::', ast, (node) ->
     node.type = 'type'
     node
 
@@ -720,8 +720,8 @@ constructDependencyGraph = (wheres) ->
 
     child = graph[i]
     crawlWhile def,
-      (node) ->
-        node.type isnt 'function'
+      (parent) ->
+        not parent.type
       (node, token) ->
         definingScope = lookupIdentifier token, node
         parent = lookupByName[token]
