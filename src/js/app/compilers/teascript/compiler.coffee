@@ -250,7 +250,7 @@ labelRequires = (ast) ->
     [req, module, list] = words
     module.label = 'symbol'
     for fun in inside list
-      fun.lable = 'symbol'
+      fun.label = 'symbol'
     node
 
 typeDatas = (ast) ->
@@ -370,6 +370,14 @@ compileDefinitions = (source) ->
 compileDefinitionsInModule = (source) ->
   variableCounter = 1
   compileWheresInModule preCompileDefs source
+
+exportList = (source) ->
+  wheres = whereList inside preCompileDefs source
+  names = []
+  for [pattern] in wheres
+    if pattern.token and pattern.token isnt '_'
+      names.push pattern.token
+  names
 
 preCompileExp = (source) ->
   parentize typify astize tokenize source
@@ -1227,6 +1235,8 @@ exports.tokenize = tokenizedDefinitions
 exports.tokenizeExp = tokenizedExp
 
 exports.syntaxedExpHtml = syntaxedExp
+
+exports.exportList = exportList
 
 exports.library = library
 
