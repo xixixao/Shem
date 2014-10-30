@@ -756,12 +756,6 @@ removeDependency = (set, parentName) ->
   set.numDependencies -= 1
   delete set.dependencies[parentName]
 
-cloneDependencySet = (set) ->
-  clone = {}
-  for own parentName of set
-    clone[parentName] = true
-  clone
-
 compileDef = ([name, def]) ->
   if !def?
     throw new Error 'missing definition in assignment'
@@ -951,7 +945,8 @@ hoistWheres = (hoistable, assigns) ->
   notHoisted = []
   for where in hoistable
     {missing, names, def, set} = where
-    stillMissingNames = addAllTo dependencySet(), (name for name of missing when not defined[name])
+    stillMissingNames = addAllTo dependencySet(),
+      (name for name in (setToArray missing) when not inSet defined, name)
     if stillMissingNames.numDependencies == 0 and set.numDependencies == 0
       hoisted.push def
       addAllTo hoistedNames, names
@@ -960,8 +955,7 @@ hoistWheres = (hoistable, assigns) ->
         def: def
         names: names
         missing: stillMissingNames
-        set: removeAll (cloneDependencySet set), setToArray hoistedNames
-
+        set: removeAll (cloneSet set), setToArray hoistedNames
   [hoisted, notHoisted]
 
 addAllTo = (set, array) ->
@@ -978,6 +972,12 @@ setToArray = (set) ->
   for n of set.dependencies
     n
 
+cloneSet = (set) ->
+  clone = dependencySet()
+  addAllTo clone, setToArray set
+
+inSet = (set, name) ->
+  set.dependencies[name]
 
 toJsString = (token) ->
   "'#{token}'"
