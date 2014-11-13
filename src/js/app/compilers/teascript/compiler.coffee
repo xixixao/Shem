@@ -281,7 +281,7 @@ labelComments = (ast) ->
 labelOperators = (ast) ->
   walk ast, (node) ->
     [paren, operator] = node
-    if paren.token == '(' and not operator.type and not operator.label
+    if paren.token == '(' and not operator.type and operator.label is 'bare'
       operator.label = 'operator'
     node
 
