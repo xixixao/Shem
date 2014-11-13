@@ -150,6 +150,7 @@ labelSimple = (ast) ->
       ['paren', token in ['(', ')']]
       ['bracket', token in ['[', ']']]
       ['brace', token in ['{', '}']]
+      ['bare', true]
 
 labelMatches = (ast) ->
   macro 'match', ast, (node, args) ->
@@ -157,6 +158,9 @@ labelMatches = (ast) ->
     for pattern in patterns by 2
       labelNames pattern
     node
+
+isReference = (token) ->
+  token.label in ['bare', 'operator', 'param', 'recurse']
 
 fnDefinition = (node) ->
   words = inside node
@@ -225,7 +229,7 @@ labelNames = (pattern) ->
       [op, args...] = inside pattern
       args.map labelNames
   else
-    pattern.label = 'name' unless pattern.label
+    pattern.label = 'name' if pattern.label is 'bare'
 
 labelWhere = (wheres) ->
   for [name, def] in wheres
@@ -238,7 +242,7 @@ labelWhere = (wheres) ->
 labelParams = (ast, params) ->
   paramNames = (token for {token} in params)
   mapTokens paramNames, ast, (word) ->
-    word.label = 'param' unless word.label and word.label isnt 'recurse'
+    word.label = 'param' if isReference word
 
 labelRecursiveCall = (ast, fnname) ->
   mapTokens [fnname], ast, (word) ->
@@ -277,8 +281,8 @@ labelComments = (ast) ->
 labelOperators = (ast) ->
   walk ast, (node) ->
     [paren, operator] = node
-    if paren.token == '(' and not operator.type
-      operator.type = 'operator'
+    if paren.token == '(' and not operator.type and not operator.label
+      operator.label = 'operator'
     node
 
 apply = (onto, fns...) ->
@@ -439,10 +443,9 @@ compileExportedDef = ([name, def]) ->
 
 compileImpl = (node, hoistableWheres = []) ->
   # For now special case match to allow definition hoisting up one level
-  if Array.isArray(node) and node.length > 2
+  if matchNode 'match', node
     [op, args...] = inside node
-    if op.type is 'operator' and op.token is 'match'
-      return trueMacros[op.token] hoistableWheres, args...
+    return trueMacros[op.token] hoistableWheres, args...
 
   switch node.type
     when 'comment' then 'null'
@@ -459,20 +462,21 @@ compileImpl = (node, hoistableWheres = []) ->
           compileList exps
         else
           [op, args...] = exps
-          opName = op.token
-          if opName and expander = trueMacros[opName]
-            expander args...
-          else if opName and expander = macros[opName]
-            expander (args.map compileImpl)...
-          else
-            compileFunctionCall op, args
+          if op
+            opName = op.token
+            if opName and expander = trueMacros[opName]
+              expander args...
+            else if opName and expander = macros[opName]
+              expander (args.map compileImpl)...
+            else
+              compileFunctionCall op, args
       else if node.label is 'const'
         compileConst node
+      else if node.label is 'regex'
+        node.token
       else
         name = node.token
-        if name.match /^"/
-          name
-        else if macros[name]
+        if macros[name]
           expandMacro name
         else
           [firstChar] = name
@@ -483,7 +487,7 @@ compileImpl = (node, hoistableWheres = []) ->
             name
           else
             escapedName = validIdentifier name
-            if not node.label
+            if isReference node
               defLocation = lookupIdentifier name, node
               if not defLocation
                 if nonstrict
@@ -728,7 +732,7 @@ constructDependencyGraph = (wheres) ->
         if parent
           addDependency child.set, name for name in parent.names unless child is parent
           addDependency deps, parent
-        else if !node.label and !lookupIdentifier token, node
+        else if isReference(node) and !lookupIdentifier token, node
           addDependency child.missing, node.token
   [graph, lookupByName]
 
