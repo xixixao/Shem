@@ -1105,6 +1105,40 @@ topScopeDefines = ->
     scope[id] = true
   scope
 
+# mycroft = (context, node, environment) ->
+#   if node.label is 'numerical'
+#     environment node.token
+#   else if node.label is 'name'
+#     environment node.token
+#   else if node.type is 'function'
+#     {params, type, doc, body, wheres} = fnDefinition node
+#     mycroft (extendContext context, (paramTypes params, type)), body
+#   else if Array.isArray node
+#     [op, args...] = inside node
+#     # for one arg for now
+#     [s3, c] = mycroft context, op, environment
+#     [s2, a] = mycroft (s3 context), args[0], environment
+#     s1 = unify (s2 c), [a, fresh()]
+
+# paramTypes = (params, fnType) ->
+#   types = inside fnType
+#   if types.length < params.length
+#     throw new Error "Not enough types in type declaration"
+#   context = {}
+#   for param, i in params
+#     context[param.token] = types[i].token
+#   context
+
+
+
+# unify = -> ???
+
+# defaultEnvironment = (name) ->
+#   switch name
+#     when '+' then ['Int', 'Int']
+
+
+
 library = """
 var $listize = function (list) {
   if (list.length == 0) {
