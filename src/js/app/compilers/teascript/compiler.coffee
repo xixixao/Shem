@@ -152,6 +152,9 @@ labelSimple = (ast) ->
       ['brace', token in ['{', '}']]
       ['bare', true]
 
+isDelim = (token) ->
+  /[\(\)\[\]\{\}]/.test token.token
+
 labelMatches = (ast) ->
   macro 'match', ast, (node, args) ->
     [keyword, over, patterns...] = args
@@ -160,12 +163,12 @@ labelMatches = (ast) ->
     node
 
 isReference = (token) ->
-  token.label in ['bare', 'operator', 'param', 'recurse']
+  token.label in ['bare', 'operator', 'param', 'recurse'] and not isDelim token
 
 fnDefinition = (node) ->
   words = inside node
   [keyword, paramList, defs...] = words
-  params = if Array.isArray(paramList) then inside paramList else undefined
+  params = if Array.isArray(paramList) then paramList else undefined
   defs ?= []
   for def, i in defs
     if matchNode '::', def
@@ -224,6 +227,7 @@ labelFnBody = (node) ->
 labelNames = (pattern) ->
   if Array.isArray pattern
     if isList(pattern) or isTuple pattern
+      pattern.type = 'pattern'
       (inside pattern).map labelNames
     else
       [op, args...] = inside pattern
@@ -240,7 +244,8 @@ labelWhere = (wheres) ->
   return
 
 labelParams = (ast, params) ->
-  paramNames = (token for {token} in params)
+  params.type = 'pattern'
+  paramNames = (token for {token} in inside params)
   mapTokens paramNames, ast, (word) ->
     word.label = 'param' if isReference word
 
@@ -280,9 +285,14 @@ labelComments = (ast) ->
 
 labelOperators = (ast) ->
   walk ast, (node) ->
-    [paren, operator] = node
-    if paren.token == '(' and not operator.type and operator.label is 'bare'
-      operator.label = 'operator'
+    [openDelim, operator] = node
+    if openDelim.token is '('
+      if not operator.type and operator.label is 'bare'
+        operator.label = 'operator'
+    else if node.type isnt 'pattern'
+      [openDelim, ..., closeDelim] = node
+      openDelim.label = 'operator'
+      closeDelim.label = 'operator'
     node
 
 apply = (onto, fns...) ->
@@ -567,7 +577,7 @@ compileFn = (node) ->
   {params, body, wheres} = fnDefinition node
   if !params?
     throw new Error 'missing parameter list'
-  paramNames = params.map(getToken).map(validIdentifier)
+  paramNames = (inside params).map(getToken).map(validIdentifier)
   node.scope = toMap paramNames
   curry paramNames, """
     (function (#{paramNames.join ', '}) {
