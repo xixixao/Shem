@@ -577,10 +577,11 @@ compileFn = (node) ->
   {params, body, wheres} = fnDefinition node
   if !params?
     throw new Error 'missing parameter list'
-  paramNames = (inside params).map(getToken).map(validIdentifier)
+  paramNames = (inside params).map getToken
   node.scope = toMap paramNames
-  curry paramNames, """
-    (function (#{paramNames.join ', '}) {
+  validParamNames = paramNames.map validIdentifier
+  curry validParamNames, """
+    (function (#{validParamNames.join ', '}) {
       #{compileFnImpl body, wheres, yes}
     })"""
 
