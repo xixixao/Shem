@@ -432,13 +432,19 @@ compileWhereImpl = (tokens) ->
   if tokens.length % 2 != 0
     throw new Error "missing definition in top level assignment"
   [readyWheres, hoistableWheres] = wheresWithHoisting whereList tokens
-  if hoistableWheres.length > 0
-    undefinedNames = []
-    for {missing} in hoistableWheres
-      undefinedNames.push (setToArray missing)...
-    throw new Error "#{undefinedNames.join ', '} used but not defined"
+  noHoistables hoistableWheres
   addToScopeAllNames readyWheres
   graphToWheres readyWheres
+
+noHoistables = (hoistable) ->
+  if hoistable.length > 0
+    throw new Error "#{(undefinedNames hoistable).join ', '} used but not defined"
+
+undefinedNames = (graphs) ->
+  names = []
+  for {missing} in graphs
+    names.push (setToArray missing)...
+  names
 
 compileExportedDef = ([name, def]) ->
   if name.token
@@ -456,6 +462,8 @@ compileImpl = (node, hoistableWheres = []) ->
   if matchNode 'match', node
     [op, args...] = inside node
     return trueMacros[op.token] hoistableWheres, args...
+
+  noHoistables hoistableWheres
 
   switch node.type
     when 'comment' then 'null'
