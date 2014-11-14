@@ -463,8 +463,6 @@ compileImpl = (node, hoistableWheres = []) ->
     [op, args...] = inside node
     return trueMacros[op.token] hoistableWheres, args...
 
-  noHoistables hoistableWheres
-
   switch node.type
     when 'comment' then 'null'
     when 'data' then 'null'
@@ -508,10 +506,11 @@ compileImpl = (node, hoistableWheres = []) ->
             if isReference node
               defLocation = lookupIdentifier name, node
               if not defLocation
+                names = findMissing hoistableWheres, name
                 if nonstrict
-                  warnings.push "#{name} used but not defined"
+                  warnings.push "#{names.join ', '} used but not defined"
                 else
-                  throw new Error "#{name} used but not defined"
+                  throw new Error "#{names.join ', '} used but not defined"
             escapedName
 
 isList = (node) ->
@@ -544,6 +543,17 @@ compileFunctionCall = (op, args) ->
 
 expandMacro = (macro) ->
   macros[macro]?() ? macro
+
+findMissing = (graphs, name) ->
+  names = []
+  for graph in (graphs or [])
+    if name in graph.names
+      names.push (setToArray graph.missing)...
+      continue
+  if names.length > 0
+    names
+  else
+    [name]
 
 validIdentifier = (name) ->
   [firstChar] = name
