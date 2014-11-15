@@ -125,7 +125,7 @@ theme =
   recurse: '#67B3DD'
   param: '#FDA947'
   comment: 'grey'
-  operator: '#cceeff'
+  operator: '#67B3DD'
   normal: 'white'
 
 colorize = (color, string) ->
@@ -554,7 +554,10 @@ isMap = (node) ->
 compileMap = (elems) ->
   [constr, args...] = elems
   items = args.map(compileImpl).join ', '
-  "({\"#{constr.token}\": [#{items}]})"
+  "({\"#{constructorToJsField constr}\": [#{items}]})"
+
+constructorToJsField = (constr) ->
+  constr.token[0...-1]
 
 compileConst = (token) ->
   "({'#{token.token}': true})"
@@ -823,12 +826,15 @@ compileDef = ([name, def]) ->
 # Pattern matching in assignment (used in Match as well)
 
 patternMatchingRules = [
+  # Numbers
   (pattern) ->
     trigger: pattern.label is 'numerical'
     cond: (exp) -> ["#{exp}" + " == #{pattern.token}"]
+  # Constants
   (pattern) ->
     trigger: pattern.label is 'const'
     cond: (exp) -> ["'#{pattern.token}' in #{exp}"]
+  # Name
   (pattern) ->
     trigger: pattern.label is 'name'
     assignTo: (exp) ->
@@ -848,12 +854,14 @@ patternMatchingRules = [
   #       [head, "#{exp}.head"]
   #       [tail, "#{exp}.tail"]
   #     ]
+
+  # Maps
   (pattern) ->
     # expect lists from here on
     if not Array.isArray pattern
       throw new Error "pattern match expected pattern but saw token #{pattern.token}"
     [constr, elems...] = inside pattern
-    label = "'#{constr.token}'" if constr
+    label = "'#{constructorToJsField constr}'" if constr
     trigger: isMap pattern
     cache: true
     cacheMore: (exp) -> if elems.length > 1 then ["#{exp}[#{label}]"] else []
@@ -863,6 +871,7 @@ patternMatchingRules = [
       value ?= "#{exp}[#{label}]"
       recurse: (for elem, i in elems
         [elem, "#{value}[#{i}]"])
+  # Sequences
   (pattern) ->
     elems = inside pattern
     hasSplat = no
@@ -881,6 +890,7 @@ patternMatchingRules = [
           [elem, "$sequenceSplat(#{i}, #{elems.length - i - 1}, #{exp})"]
         else
           [elem, "$sequenceAt(#{i}, #{exp})"])
+  # Tuples
   (pattern) ->
     elems = inside pattern
     trigger: isTuple pattern
