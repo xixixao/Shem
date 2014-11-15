@@ -198,20 +198,6 @@ pairs = (list) ->
   for el, i in list by 2
     [el, list[i + 1]]
 
-labelTop = (ast) ->
-  {wheres} = fnImplementation inside ast
-  labelWhere wheres
-  ast
-
-labelBottom = (ast) ->
-  {wheres} = bottomImplementation inside ast
-  labelWhere wheres
-  ast
-
-labelDefinitions = (ast) ->
-  labelWhere whereList inside ast
-  ast
-
 labelFns = (ast) ->
   macro 'fn', ast, (node, args) ->
     node.type = 'function'
@@ -287,20 +273,45 @@ labelOperators = (ast) ->
   walk ast, (node) ->
     [openDelim, operator] = node
     if openDelim.token is '('
-      if not operator.type and operator.label is 'bare'
-        operator.label = 'operator'
-    else if node.type isnt 'pattern'
-      [openDelim, ..., closeDelim] = node
-      openDelim.label = 'operator'
-      closeDelim.label = 'operator'
+      labelFnCall operator
+    else
+      labelDelimeterCall node
     node
+
+labelFnCall = (operator) ->
+  if not operator.type and operator.label is 'bare'
+    operator.label = 'operator'
+
+labelDelimeterCall = (node) ->
+  if node.type isnt 'pattern'
+    [openDelim, ..., closeDelim] = node
+    openDelim.label = 'operator'
+    closeDelim.label = 'operator'
+
+
+# Standard labelling and typing
 
 typifyMost = (ast) ->
   apply ast, typeComments, typeDatas, typeTypes, labelSimple, labelMatches,
     labelFns, labelRequires, labelComments
 
-typifyWith = (ast, mainLabeling) ->
-  apply ast, typifyMost, mainLabeling, labelOperators
+# Special labeling for files
+
+labelTop = (ast) ->
+  {wheres} = fnImplementation inside ast
+  labelWhere wheres
+  ast
+
+labelBottom = (ast) ->
+  {wheres} = bottomImplementation inside ast
+  labelWhere wheres
+  ast
+
+labelDefinitions = (ast) ->
+  labelWhere whereList inside ast
+  ast
+
+# Labelling and typing different kinds of ASTs
 
 typifyExp = (ast) ->
   typifyWith ast, (x) -> x
@@ -314,6 +325,9 @@ typifyBottom = (ast) ->
 typifyDefinitions = (ast) ->
   typifyWith ast, labelDefinitions
 
+typifyWith = (ast, mainLabeling) ->
+  apply ast, typifyMost, mainLabeling, labelOperators
+
 toHtml = (highlighted) ->
   crawl highlighted, (word) ->
     (word.ws or '') + colorize(theme[word.label ? 'normal'], word.token)
@@ -324,6 +338,8 @@ apply = (onto, fns...) ->
     result = fn result
   result
 
+# Syntax printing to HTML
+
 syntaxedTop = (source) ->
   collapse inside toHtml typifyTop astize tokenize "(#{source})"
 
@@ -332,9 +348,6 @@ syntaxedExp = (source) ->
 
 tokenizedDefinitions = (source) ->
   (parentize shiftPos [inside typifyDefinitions astize tokenize "(#{source})"])[0]
-
-tokenizedExp = (source) ->
-  parentize typifyExp astize tokenize source
 
 # Correct offset by 1 in positions, when we wrap the source in an S-exp
 shiftPos = (ast) ->
@@ -355,9 +368,16 @@ collapse = (nodes) ->
       collapsed += node
   collapsed
 
+# end of Syntax printing
+
+# Main compilation from plain text source to tokens
+
 variableCounter = 1
 warnings = []
 nonstrict = no
+
+tokenizedExp = (source) ->
+  parentize typifyExp astize tokenize source
 
 # exp followed by list of definitions
 compiledTop = (source) ->
@@ -389,6 +409,7 @@ compileDefinitionsInModule = (source) ->
   variableCounter = 1
   compileWheresInModule preCompileDefs source
 
+# for including in other files
 exportList = (source) ->
   wheres = whereList inside preCompileDefs source
   names = []
@@ -461,6 +482,8 @@ compileExportedDef = ([name, def]) ->
   else
     compileDef [name, def]
 
+# Actual compilation of s-expressions starts here
+
 compileImpl = (node, hoistableWheres = []) ->
   # For now special case match to allow definition hoisting up one level
   if matchNode 'match', node
@@ -516,6 +539,8 @@ compileImpl = (node, hoistableWheres = []) ->
                 else
                   throw new Error "#{names.join ', '} used but not defined"
             escapedName
+
+# Recognizing arrays, tuples and map literals
 
 isList = (node) ->
   Array.isArray(node) and node[0].token is '['
