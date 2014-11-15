@@ -295,31 +295,46 @@ labelOperators = (ast) ->
       closeDelim.label = 'operator'
     node
 
+typifyMost = (ast) ->
+  apply ast, typeComments, typeDatas, typeTypes, labelSimple, labelMatches,
+    labelFns, labelRequires, labelComments
+
+typifyWith = (ast, mainLabeling) ->
+  apply ast, typifyMost, mainLabeling, labelOperators
+
+typifyExp = (ast) ->
+  typifyWith ast, (x) -> x
+
+typifyTop = (ast) ->
+  typifyWith ast, labelTop
+
+typifyBottom = (ast) ->
+  typifyWith ast, labelBottom
+
+typifyDefinitions = (ast) ->
+  typifyWith ast, labelDefinitions
+
+toHtml = (highlighted) ->
+  crawl highlighted, (word) ->
+    (word.ws or '') + colorize(theme[word.label ? 'normal'], word.token)
+
 apply = (onto, fns...) ->
   result = onto
   for fn in fns
     result = fn result
   result
 
-typifyMost = (ast) ->
-  apply ast, typeComments, typeDatas, typeTypes, labelSimple, labelMatches,
-    labelFns, labelRequires, labelComments
+syntaxedTop = (source) ->
+  collapse inside toHtml typifyTop astize tokenize "(#{source})"
 
-typify = (ast) ->
-  apply ast, typifyMost, labelOperators
+syntaxedExp = (source) ->
+  collapse toHtml typifyExp astize tokenize source
 
-typifyTop = (ast) ->
-  apply ast, typifyMost, labelTop, labelOperators
+tokenizedDefinitions = (source) ->
+  (parentize shiftPos [inside typifyDefinitions astize tokenize "(#{source})"])[0]
 
-typifyBottom = (ast) ->
-  apply ast, typifyMost, labelBottom, labelOperators
-
-typifyDefinitions = (ast) ->
-  apply ast, typifyMost, labelDefinitions, labelOperators
-
-toHtml = (highlighted) ->
-  crawl highlighted, (word) ->
-    (word.ws or '') + colorize(theme[word.label ? 'normal'], word.token)
+tokenizedExp = (source) ->
+  parentize typifyExp astize tokenize source
 
 # Correct offset by 1 in positions, when we wrap the source in an S-exp
 shiftPos = (ast) ->
@@ -340,24 +355,12 @@ collapse = (nodes) ->
       collapsed += node
   collapsed
 
-syntaxed = (source) ->
-  collapse inside toHtml typifyTop astize tokenize "(#{source})"
-
-syntaxedExp = (source) ->
-  collapse toHtml typify astize tokenize source
-
-tokenizedDefinitions = (source) ->
-  (parentize shiftPos [inside typifyDefinitions astize tokenize "(#{source})"])[0]
-
-tokenizedExp = (source) ->
-  parentize typify astize tokenize source
-
 variableCounter = 1
 warnings = []
 nonstrict = no
 
 # exp followed by list of definitions
-compiled = (source) ->
+compiledTop = (source) ->
   variableCounter = 1
   compileTop preCompileTop source
 
@@ -395,7 +398,7 @@ exportList = (source) ->
   names
 
 preCompileExp = (source) ->
-  parentize typify astize tokenize source
+  parentize typifyExp astize tokenize source
 
 preCompileBottom = (source) ->
   parentize typifyBottom astize tokenize "(#{source})"
