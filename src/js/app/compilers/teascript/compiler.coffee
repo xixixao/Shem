@@ -302,19 +302,20 @@ apply = (onto, fns...) ->
   result
 
 typifyMost = (ast) ->
-  apply ast, typeComments, typeDatas, typeTypes, labelSimple, labelMatches, labelFns, labelRequires
+  apply ast, typeComments, typeDatas, typeTypes, labelSimple, labelMatches,
+    labelFns, labelRequires, labelComments
 
 typify = (ast) ->
-  apply ast, typifyMost, labelComments, labelOperators
+  apply ast, typifyMost, labelOperators
 
 typifyTop = (ast) ->
-  apply ast, typifyMost, labelTop, labelComments, labelOperators
+  apply ast, typifyMost, labelTop, labelOperators
 
 typifyBottom = (ast) ->
-  apply ast, typifyMost, labelBottom, labelComments, labelOperators
+  apply ast, typifyMost, labelBottom, labelOperators
 
 typifyDefinitions = (ast) ->
-  apply ast, typifyMost, labelDefinitions, labelComments, labelOperators
+  apply ast, typifyMost, labelDefinitions, labelOperators
 
 toHtml = (highlighted) ->
   crawl highlighted, (word) ->
@@ -665,6 +666,8 @@ wheresWithHoisting = (wheres) ->
 graphToWheres = (graph) ->
   graph.map ({def: [pattern, def], missing}) -> [pattern, def, missing]
 
+# Finding hoistables
+
 # Returns two new graphs, one which needs hoisting and one which doesnt
 findHoistableWheres = ([graph, lookupTable]) ->
   reversedDependencies = reverseGraph graph
@@ -695,6 +698,8 @@ findHoistableWheres = ([graph, lookupTable]) ->
     [hoistable, lookupTableForGraph hoistable]
     [valid, lookupTableForGraph valid]
   ]
+
+# Topological sort and dependency graph
 
 sortTopologically = ([graph, dependencies]) ->
   reversedDependencies = reverseGraph graph
@@ -780,21 +785,6 @@ findNames = (pattern) ->
       names.push node.token
   names
 
-
-dependencySet = ->
-  numDependencies: 0
-  dependencies: {}
-
-addDependency = (set, parentName) ->
-  return if set.dependencies[parentName]
-  set.numDependencies += 1
-  set.dependencies[parentName] = true
-
-removeDependency = (set, parentName) ->
-  return if !set.dependencies[parentName]
-  set.numDependencies -= 1
-  delete set.dependencies[parentName]
-
 compileDef = ([name, def]) ->
   if !def?
     throw new Error 'missing definition in assignment'
@@ -802,20 +792,7 @@ compileDef = ([name, def]) ->
   pm.precs.filter(({cache}) -> cache).map(({cache}) -> cache)
   .concat(pm.assigns).map(compileAssign).join '\n'
 
-newVar = ->
-  "i#{variableCounter++}"
-
-repeat = (x, n) ->
-  new Array(n + 1).join x
-
-isSplat = (elem) ->
-  elem.token and elem.token[...2] is '..'
-
-stripSplatFromName = (token) ->
-  if token[...2] is '..'
-    token[2...]
-  else
-    token
+# Pattern matching in assignment (used in Match as well)
 
 patternMatchingRules = [
   (pattern) ->
@@ -918,25 +895,21 @@ patternMatch = (pattern, def, defCache) ->
 markCond = (x) -> cond: x
 markCache = (x) -> cache: x
 
-findDeclarables = (precs) ->
-  precs.filter((p) -> p.cache).map(({cache}) -> cache[0])
+newVar = ->
+  "i#{variableCounter++}"
 
-macros =
-  'if': (cond, zen, elz) ->
-    """(function(){if (#{cond}) {
-      return #{zen};
-    } else {
-      return #{elz};
-    }}())"""
-  'access': (field, obj) ->
-    # TODO: use dot notation if method is valid field name
-    "(#{obj})[#{field}]"
-  'call': (method, obj, args...) ->
-    "(#{macros.access method, obj}(#{args.join ', '}))"
-  'new': (clazz, args...) ->
-    "(new #{clazz}(#{args.join ', '}))"
+isSplat = (elem) ->
+  elem.token and elem.token[...2] is '..'
 
+stripSplatFromName = (token) ->
+  if token[...2] is '..'
+    token[2...]
+  else
+    token
 
+# end of Pattern matching
+
+# Match, the only real macro so far (doesn't evaluate arguments)
 trueMacros =
   'match': (hoistableWheres, onwhat, cases...) ->
     varNames = []
@@ -974,6 +947,9 @@ trueMacros =
   'list': (items...) ->
     "$listize(#{compileList items})"
 
+findDeclarables = (precs) ->
+  precs.filter((p) -> p.cache).map(({cache}) -> cache[0])
+
 compileName = (node) ->
   validIdentifier node.token
 
@@ -997,27 +973,6 @@ hoistWheres = (hoistable, assigns) ->
         missing: stillMissingNames
         set: stillMissingDeps
   [hoisted, notHoisted]
-
-addAllTo = (set, array) ->
-  for v in array
-    addDependency set, v
-  set
-
-removeAll = (set, array) ->
-  for v in array
-    removeDependency set, v
-  set
-
-setToArray = (set) ->
-  for n of set.dependencies
-    n
-
-cloneSet = (set) ->
-  clone = dependencySet()
-  addAllTo clone, setToArray set
-
-inSet = (set, name) ->
-  set.dependencies[name]
 
 toJsString = (token) ->
   "'#{token}'"
@@ -1055,6 +1010,24 @@ constructCond = (precs) ->
   conds: cases.join " && "
   preassigns: preassigns
 
+# end of Match
+
+# Simple macros and builtin functions
+
+macros =
+  'if': (cond, zen, elz) ->
+    """(function(){if (#{cond}) {
+      return #{zen};
+    } else {
+      return #{elz};
+    }}())"""
+  'access': (field, obj) ->
+    # TODO: use dot notation if method is valid field name
+    "(#{obj})[#{field}]"
+  'call': (method, obj, args...) ->
+    "(#{macros.access method, obj}(#{args.join ', '}))"
+  'new': (clazz, args...) ->
+    "(new #{clazz}(#{args.join ', '}))"
 
 
 expandBuiltings = (mapping, cb) ->
@@ -1124,6 +1097,8 @@ expandBuiltings invertedBinaryOpMapping, (to) ->
     else
       "function(__a, __b){return __b #{to} __a;}"
 
+# end of Simple macros
+
 topScopeDefines = ->
   ids = 'true false & show-list from-nullable'.split(' ')
     .concat unaryFnMapping.from,
@@ -1137,6 +1112,43 @@ topScopeDefines = ->
   for id in ids
     scope[id] = true
   scope
+
+# Set implementation
+
+dependencySet = ->
+  numDependencies: 0
+  dependencies: {}
+
+addDependency = (set, parentName) ->
+  return if set.dependencies[parentName]
+  set.numDependencies += 1
+  set.dependencies[parentName] = true
+
+removeDependency = (set, parentName) ->
+  return if !set.dependencies[parentName]
+  set.numDependencies -= 1
+  delete set.dependencies[parentName]
+
+addAllTo = (set, array) ->
+  for v in array
+    addDependency set, v
+  set
+
+removeAll = (set, array) ->
+  for v in array
+    removeDependency set, v
+  set
+
+setToArray = (set) ->
+  for n of set.dependencies
+    n
+
+cloneSet = (set) ->
+  clone = dependencySet()
+  addAllTo clone, setToArray set
+
+inSet = (set, name) ->
+  set.dependencies[name]
 
 # mycroft = (context, node, environment) ->
 #   if node.label is 'numerical'
@@ -1169,6 +1181,8 @@ topScopeDefines = ->
 # defaultEnvironment = (name) ->
 #   switch name
 #     when '+' then ['Int', 'Int']
+
+
 
 
 
