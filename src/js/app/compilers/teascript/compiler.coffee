@@ -520,7 +520,7 @@ compileImpl = (node, hoistableWheres = []) ->
       else
         name = node.token
         if macros[name]
-          expandMacro name
+          macros[name] name
         else
           [firstChar] = name
           if firstChar is '-'
@@ -551,6 +551,12 @@ isTuple = (node) ->
 isMap = (node) ->
   isTuple(node) and (elems = inside node; elems.length > 0) and elems[0].label is 'label'
 
+# Compiling arrays, typles and map literals
+
+compileList = (elems) ->
+  # "[#{elems.join ', '}]"
+  "[#{elems.map(compileImpl).join ', '}]"
+
 compileMap = (elems) ->
   [constr, args...] = elems
   items = args.map(compileImpl).join ', '
@@ -559,12 +565,10 @@ compileMap = (elems) ->
 constructorToJsField = (constr) ->
   constr.token[0...-1]
 
+# Compile consts
+
 compileConst = (token) ->
   "({'#{token.token}': true})"
-
-compileList = (elems) ->
-  # "[#{elems.join ', '}]"
-  "[#{elems.map(compileImpl).join ', '}]"
 
 compileFunctionCall = (op, args) ->
   fn = compileImpl op
@@ -572,20 +576,6 @@ compileFunctionCall = (op, args) ->
   params = for arg in args when arg.label isnt 'label'
     compileImpl arg
   "#{fn}(#{params.join ', '})"
-
-expandMacro = (macro) ->
-  macros[macro]?() ? macro
-
-findMissing = (graphs, name) ->
-  names = []
-  for graph in (graphs or [])
-    if name in graph.names
-      names.push (setToArray graph.missing)...
-      continue
-  if names.length > 0
-    names
-  else
-    [name]
 
 validIdentifier = (name) ->
   [firstChar] = name
@@ -608,6 +598,19 @@ validIdentifier = (name) ->
       .replace(/^with$/, 'with_')
       .replace(/^in$/, 'in_')
 
+# Scoping
+
+findMissing = (graphs, name) ->
+  names = []
+  for graph in (graphs or [])
+    if name in graph.names
+      names.push (setToArray graph.missing)...
+      continue
+  if names.length > 0
+    names
+  else
+    [name]
+
 lookupIdentifier = (name, node) ->
   while node.parent
     node = node.parent
@@ -622,6 +625,8 @@ addToEnclosingScope = (name, node) ->
       node.scope[name] = true
       return
   throw new Error "Defining #{name} without enclosing scope"
+
+# end of Scoping
 
 compileFn = (node) ->
   {params, body, wheres} = fnDefinition node
