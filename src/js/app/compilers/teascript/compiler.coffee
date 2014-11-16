@@ -1235,7 +1235,7 @@ infer = (context, expression, nameIndex) ->
       [newMap(), nameIndex, expression]
     else
       # Reference
-      if isReference expression
+      if (isReference expression) or expression.label is 'keyword'
         # TODO: replace free type variables with new unused names
         concreteType = lookupInMap context, expression.token
         unless concreteType
