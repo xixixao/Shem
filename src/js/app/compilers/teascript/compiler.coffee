@@ -467,7 +467,7 @@ compileWhereImpl = (tokens) ->
   [readyWheres, hoistableWheres] = wheresWithHoisting whereList tokens
   noHoistables hoistableWheres
   addToScopeAllNames readyWheres
-  graphToWheres readyWheres
+  inferWheres builtInContext(), (graphToWheres readyWheres), 3 # 3 to avoid clash with a, b, c
 
 noHoistables = (hoistable) ->
   if hoistable.length > 0
@@ -1086,7 +1086,7 @@ expandBuiltings = (mapping, cb) ->
     macros[op] = cb mapping.to[i]
 
 unaryFnMapping =
-  from: '√ alert! not empty'.split ' '
+  from: 'sqrt alert! not empty'.split ' '
   to: 'Math.sqrt window.log ! $empty'.split ' '
 
 expandBuiltings unaryFnMapping, (to) ->
@@ -1150,6 +1150,8 @@ expandBuiltings invertedBinaryOpMapping, (to) ->
 
 # end of Simple macros
 
+# Default scope with builtins
+
 topScopeDefines = ->
   ids = 'true false & show-list from-nullable'.split(' ')
     .concat unaryFnMapping.from,
@@ -1163,6 +1165,44 @@ topScopeDefines = ->
   for id in ids
     scope[id] = true
   scope
+
+# Default type context with builtins
+
+binaryMathOpType = ['Num', ['Num', 'Num']]
+comparatorOpType = ['a', ['a', 'Bool']]
+
+builtInContext = ->
+  newMapWith 'true', 'Bool',
+    'false', 'Bool'
+    '&', ['a', ['b', 'b']] # TODO: replace with actual type
+    'show-list', ['a', 'b'] # TODO: replace with actual type
+    'from-nullable', ['a', 'b'] # TODO: replace with actual type JS -> Maybe a
+
+    # TODO match
+
+    'if', ['Bool', ['a', ['a', 'a']]]
+    # TODO JS interop
+
+    'sqrt', ['Num', 'Num']
+    'not', ['Bool', 'Bool']
+
+    '^', binaryMathOpType
+
+    '+', binaryMathOpType
+    '*', binaryMathOpType
+    '=', comparatorOpType
+    '!=', comparatorOpType
+    'and', ['Bool', ['Bool', 'Bool']]
+    'or', ['Bool', ['Bool', 'Bool']]
+
+    '-', binaryMathOpType
+    '/', binaryMathOpType
+    'rem', binaryMathOpType
+    '<', comparatorOpType
+    '>', comparatorOpType
+    '<=', comparatorOpType
+    '>=', comparatorOpType
+
 
 # Set/Map implementation
 
@@ -1209,6 +1249,12 @@ inSet = (set, name) ->
 
 isSetEmpty = (set) ->
   set.size is 0
+
+newSetWith = (args...) ->
+  initialized = newSet()
+  for k in args by 2
+    addToSet initialized, k
+  initialized
 
 newMapWith = (args...) ->
   initialized = newMap()
