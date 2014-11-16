@@ -1170,6 +1170,7 @@ addToMap = (set, key, value) ->
   return if set.values[key]
   set.size += 1
   set.values[key] = value
+  set
 
 removeFromSet =
 removeFromMap = (set, key) ->
@@ -1198,14 +1199,12 @@ cloneSet = (set) ->
   clone = newSet()
   addAllToSet clone, setToArray set
 
+lookupInMap =
 inSet = (set, name) ->
   set.values[name]
 
 isSetEmpty = (set) ->
   set.size is 0
-
-lookupInMap = (set, key) ->
-  set.values[key]
 
 unionMaps = (first, second) ->
   union = (cloneSet first)
@@ -1226,13 +1225,13 @@ newMapWith = (args...) ->
 
 infer = (context, expression, nameIndex) ->
   switch expression.label
-    when 'numerical' then [[], 'Num']
-    when 'string' then [[], 'Text']
+    when 'numerical' then [newMap(), 'Num']
+    when 'string' then [newMap(), 'Text']
     else
       # Reference
       if isReference expression
         # TODO: replace free type variables with new unused names
-        [[], lookupInMap context, expression.token]
+        [newMap(), lookupInMap context, expression.token]
       # Lambda
       else if expression.type is 'function'
         {params, body, wheres} = fnDefinition expression
@@ -1252,25 +1251,29 @@ infer = (context, expression, nameIndex) ->
         returnName = freshName nameIndex
         [s1, A] = infer context, op
         [s2, B] = infer (subContext s1, context), arg
+        log "op", (subExp s2, A)
+        log "operand", [B, returnName]
         s3 = unify (subExp s2, A), [B, returnName]
-        [(concat s3, s2, s1), (subExp returnName)]
+        log "s3", s3
+        [(concat s3, s2, s1), (subExp s3, returnName)]
 
 unify = (t1, t2) ->
-  unifyWith [], [t1, t2]
+  unifyWith newMap(), [t1, t2]
 
 unifyWith = (subs, pairs) ->
   if pairs.length is 0
     subs
   else
-    [[t1, t2], rest] = pairs
+    [[t1, t2], rest...] = pairs
     if t1 is t2
       unifyWith subs, rest
     else if isTypeVariable t1
+      log "left", t1
       sub = addToMap newMap(), t1, t2
-      unifyWith (addToMap subs, t1, t2), subPairs rest
+      unifyWith (addToMap subs, t1, t2), subPairs sub, rest
     else if isTypeVariable t2
       sub = addToMap newMap(), t2, t1
-      unifyWith (addToMap subs, t2, t1), subPairs rest
+      unifyWith (addToMap subs, t2, t1), subPairs sub, rest
     else if not (isTypeVariable t1) and not (isTypeVariable t2)
       [t1from, t1to] = t1
       [t2from, t2to] = t2
@@ -1299,14 +1302,18 @@ subContext = (subs, context) ->
   newContext
 
 isTypeVariable = (name) ->
-  name.charCodeAt(0) < 97 + 26
+  name.charCodeAt(0) >= 97
 
 freshName = (nameIndex) ->
   # TODO: handle more than 27 variables
   String.fromCharCode 97 + nameIndex
 
-concat = (arrays...) ->
-  [].concat arrays...
+concat = (maps...) ->
+  concated = newMap()
+  for map in maps
+    for k, v of map.values
+      addToMap concated, k, v
+  concated
 
 # mycroft = (context, node, environment) ->
 #   if node.label is 'numerical'
