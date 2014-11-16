@@ -1251,8 +1251,9 @@ infer = (context, expression, nameIndex) ->
         concreteType = lookupInMap context, expression.token
         unless concreteType
           throw new Error "Unbound variable #{expression.token}"
+        [nextIndex, concreteType] = freshenFree nameIndex, concreteType
         expression.tea = concreteType
-        [newMap(), nameIndex, expression]
+        [newMap(), nextIndex, expression]
       # Lambda
       else if expression.type is 'function'
         {params, body, wheres} = fnDefinition expression
@@ -1286,7 +1287,6 @@ inferCall = (context, pair, nameIndex) ->
   [s2, nextIndex, arg] = infer (subContext s1, context), arg, nextIndex
   s3 = unify (subExp s2, opTea), [arg.tea, returnName]
   [(concat s3, s2, s1), nextIndex, (subExp s3, returnName)]
-
 
 
 
@@ -1333,6 +1333,29 @@ subContext = (subs, context) ->
     addToMap newContext, name, (subExp subs, t)
   newContext
 
+freshenFree = (nameIndex, type) ->
+  if Array.isArray type
+    [nextIndex, subs] = makeFreshForEach nameIndex, findFrees type
+    [nextIndex, (subExp subs, type)]
+  else
+    [nameIndex, type]
+
+makeFreshForEach = (nameIndex, vars) ->
+  subs = newMap()
+  for type in setToArray vars
+    addToMap subs, type, (freshName nameIndex++)
+  [nameIndex, subs]
+
+findFrees = (type) ->
+  if Array.isArray type
+    concat (for subType in type
+      findFrees subType)...
+  else
+    if isTypeVariable type
+      newSetWith type
+    else
+      newSet()
+
 isTypeVariable = (name) ->
   not (Array.isArray name) and name.charCodeAt(0) >= 97
 
@@ -1346,7 +1369,6 @@ concat = (maps...) ->
     for k, v of map.values
       addToMap concated, k, v
   concated
-
 
 # mycroft = (context, node, environment) ->
 #   if node.label is 'numerical'
