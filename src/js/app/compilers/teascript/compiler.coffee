@@ -1268,14 +1268,25 @@ infer = (context, expression, nameIndex) ->
 
       # Call
       else if (Array.isArray expression) and expression.length > 2
-        [op, arg] = inside expression
-        # assume call.length is 2
-        returnName = freshName nameIndex
-        [s1, nextIndex, op] = infer context, op, nameIndex + 1
-        [s2, nextIndex, arg] = infer (subContext s1, context), arg, nextIndex
-        s3 = unify (subExp s2, op.tea), [arg.tea, returnName]
-        expression.tea = (subExp s3, returnName)
-        [(concat s3, s2, s1), nextIndex, expression]
+        [op..., arg] = inside expression
+        [s, nextIndex, tea] = inferCall context, [op, arg], nameIndex
+        expression.tea = tea
+        [s, nextIndex, expression]
+
+inferCall = (context, pair, nameIndex) ->
+  [ops, arg] = pair
+  returnName = freshName nameIndex
+  if ops.length >= 2
+    [op..., prevArg] = ops
+    [s1, nextIndex, opTea] = inferCall context, [op, prevArg], nameIndex + 1
+  else
+    [op] = ops
+    [s1, nextIndex, op] = infer context, op, nameIndex + 1
+    opTea = op.tea
+  [s2, nextIndex, arg] = infer (subContext s1, context), arg, nextIndex
+  s3 = unify (subExp s2, opTea), [arg.tea, returnName]
+  [(concat s3, s2, s1), nextIndex, (subExp s3, returnName)]
+
 
 
 
