@@ -1178,10 +1178,6 @@ removeFromMap = (set, key) ->
   set.size -= 1
   delete set.values[key]
 
-setInMap = (set, key, value) ->
-  return unless set.values[key]
-  set.values[key] = value
-
 addAllToSet = (set, array) ->
   for v in array
     addToSet set, v
@@ -1206,13 +1202,6 @@ inSet = (set, name) ->
 isSetEmpty = (set) ->
   set.size is 0
 
-unionMaps = (first, second) ->
-  union = (cloneSet first)
-  for k, v of second.values
-    # TODO: add error if k exists
-    addToMap union, k, v
-  union
-
 newMapWith = (args...) ->
   initialized = newMap()
   for k, i in args by 2
@@ -1225,13 +1214,16 @@ newMapWith = (args...) ->
 
 infer = (context, expression, nameIndex) ->
   switch expression.label
-    when 'numerical' then [newMap(), 'Num']
-    when 'string' then [newMap(), 'Text']
+    when 'numerical' then [newMap(), nameIndex, 'Num']
+    when 'string' then [newMap(), nameIndex, 'Text']
     else
       # Reference
       if isReference expression
         # TODO: replace free type variables with new unused names
-        [newMap(), lookupInMap context, expression.token]
+        concreteType = lookupInMap context, expression.token
+        unless concreteType
+          throw new Error "Unbound variable #{expression.token}"
+        [newMap(), nameIndex, concreteType]
       # Lambda
       else if expression.type is 'function'
         {params, body, wheres} = fnDefinition expression
@@ -1240,25 +1232,24 @@ infer = (context, expression, nameIndex) ->
         # assume if definedParams.length > 0
         argName = freshName nameIndex
         param = definedParams[0]
-        context = unionMaps context, newMapWith param.token, argName
-        [s1, A] = infer context, body, nameIndex + 1
-        [s1, subExp s1, [argName, A]]
+        context = concat context, newMapWith param.token, argName
+        [s1, nextIndex, A] = infer context, body, nameIndex + 1
+        [s1, nextIndex, (subExp s1, [argName, A])]
 
       # Call
       else if Array.isArray expression
         [op, arg] = inside expression
         # assume call.length is 2
         returnName = freshName nameIndex
-        [s1, A] = infer context, op
-        [s2, B] = infer (subContext s1, context), arg
-        log "op", (subExp s2, A)
+        [s1, nextIndex, A] = infer context, op, nameIndex + 1
+        [s2, nextIndex, B] = infer (subContext s1, context), arg, nextIndex
+        log "op", s2, A, (subExp s2, A)
         log "operand", [B, returnName]
         s3 = unify (subExp s2, A), [B, returnName]
-        log "s3", s3
-        [(concat s3, s2, s1), (subExp s3, returnName)]
+        [(concat s3, s2, s1), nextIndex, (subExp s3, returnName)]
 
 unify = (t1, t2) ->
-  unifyWith newMap(), [t1, t2]
+  unifyWith newMap(), [[t1, t2]]
 
 unifyWith = (subs, pairs) ->
   if pairs.length is 0
@@ -1268,13 +1259,12 @@ unifyWith = (subs, pairs) ->
     if t1 is t2
       unifyWith subs, rest
     else if isTypeVariable t1
-      log "left", t1
       sub = addToMap newMap(), t1, t2
       unifyWith (addToMap subs, t1, t2), subPairs sub, rest
     else if isTypeVariable t2
       sub = addToMap newMap(), t2, t1
       unifyWith (addToMap subs, t2, t1), subPairs sub, rest
-    else if not (isTypeVariable t1) and not (isTypeVariable t2)
+    else if (Array.isArray t1) and (Array.isArray t2)
       [t1from, t1to] = t1
       [t2from, t2to] = t2
       unifyWith subs, [[t1from, t2from], [t1to, t2to]].concat rest
@@ -1283,7 +1273,7 @@ unifyWith = (subs, pairs) ->
 
 subPairs = (subs, pairs) ->
   for [t1, t2] in pairs
-    [(subExp sub t1), (subExp sub t2)]
+    [(subExp subs, t1), (subExp subs, t2)]
 
 subExp = (subs, type) ->
   if Array.isArray type
@@ -1298,11 +1288,11 @@ subExp = (subs, type) ->
 subContext = (subs, context) ->
   newContext = newMap()
   for name, t of context.values
-    setInMap newContext, name, (subExp subs, t)
+    addToMap newContext, name, (subExp subs, t)
   newContext
 
 isTypeVariable = (name) ->
-  name.charCodeAt(0) >= 97
+  not (Array.isArray name) and name.charCodeAt(0) >= 97
 
 freshName = (nameIndex) ->
   # TODO: handle more than 27 variables
