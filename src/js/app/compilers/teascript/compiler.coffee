@@ -1225,6 +1225,17 @@ assignTypes = (context, expression) ->
   crouch expression, (node) ->
     node.tea = subExp s, node.tea if node.tea
 
+inferWheres = (context, pairs, nameIndex) ->
+    for [name, def] in pairs
+      addToMap context, name.token, freshName nameIndex++
+    for [name, def] in pairs
+      [s1, nameIndex, def] = infer context, def, nameIndex
+      s2 = unify (subExp s1, (inSet context, name.token)), def.tea
+      context = subContext (concat s2, s1), context
+    for [name, def] in pairs
+      name.tea = def.tea = (inSet context, name.token)
+      [name, def]
+
 infer = (context, expression, nameIndex) ->
   switch expression.label
     when 'numerical'
@@ -1236,7 +1247,7 @@ infer = (context, expression, nameIndex) ->
     else
       # Reference
       if (isReference expression) or expression.label is 'keyword'
-        # TODO: replace free type variables with new unused names
+        # TODO: replace free type variables with new unused names in function
         concreteType = lookupInMap context, expression.token
         unless concreteType
           throw new Error "Unbound variable #{expression.token}"
@@ -1256,7 +1267,7 @@ infer = (context, expression, nameIndex) ->
         [s1, nextIndex, expression]
 
       # Call
-      else if Array.isArray expression
+      else if (Array.isArray expression) and expression.length > 2
         [op, arg] = inside expression
         # assume call.length is 2
         returnName = freshName nameIndex
@@ -1265,6 +1276,8 @@ infer = (context, expression, nameIndex) ->
         s3 = unify (subExp s2, op.tea), [arg.tea, returnName]
         expression.tea = (subExp s3, returnName)
         [(concat s3, s2, s1), nextIndex, expression]
+
+
 
 unify = (t1, t2) ->
   unifyWith newMap(), [[t1, t2]]
@@ -1322,6 +1335,7 @@ concat = (maps...) ->
     for k, v of map.values
       addToMap concated, k, v
   concated
+
 
 # mycroft = (context, node, environment) ->
 #   if node.label is 'numerical'
