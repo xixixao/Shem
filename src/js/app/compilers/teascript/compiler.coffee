@@ -712,7 +712,7 @@ findHoistableWheres = ([graph, lookupTable]) ->
   valid = []
   for {missing, names} in graph
     # This def needs hoisting
-    if missing.numDependencies > 0
+    if missing.size > 0
       hoistableNames[n] = yes for n in names
       # So do all defs depending on it
       for name in names
@@ -748,7 +748,7 @@ sortTopologically = ([graph, dependencies]) ->
     independent.push node
     delete dependencies[name] for name in node.names
 
-  for parent in graph when parent.set.numDependencies is 0
+  for parent in graph when parent.set.size is 0
     moveToIndependent parent
 
   sorted = []
@@ -756,8 +756,8 @@ sortTopologically = ([graph, dependencies]) ->
     finishedParent = independent.pop()
     sorted.push finishedParent
     for child in reversedDependencies[finishedParent.names[0]] or []
-      removeDependency child.set, name for name in finishedParent.names
-      moveToIndependent child if child.set.numDependencies is 0
+      removeFromSet child.set, name for name in finishedParent.names
+      moveToIndependent child if child.set.size is 0
 
   for node in sorted
     node.set = node.origSet
@@ -769,7 +769,7 @@ sortTopologically = ([graph, dependencies]) ->
 reverseGraph = (nodes) ->
   reversed = {}
   for child in nodes
-    for dependencyName of child.set.dependencies
+    for dependencyName of child.set.values
       (reversed[dependencyName] ?= []).push child
   reversed
 
@@ -779,13 +779,13 @@ reverseGraph = (nodes) ->
 #   Map (name -> GraphElement)
 constructDependencyGraph = (wheres) ->
   lookupByName = {}
-  deps = dependencySet()
+  deps = newSet()
   # find all defined names
   graph = for [pattern, def], i in wheres
     def: [pattern, def]
-    set: dependencySet()
+    set: newSet()
     names: findNames pattern
-    missing: dependencySet()
+    missing: newSet()
 
   lookupByName = lookupTableForGraph graph
 
@@ -800,10 +800,10 @@ constructDependencyGraph = (wheres) ->
         definingScope = lookupIdentifier token, node
         parent = lookupByName[token]
         if parent
-          addDependency child.set, name for name in parent.names unless child is parent
-          addDependency deps, parent
+          addToSet child.set, name for name in parent.names unless child is parent
+          addToSet deps, parent
         else if isReference(node) and !lookupIdentifier token, node
-          addDependency child.missing, node.token
+          addToSet child.missing, node.token
   [graph, lookupByName]
 
 lookupTableForGraph = (graph) ->
@@ -997,18 +997,18 @@ compileName = (node) ->
   validIdentifier node.token
 
 hoistWheres = (hoistable, assigns) ->
-  defined = addAllTo dependencySet(), (n for [n, _] in assigns)
-  hoistedNames = dependencySet()
+  defined = addAllToSet newSet(), (n for [n, _] in assigns)
+  hoistedNames = newSet()
   hoisted = []
   notHoisted = []
   for where in hoistable
     {missing, names, def, set} = where
-    stillMissingNames = addAllTo dependencySet(),
+    stillMissingNames = addAllToSet newSet(),
       (name for name in (setToArray missing) when not inSet defined, name)
-    stillMissingDeps = removeAll (cloneSet set), setToArray hoistedNames
-    if stillMissingNames.numDependencies == 0 and stillMissingDeps.numDependencies == 0
+    stillMissingDeps = removeAllFromSet (cloneSet set), setToArray hoistedNames
+    if stillMissingNames.size == 0 and stillMissingDeps.size == 0
       hoisted.push def
-      addAllTo hoistedNames, names
+      addAllToSet hoistedNames, names
     else
       notHoisted.push
         def: def
@@ -1158,40 +1158,44 @@ topScopeDefines = ->
 
 # Set implementation
 
-dependencySet = ->
-  numDependencies: 0
-  dependencies: {}
+newSet = ->
+  size: 0
+  values: {}
 
-addDependency = (set, parentName) ->
-  return if set.dependencies[parentName]
-  set.numDependencies += 1
-  set.dependencies[parentName] = true
+addToSet = (set, value) ->
+  return if set.values[value]
+  set.size += 1
+  set.values[value] = true
 
-removeDependency = (set, parentName) ->
-  return if !set.dependencies[parentName]
-  set.numDependencies -= 1
-  delete set.dependencies[parentName]
+removeFromSet = (set, value) ->
+  return if !set.values[value]
+  set.size -= 1
+  delete set.values[value]
 
-addAllTo = (set, array) ->
+addAllToSet = (set, array) ->
   for v in array
-    addDependency set, v
+    addToSet set, v
   set
 
-removeAll = (set, array) ->
+removeAllFromSet = (set, array) ->
   for v in array
-    removeDependency set, v
+    removeFromSet set, v
   set
 
 setToArray = (set) ->
-  for n of set.dependencies
-    n
+  set.values
 
 cloneSet = (set) ->
-  clone = dependencySet()
-  addAllTo clone, setToArray set
+  clone = newSet()
+  addAllToSet clone, setToArray set
 
 inSet = (set, name) ->
-  set.dependencies[name]
+  set.values[name]
+
+isSetEmpty = (set) ->
+  set.size is 0
+
+# end of Set
 
 # mycroft = (context, node, environment) ->
 #   if node.label is 'numerical'
