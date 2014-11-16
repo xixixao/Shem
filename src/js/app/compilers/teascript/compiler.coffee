@@ -1156,21 +1156,30 @@ topScopeDefines = ->
     scope[id] = true
   scope
 
-# Set implementation
+# Set/Map implementation
 
-newSet = ->
+newSet =
+newMap = ->
   size: 0
   values: {}
 
-addToSet = (set, value) ->
-  return if set.values[value]
-  set.size += 1
-  set.values[value] = true
+addToSet = (set, key) ->
+  addToMap set, key, true
 
-removeFromSet = (set, value) ->
-  return if !set.values[value]
+addToMap = (set, key, value) ->
+  return if set.values[key]
+  set.size += 1
+  set.values[key] = value
+
+removeFromSet =
+removeFromMap = (set, key) ->
+  return if !set.values[key]?
   set.size -= 1
-  delete set.values[value]
+  delete set.values[key]
+
+setInMap = (set, key, value) ->
+  return unless set.values[key]
+  set.values[key] = value
 
 addAllToSet = (set, array) ->
   for v in array
@@ -1183,7 +1192,7 @@ removeAllFromSet = (set, array) ->
   set
 
 setToArray = (set) ->
-  set.values
+  key for key of set.values
 
 cloneSet = (set) ->
   clone = newSet()
@@ -1195,7 +1204,109 @@ inSet = (set, name) ->
 isSetEmpty = (set) ->
   set.size is 0
 
+lookupInMap = (set, key) ->
+  set.values[key]
+
+unionMaps = (first, second) ->
+  union = (cloneSet first)
+  for k, v of second.values
+    # TODO: add error if k exists
+    addToMap union, k, v
+  union
+
+newMapWith = (args...) ->
+  initialized = newMap()
+  for k, i in args by 2
+    addToMap initialized, k, args[i + 1]
+  initialized
+
 # end of Set
+
+# Type inference and checker
+
+infer = (context, expression, nameIndex) ->
+  switch expression.label
+    when 'numerical' then [[], 'Num']
+    when 'string' then [[], 'Text']
+    else
+      # Reference
+      if isReference expression
+        # TODO: replace free type variables with new unused names
+        [[], lookupInMap context, expression.token]
+      # Lambda
+      else if expression.type is 'function'
+        {params, body, wheres} = fnDefinition expression
+        # TODO: more params
+        definedParams = inside params
+        # assume if definedParams.length > 0
+        argName = freshName nameIndex
+        param = definedParams[0]
+        context = unionMaps context, newMapWith param.token, argName
+        [s1, A] = infer context, body, nameIndex + 1
+        [s1, subExp s1, [argName, A]]
+
+      # Call
+      else if Array.isArray expression
+        [op, arg] = inside expression
+        # assume call.length is 2
+        returnName = freshName nameIndex
+        [s1, A] = infer context, op
+        [s2, B] = infer (subContext s1, context), arg
+        s3 = unify (subExp s2, A), [B, returnName]
+        [(concat s3, s2, s1), (subExp returnName)]
+
+unify = (t1, t2) ->
+  unifyWith [], [t1, t2]
+
+unifyWith = (subs, pairs) ->
+  if pairs.length is 0
+    subs
+  else
+    [[t1, t2], rest] = pairs
+    if t1 is t2
+      unifyWith subs, rest
+    else if isTypeVariable t1
+      sub = addToMap newMap(), t1, t2
+      unifyWith (addToMap subs, t1, t2), subPairs rest
+    else if isTypeVariable t2
+      sub = addToMap newMap(), t2, t1
+      unifyWith (addToMap subs, t2, t1), subPairs rest
+    else if not (isTypeVariable t1) and not (isTypeVariable t2)
+      [t1from, t1to] = t1
+      [t2from, t2to] = t2
+      unifyWith subs, [[t1from, t2from], [t1to, t2to]].concat rest
+    else
+      throw new Error "Types #{t1}, #{t2} could not be unified"
+
+subPairs = (subs, pairs) ->
+  for [t1, t2] in pairs
+    [(subExp sub t1), (subExp sub t2)]
+
+subExp = (subs, type) ->
+  if Array.isArray type
+    for subType in type
+      subExp subs, subType
+  else
+    if sub = lookupInMap subs, type
+      sub
+    else
+      type
+
+subContext = (subs, context) ->
+  newContext = newMap()
+  for name, t of context.values
+    setInMap newContext, name, (subExp subs, t)
+  newContext
+
+isTypeVariable = (name) ->
+  name.charCodeAt(0) < 97 + 26
+
+freshName = (nameIndex) ->
+  # TODO: handle more than 27 variables
+  String.fromCharCode 97 + nameIndex
+
+concat = (arrays...) ->
+  [].concat arrays...
 
 # mycroft = (context, node, environment) ->
 #   if node.label is 'numerical'
