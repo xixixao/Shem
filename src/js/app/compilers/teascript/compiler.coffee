@@ -1234,15 +1234,15 @@ assignTypes = (context, expression) ->
     node.tea = subExp s, node.tea if node.tea
 
 inferWheres = (context, pairs, nameIndex) ->
-    for [name, def] in pairs
-      addToMap context, name.token, freshName nameIndex++
-    for [name, def] in pairs
-      [s1, nameIndex, def] = infer context, def, nameIndex
-      s2 = unify (subExp s1, (inSet context, name.token)), def.tea
-      context = subContext (concatMaps s2, s1), context
-    for [name, def] in pairs
-      name.tea = def.tea = (inSet context, name.token)
-      [name, def]
+  for [name, def] in pairs
+    addToMap context, name.token, freshName nameIndex++
+  for [name, def] in pairs
+    [s1, nameIndex, def] = infer context, def, nameIndex
+    s2 = unify (subExp s1, (inSet context, name.token)), def.tea
+    context = subContext (concatMaps s2, s1), context
+  for [name, def] in pairs
+    name.tea = def.tea = (inSet context, name.token)
+    [name, def]
 
 infer = (context, expression, nameIndex) ->
   switch expression.label
