@@ -84,6 +84,14 @@ crawlWhile = (ast, cond, cb) ->
     cb ast, ast.token
   return
 
+crouch = (ast, cb) ->
+  if Array.isArray ast
+    for node in ast
+      crouch node, cb
+  else
+    cb ast
+  ast
+
 inside = (node) -> node[1...-1]
 
 matchNode = (to, node) ->
@@ -1212,10 +1220,19 @@ newMapWith = (args...) ->
 
 # Type inference and checker
 
+assignTypes = (context, expression) ->
+  [s, _, expression] = infer context, expression, 0
+  crouch expression, (node) ->
+    node.tea = subExp s, node.tea if node.tea
+
 infer = (context, expression, nameIndex) ->
   switch expression.label
-    when 'numerical' then [newMap(), nameIndex, 'Num']
-    when 'string' then [newMap(), nameIndex, 'Text']
+    when 'numerical'
+      expression.tea = 'Num'
+      [newMap(), nameIndex, expression]
+    when 'string'
+      expression.tea = 'Text'
+      [newMap(), nameIndex, expression]
     else
       # Reference
       if isReference expression
@@ -1223,7 +1240,8 @@ infer = (context, expression, nameIndex) ->
         concreteType = lookupInMap context, expression.token
         unless concreteType
           throw new Error "Unbound variable #{expression.token}"
-        [newMap(), nameIndex, concreteType]
+        expression.tea = concreteType
+        [newMap(), nameIndex, expression]
       # Lambda
       else if expression.type is 'function'
         {params, body, wheres} = fnDefinition expression
@@ -1233,20 +1251,20 @@ infer = (context, expression, nameIndex) ->
         argName = freshName nameIndex
         param = definedParams[0]
         context = concat context, newMapWith param.token, argName
-        [s1, nextIndex, A] = infer context, body, nameIndex + 1
-        [s1, nextIndex, (subExp s1, [argName, A])]
+        [s1, nextIndex, body] = infer context, body, nameIndex + 1
+        expression.tea = (subExp s1, [argName, body.tea])
+        [s1, nextIndex, expression]
 
       # Call
       else if Array.isArray expression
         [op, arg] = inside expression
         # assume call.length is 2
         returnName = freshName nameIndex
-        [s1, nextIndex, A] = infer context, op, nameIndex + 1
-        [s2, nextIndex, B] = infer (subContext s1, context), arg, nextIndex
-        log "op", s2, A, (subExp s2, A)
-        log "operand", [B, returnName]
-        s3 = unify (subExp s2, A), [B, returnName]
-        [(concat s3, s2, s1), nextIndex, (subExp s3, returnName)]
+        [s1, nextIndex, op] = infer context, op, nameIndex + 1
+        [s2, nextIndex, arg] = infer (subContext s1, context), arg, nextIndex
+        s3 = unify (subExp s2, op.tea), [arg.tea, returnName]
+        expression.tea = (subExp s3, returnName)
+        [(concat s3, s2, s1), nextIndex, expression]
 
 unify = (t1, t2) ->
   unifyWith newMap(), [[t1, t2]]
