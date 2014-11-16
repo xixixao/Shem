@@ -1216,6 +1216,14 @@ newMapWith = (args...) ->
     addToMap initialized, k, args[i + 1]
   initialized
 
+concatSets =
+concatMaps = (maps...) ->
+  concated = newMap()
+  for map in maps
+    for k, v of map.values
+      addToMap concated, k, v
+  concated
+
 # end of Set
 
 # Type inference and checker
@@ -1231,7 +1239,7 @@ inferWheres = (context, pairs, nameIndex) ->
     for [name, def] in pairs
       [s1, nameIndex, def] = infer context, def, nameIndex
       s2 = unify (subExp s1, (inSet context, name.token)), def.tea
-      context = subContext (concat s2, s1), context
+      context = subContext (concatMaps s2, s1), context
     for [name, def] in pairs
       name.tea = def.tea = (inSet context, name.token)
       [name, def]
@@ -1262,7 +1270,7 @@ infer = (context, expression, nameIndex) ->
         # assume if definedParams.length > 0
         argName = freshName nameIndex
         param = definedParams[0]
-        context = concat context, newMapWith param.token, argName
+        context = concatMaps context, newMapWith param.token, argName
         [s1, nextIndex, body] = infer context, body, nameIndex + 1
         expression.tea = (subExp s1, [argName, body.tea])
         [s1, nextIndex, expression]
@@ -1286,7 +1294,7 @@ inferCall = (context, pair, nameIndex) ->
     opTea = op.tea
   [s2, nextIndex, arg] = infer (subContext s1, context), arg, nextIndex
   s3 = unify (subExp s2, opTea), [arg.tea, returnName]
-  [(concat s3, s2, s1), nextIndex, (subExp s3, returnName)]
+  [(concatMaps s3, s2, s1), nextIndex, (subExp s3, returnName)]
 
 
 
@@ -1348,7 +1356,7 @@ makeFreshForEach = (nameIndex, vars) ->
 
 findFrees = (type) ->
   if Array.isArray type
-    concat (for subType in type
+    concatSets (for subType in type
       findFrees subType)...
   else
     if isTypeVariable type
@@ -1362,13 +1370,6 @@ isTypeVariable = (name) ->
 freshName = (nameIndex) ->
   # TODO: handle more than 27 variables
   String.fromCharCode 97 + nameIndex
-
-concat = (maps...) ->
-  concated = newMap()
-  for map in maps
-    for k, v of map.values
-      addToMap concated, k, v
-  concated
 
 # mycroft = (context, node, environment) ->
 #   if node.label is 'numerical'
