@@ -359,7 +359,8 @@ tokenizedDefinitions = (source) ->
 
 tokenizeAndTypeInferDefinitions = (source) ->
   ast = tokenizedDefinitions source
-  inferWheres builtInContext(), (pairs ast), 3
+  if ast.length % 2 is 0
+    ignoreTypeErrors -> inferWheres builtInContext(), (pairs ast), 3
   ast
 
 # Correct offset by 1 in positions, when we wrap the source in an S-exp
@@ -1309,7 +1310,7 @@ infer = (context, expression, nameIndex) ->
         # TODO: replace free type variables with new unused names in function
         concreteType = lookupInMap context, expression.token
         unless concreteType
-          throw new Error "Unbound variable #{expression.token}"
+          throw new TypeError "Unbound variable #{expression.token}"
         [nextIndex, concreteType] = freshenFree nameIndex, concreteType
         expression.tea = concreteType
         [newMap(), nextIndex, expression]
@@ -1318,7 +1319,8 @@ infer = (context, expression, nameIndex) ->
         {params, body, wheres} = fnDefinition expression
         # TODO: more params
         definedParams = inside params
-        # assume if definedParams.length > 0
+        if definedParams.length is 0
+          throw new TypeError "Typing lambdas without a param not implemented yet"
         argName = freshName nameIndex
         param = definedParams[0]
         context = concatMaps context, newMapWith param.token, argName
@@ -1327,11 +1329,13 @@ infer = (context, expression, nameIndex) ->
         [s1, nextIndex, expression]
 
       # Call
-      else if (Array.isArray expression) and expression.length > 2
+      else if (Array.isArray expression) and expression.length > 3
         [op..., arg] = inside expression
         [s, nextIndex, tea] = inferCall context, [op, arg], nameIndex
         expression.tea = tea
         [s, nextIndex, expression]
+      else
+        throw new TypeError "Other patterns not typable yet"
 
 inferCall = (context, pair, nameIndex) ->
   [ops, arg] = pair
@@ -1370,7 +1374,7 @@ unifyWith = (subs, pairs) ->
       [t2from, t2to] = t2
       unifyWith subs, [[t1from, t2from], [t1to, t2to]].concat rest
     else
-      throw new Error "Types #{t1}, #{t2} could not be unified"
+      throw new TypeError "Types #{t1}, #{t2} could not be unified", [t1, t2]
 
 subPairs = (subs, pairs) ->
   for [t1, t2] in pairs
@@ -1421,6 +1425,17 @@ isTypeVariable = (name) ->
 freshName = (nameIndex) ->
   suffix = if nameIndex > 25 then nameIndex // 25 else ''
   String.fromCharCode 97 + nameIndex % 25
+
+ignoreTypeErrors = (fn) ->
+  try
+    ret = fn()
+  catch e
+    unless e instanceof TypeError
+      throw e
+
+class TypeError extends Error
+  # required for instanceof to work
+  constructor: (@message, @data) -> super @message
 
 # mycroft = (context, node, environment) ->
 #   if node.label is 'numerical'
