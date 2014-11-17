@@ -357,6 +357,11 @@ syntaxedExp = (source) ->
 tokenizedDefinitions = (source) ->
   (parentize shiftPos [inside typifyDefinitions astize tokenize "(#{source})"])[0]
 
+tokenizeAndTypeInferDefinitions = (source) ->
+  ast = tokenizedDefinitions source
+  inferWheres builtInContext(), (pairs ast), 3
+  ast
+
 # Correct offset by 1 in positions, when we wrap the source in an S-exp
 shiftPos = (ast) ->
   crawl ast, (word) ->
@@ -1585,7 +1590,7 @@ exports.compileModule = (source) ->
 
 exports.compileExp = compiledBottom
 
-exports.tokenize = tokenizedDefinitions
+exports.tokenize = tokenizeAndTypeInferDefinitions
 
 exports.tokenizeExp = tokenizedExp
 
