@@ -1419,8 +1419,8 @@ isTypeVariable = (name) ->
   not (Array.isArray name) and name.charCodeAt(0) >= 97
 
 freshName = (nameIndex) ->
-  # TODO: handle more than 27 variables
-  String.fromCharCode 97 + nameIndex
+  suffix = if nameIndex > 25 then nameIndex // 25 else ''
+  String.fromCharCode 97 + nameIndex % 25
 
 # mycroft = (context, node, environment) ->
 #   if node.label is 'numerical'
