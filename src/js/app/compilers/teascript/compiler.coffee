@@ -1318,6 +1318,8 @@ infer = (context, expression, nameIndex) ->
       else if expression.type is 'function'
         {params, body, wheres} = fnDefinition expression
         # TODO: more params
+        if !params or !body
+          throw new TypeError "Invalid function declaration"
         definedParams = inside params
         if definedParams.length is 0
           throw new TypeError "Typing lambdas without a param not implemented yet"
