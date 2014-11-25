@@ -1302,7 +1302,7 @@ infer = (context, expression, nameIndex) ->
       expression.tea = 'Num'
       [newMap(), nameIndex, expression]
     when 'string'
-      expression.tea = 'Text'
+      expression.tea = if /$"/.test expression.token then 'String' else 'Char'
       [newMap(), nameIndex, expression]
     else
       # Reference
