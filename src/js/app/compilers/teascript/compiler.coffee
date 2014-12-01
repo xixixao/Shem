@@ -1,4 +1,4 @@
-keywords = 'def defn data class fn proc match if type :: \\
+keywords = 'data class instance fn proc match if \\
             access call new
             require'.split ' '
 
@@ -179,15 +179,34 @@ fnDefinition = (node) ->
   params = if Array.isArray(paramList) then paramList else undefined
   defs ?= []
   for def, i in defs
-    if matchNode '::', def
+    if matchNode '->', def
       type = def
     else if matchNode '#', def
       doc = def
-    if not matchAnyNode ['::', '#'], def
+    if not matchAnyNode ['->', '#'], def
       implementation = defs[i...]
       break
   {body, wheres} = fnImplementation implementation ? []
   {params, type, doc, body, wheres}
+
+classDefinition = (node) ->
+  words = inside node
+  [keyword, paramList, defs...] = words
+  params = if Array.isArray(paramList) then paramList else undefined
+  defs ?= []
+  if defs.length > 0
+    [first] = defs
+    if Array.isArray first
+      context = first
+      defs = defs[1..]
+  wheres = whereList defs
+  {params, context, wheres}
+
+instanceDefinition = (node) ->
+  words = inside node
+  [keyword, klass, defs...] = words
+  wheres = whereList defs
+  {klass, wheres}
 
 fnImplementation = (defs) ->
   [body, where...] = defs
@@ -217,6 +236,22 @@ labelFns = (ast) ->
 
 labelFnBody = (node) ->
   return
+
+labelClasses = (ast) ->
+  macro 'class', ast, (node, args) ->
+    node.type = 'class'
+    {params, wheres} = classDefinition node
+    labelWhere wheres
+    labelParams node, params if params?
+    node
+
+labelInstances = (ast) ->
+  macro 'instance', ast, (node, args) ->
+    node.type = 'instance'
+    {klass, wheres} = instanceDefinition node
+    klass.label = 'operator'
+    labelWhere wheres
+    node
 
 labelNames = (pattern) ->
   if Array.isArray pattern
@@ -262,7 +297,7 @@ typeDatas = (ast) ->
     node
 
 typeTypes = (ast) ->
-  macro '::', ast, (node) ->
+  macro '->', ast, (node) ->
     node.type = 'type'
     node
 
@@ -301,7 +336,7 @@ labelDelimeterCall = (node) ->
 
 typifyMost = (ast) ->
   apply ast, typeComments, typeDatas, typeTypes, labelSimple, labelMatches,
-    labelFns, labelRequires, labelComments
+    labelFns, labelClasses, labelInstances, labelRequires, labelComments
 
 # Special labeling for files
 
@@ -1286,8 +1321,14 @@ assignTypes = (context, expression) ->
     node.tea = subExp s, node.tea if node.tea
 
 inferWheres = (context, pairs, nameIndex) ->
+  # 1st find all classes
+
+  # 2nd find all declarations
   for [name, def] in pairs
-    addToMap context, name.token, freshName nameIndex++
+    [nameIndex, type] = freshOrDeclared def, nameIndex
+    addToMap context, name.token, type
+
+  # 3rd type check
   for [name, def] in pairs
     [s1, nameIndex, def] = infer context, def, nameIndex
     s2 = unify (subExp s1, (inSet context, name.token)), def.tea
@@ -1295,6 +1336,17 @@ inferWheres = (context, pairs, nameIndex) ->
   for [name, def] in pairs
     name.tea = def.tea = (inSet context, name.token)
     [name, def]
+
+freshOrDeclared = (def, nameIndex) ->
+  if def.type is 'function'
+    {type} = fnDefinition def
+    readType nameIndex, type
+  else
+    type = freshName nameIndex++
+    [nameIndex, type]
+
+readType = (nameIndex, node) ->
+  freshenFree nameIndex, (inside node)[1..].map (x) -> x.token
 
 infer = (context, expression, nameIndex) ->
   switch expression.label
