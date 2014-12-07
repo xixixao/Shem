@@ -240,10 +240,15 @@ labelFnBody = (node) ->
 labelClasses = (ast) ->
   macro 'class', ast, (node, args) ->
     node.type = 'class'
-    {params, wheres} = classDefinition node
+    {params, context, wheres} = classDefinition node
+    labelContext context
     labelWhere wheres
     labelParams node, params if params?
     node
+
+labelContext = (node) ->
+  for parent in inside node
+    parent.label = 'operator'
 
 labelInstances = (ast) ->
   macro 'instance', ast, (node, args) ->
@@ -1323,13 +1328,31 @@ assignTypes = (context, expression) ->
 inferWheres = (context, pairs, nameIndex) ->
   # 1st find all classes
 
+  # classEnv = {}
+  # for [name, def] in pairs when def.type is 'class'
+  #   if classEnv[name]
+  #     throw new TypeError "Redefining class #{name}"
+  #   {context} = classDefinition def
+  #   classEnv[name] = [(tokens inside context), []]
+
+  # 1,5th find all instances
+
+  # for [name, def] in pairs when def.type is 'instance'
+  #   {klass} = instanceDefinition def
+  #   if not classEnv[name]
+  #     throw new TypeError "Missing class #{klass} for instance #{name}"
+  #   [supers, instances] = classEnv[klass]
+  #   instances.push  #TODO finish
+
+
+
   # 2nd find all declarations
-  for [name, def] in pairs
+  for [name, def] in pairs when not def.type
     [nameIndex, type] = freshOrDeclared def, nameIndex
     addToMap context, name.token, type
 
   # 3rd type check
-  for [name, def] in pairs
+  for [name, def] in pairs when def.type not in ['class', 'instance']
     [s1, nameIndex, def] = infer context, def, nameIndex
     s2 = unify (subExp s1, (inSet context, name.token)), def.tea
     context = subContext (concatMaps s2, s1), context
@@ -1346,7 +1369,11 @@ freshOrDeclared = (def, nameIndex) ->
     [nameIndex, type]
 
 readType = (nameIndex, node) ->
-  freshenFree nameIndex, (inside node)[1..].map (x) -> x.token
+  freshenFree nameIndex, tokens (inside node)[1..]
+
+tokens = (words) ->
+  words.map (x) -> x.token
+
 
 infer = (context, expression, nameIndex) ->
   switch expression.label
@@ -1479,6 +1506,26 @@ isTypeVariable = (name) ->
 freshName = (nameIndex) ->
   suffix = if nameIndex > 25 then nameIndex // 25 else ''
   String.fromCharCode 97 + nameIndex % 25
+
+typeVariable = (name) ->
+  new TypeVariable name
+
+nullaryType = (name) ->
+  new NullaryType name
+
+naryType = (name, params) ->
+  new PolyType name, params
+
+class MonoType
+  constructor: (@name) ->
+
+class TypeVariable extends MonoType
+class NullaryType extends MonoType
+
+class PolyType
+  constructor: (@name, @params) ->
+
+class NaryType extends PolyType
 
 ignoreTypeErrors = (fn) ->
   try
