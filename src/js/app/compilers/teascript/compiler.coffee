@@ -789,7 +789,7 @@ findHoistableWheres = ([graph, lookupTable]) ->
     [valid, lookupTableForGraph valid]
   ]
 
-# Topological sort and dependency graph
+# Topological sort the dependency graph
 
 sortTopologically = ([graph, dependencies]) ->
   reversedDependencies = reverseGraph graph
@@ -1234,6 +1234,8 @@ builtInContext = ->
 
     '^', binaryMathOpType
 
+    '~', ['Num', 'Num']
+
     '+', binaryMathOpType
     '*', binaryMathOpType
     '=', comparatorOpType
@@ -1347,7 +1349,7 @@ inferWheres = (context, pairs, nameIndex) ->
 
 
   # 2nd find all declarations
-  for [name, def] in pairs when not def.type
+  for [name, def] in pairs when def.type not in ['class', 'instance']
     [nameIndex, type] = freshOrDeclared def, nameIndex
     addToMap context, name.token, type
 
@@ -1363,13 +1365,13 @@ inferWheres = (context, pairs, nameIndex) ->
 freshOrDeclared = (def, nameIndex) ->
   if def.type is 'function'
     {type} = fnDefinition def
-    readType nameIndex, type
-  else
-    type = freshName nameIndex++
-    [nameIndex, type]
+    if type
+      return readType nameIndex, type
+  type = freshName nameIndex++
+  [nameIndex, type]
 
 readType = (nameIndex, node) ->
-  freshenFree nameIndex, tokens (inside node)[1..]
+  freshenFree nameIndex, tokens (inside node)[1..].filter isReference
 
 tokens = (words) ->
   words.map (x) -> x.token
@@ -1450,7 +1452,7 @@ unifyWith = (subs, pairs) ->
     else if isTypeVariable t2
       sub = addToMap newMap(), t2, t1
       unifyWith (addToMap subs, t2, t1), subPairs sub, rest
-    else if (Array.isArray t1) and (Array.isArray t2)
+    else if (Array.isArray t1) and (Array.isArray t2) and t1.length is t2.length
       [t1from, t1to] = t1
       [t2from, t2to] = t2
       unifyWith subs, [[t1from, t2from], [t1to, t2to]].concat rest
