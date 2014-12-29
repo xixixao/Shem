@@ -4,7 +4,7 @@ keywords = 'data class instance fn proc match if \\
 
 controls = '\\(\\)\\[\\]\\{\\}'
 
-tokenize = (input) ->
+tokenize2 = (input) ->
   whitespace = ''
   currentPos = 0
   while input.length > 0
@@ -16,7 +16,7 @@ tokenize = (input) ->
       | /([^\ /]|\\/)([^/]|\\/)*?/ # regex
       | "[^"]*?" # strings
       | '\\?[^']' # char
-      | [^#{controls}"'\s]+ # normal tokens
+      | [^#{controls}"'\s]+  normal tokens
       )///
     if not match
       throw new Error "Could not recognize a token starting with `#{input[0..10]}`"
@@ -31,8 +31,30 @@ tokenize = (input) ->
     whitespace = ''
     {token, ws, pos}
 
-leftDelims = ['(', '[', '{']
-rightDelims = [')', ']', '}']
+tokenize = (input) ->
+  currentPos = 0
+  while input.length > 0
+    match = input.match ///
+      ^ # must be at the start
+      (
+        \x20+\n? # spaces possibly at end of line
+      | \n # newline
+      | [#{controls}] # delims
+      | /([^\\x20]|\\/)([^/]|\\/)*?/ # regex
+      | "[^"]*?" # strings
+      | '\\?[^']' # char
+      | [^#{controls}"'\s]+ # normal tokens
+      )///
+    if not match
+      throw new Error "Could not recognize a token starting with `#{input[0..10]}`"
+    [token] = match
+    input = input[token.length...]
+    pos = currentPos
+    currentPos += token.length
+    constantLabeling {token, pos}
+
+noWS = (tokens) ->
+  tokens.filter (token) -> token.label isnt 'whitespace'
 
 astize = (tokens) ->
   tree = []
@@ -48,6 +70,21 @@ astize = (tokens) ->
     else
       stack[stack.length - 1].push token
   stack[0][0]
+
+leftDelims = ['(', '[', '{']
+rightDelims = [')', ']', '}']
+
+constantLabeling = (atom) ->
+  {token} = atom
+  labelMapping atom,
+    ['numerical', /^-?\d+/.test token]
+    ['label', isLabel atom]
+    ['string', /^["']/.test token]
+    ['regex', /^\/[^ \/]/.test token]
+    ['paren', token in ['(', ')']]
+    ['bracket', token in ['[', ']']]
+    ['brace', token in ['{', '}']]
+    ['whitespace', /^\s+$/.test token]
 
 typed = (a, b) ->
   b.type = a.type
@@ -121,6 +158,252 @@ mapTokens = (tokens, ast, cb) ->
   crawl ast, (word, token) ->
     if token in tokens
       cb word
+
+class Context
+  constructor: (@macros = builtInMacros, @expand = {}, @names = [], @types = builtInContext(), @kinds = builtInKinds(), @nameIndex = 0) ->
+    for phase in ['syntax', 'typing', 'translation']
+      @expand[phase] = do (phase) => (expression) =>
+        log phase, expression
+        expand = @expand[phase]
+        if isCall expression
+          op = _operator expression
+          if isAtom op
+            if op.token of @macros
+              if phase is 'syntax'
+                op.label = 'keyword'
+              expanded = @macros[op.token][phase] this, expression
+              if expanded is expression
+                expression
+              else
+                expand expanded
+            else
+              callCompile[phase] this, expression
+          else
+            expandedOp = expand op
+            if expandedOp is op
+              callCompile[phase] this, expression
+            else
+              expand replicate expression,
+                (form_ (join [expandedOp], (_arguments expression)))
+        else
+          expression
+
+  _name: ->
+    @names[@names.length - 1]
+
+  setName: (name) ->
+    @names.push name
+
+  resetName: ->
+    @names.pop()
+
+  kindOrName: (name) ->
+    (lookupInMap @kinds, name.token) or
+      (lookupInMap @types, name.token)
+
+topLevel =
+  syntax: (ctx, form) ->
+    for [name, def] in pairs _terms form
+      name.label = 'name'
+      if isAtom def
+        atomCompile.syntax def
+      else
+        ctx.expand.syntax def
+    form
+  typing: (ctx, form) ->
+    expanded = form_ concat (for [name, def] in pairs _terms form
+      if isAtom def
+        addToMap ctx.types, name.token, inferCtx ctx, def
+        typed = def
+      else
+        ctx.setName name.token
+        typed = ctx.expand.typing def
+      [name, typed])
+    name.tea = lookupInMap ctx.types, name.token
+    expanded
+
+  translation: (ctx, form) ->
+    listOfLines (for [name, def] in pairs _terms form
+      if isAtom def
+        "var #{name.token} = #{atomCompile.translation def};"
+      else
+        ctx.expand.translation def)
+
+builtInMacros =
+  data:
+    syntax: (ctx, form) ->
+      for term in _arguments form
+        if isAtom term
+          term.label = 'name'
+        else
+          for [name, type] in _labeled _terms term
+            type.label = 'typename'
+      form
+    typing: (ctx, form) -> #TODO: add to the type system the data
+      for [constr, params] in leftPairs isAtom, _arguments form
+        constrType = if params
+          join (_labeled _terms params).map(_snd).map(_token), [ctx._name()]
+        else
+          ctx._name()
+        addToMap ctx.types, constr.token, constrType
+        constr.tea = constrType
+      addToMap ctx.kinds, ctx._name(), ['*', '*']
+      form
+    translation: (ctx, form) ->
+      listOfLines (for [constr, params] in leftPairs isAtom, _arguments form
+        identifier = validIdentifier constr.token
+        paramNames = (_labeled _terms params or []).map(_fst).map(_labelName)
+          .map(validIdentifier)
+        paramList = paramNames.join(', ')
+        paramAssigns = blockOfLines paramNames.map (name) ->
+          "  this.#{name} = name;"
+        constrFn = """function #{identifier}(#{paramList}) {#{paramAssigns}};"""
+        constrValue = if params
+          """
+          #{identifier}.create = function(#{paramList}){
+            return new #{identifier}(#{paramList});
+          }"""
+        else
+          "#{identifier}.value = new #{identifier}();"
+        listOfLines [constrFn, constrValue]
+      )
+  record:
+    syntax: (ctx, form) ->
+      for [name, type] in _labeled _arguments form
+        type.label = 'typename'
+      form
+    typing: (ctx, form) ->
+      # (data #{ctx._name()} [#{_arguments form}])
+      replicate form,
+        (form_ [(token_ 'data'), (token_ ctx._name()), (tuple_ _arguments form)])
+
+inferCtx = (ctx, expression) ->
+  [s, nI, {tea}] = infer ctx.types, expression, ctx.nameIndex
+  tea
+
+atomCompile =
+  syntax: (atom) ->
+    {token} = atom
+    labelMapping atom,
+      ['numerical', /^~?\d+/.test token]
+      ['const', /^[A-Z][^\s]*$/.test token]
+      ['string', /^["']/.test token]
+      ['regex', /^\/[^ \/]/.test token]
+  translation: (atom) ->
+    {label, token} = atom
+    if label is 'numerical'
+      if token[0] is '-'
+        "(~ #{token})"
+      else
+        token
+    else if label is 'const'
+      switch token
+        when 'True' then 'true'
+        when 'False' then 'false'
+        else "#{token}.value"
+    else if label in ['regex', 'string']
+      token
+    else
+      validIdentifier token
+
+callCompile =
+  syntax: (ctx, call) ->
+    op = _operator call
+    if isAtom op
+      op.label = 'operator'
+    for arg in _arguments call
+      ctx.expand.syntax arg
+    call
+
+form_ = (list) ->
+  concat [
+    tokenize '('
+    list
+    tokenize ')'
+  ]
+
+tuple_ = (list) ->
+  concat [
+    tokenize '['
+    list
+    tokenize ']'
+  ]
+
+token_ = (string) ->
+  (tokenize string)[0]
+
+blockOfLines = (lines) ->
+  if lines.length is 0
+    ''
+  else
+    '\n' + (listOfLines lines) + '\n'
+
+listOfLines = (lines) ->
+  lines.join '\n'
+
+isCall = (expression) ->
+  (Array.isArray expression) and expression.length > 2 and
+    expression[0].label is 'paren'
+
+isForm = (expression) ->
+  Array.isArray expression
+
+isLabel = (atom) ->
+  /:$/.test atom.token
+
+isAtom = (expression) ->
+  not (Array.isArray expression)
+
+# Returns tuples with all arguments, possibly with associated label
+_labeled = (terms) ->
+  rightPairs isLabel, terms
+
+rightPairs = (keyTest, list) ->
+  listToPairsWith list, (item, next) ->
+    if next and not keyTest next
+      if item and keyTest item
+        [item, next]
+      else if next
+        [null, next]
+
+leftPairs = (keyTest, list) ->
+  listToPairsWith list, (item, next) ->
+    if item and keyTest item
+      if next and not keyTest next
+        [item, next]
+      else
+        [item, null]
+
+listToPairsWith = (list, convertBy) ->
+  (convertBy list[i], list[i + 1] for i in [-1..list.length]).filter _is
+
+replicate = (expression, newForm) ->
+  newForm
+
+_operator = (call) ->
+  (_terms call)[0]
+
+_arguments = (call) ->
+  (_terms call)[1..]
+
+_terms = (form) ->
+  form[1...-1].filter ({token}) -> not (token and token.match /^\s+$/)
+
+_snd = ([a, b]) -> b
+
+_fst = ([a, b]) -> a
+
+_labelName = (atom) -> (_token atom)[0...-1]
+
+_token = ({token}) -> token
+
+join = (seq1, seq2) ->
+  seq1.concat seq2
+
+concat = (lists) ->
+  [].concat lists...
+
+_is = (x) -> !!x
 
 theme =
   keyword: 'red'
@@ -332,7 +615,7 @@ labelFnCall = (operator) ->
 
 labelDelimeterCall = (node) ->
   if node.type isnt 'pattern'
-    [openDelim, ..., closeDelim] = node
+    [openDelim, IGNORE..., closeDelim] = node
     openDelim.label = 'operator'
     closeDelim.label = 'operator'
 
@@ -1221,6 +1504,9 @@ topScopeDefines = ->
 binaryMathOpType = ['Num', ['Num', 'Num']]
 comparatorOpType = ['a', ['a', 'Bool']]
 
+builtInKinds = ->
+  newMapWith 'Fn', ['*', '*']
+
 builtInContext = ->
   newMapWith 'true', 'Bool',
     'false', 'Bool'
@@ -1391,11 +1677,11 @@ infer = (context, expression, nameIndex) ->
       [newMap(), nameIndex, expression]
     else
       # Reference
-      if (isReference expression) or expression.label is 'keyword'
+      if (isReference expression) or expression.label in ['keyword', 'const']
         # TODO: replace free type variables with new unused names in function
         concreteType = lookupInMap context, expression.token
         unless concreteType
-          throw new TypeError "Unbound variable #{expression.token}"
+          throw new TypeError "Unbound name #{expression.token}"
         [nextIndex, concreteType] = freshenFree nameIndex, concreteType
         expression.tea = concreteType
         [newMap(), nextIndex, expression]
@@ -1510,7 +1796,7 @@ isTypeVariable = (name) ->
   not (Array.isArray name) and name.charCodeAt(0) >= 97
 
 freshName = (nameIndex) ->
-  suffix = if nameIndex > 25 then nameIndex // 25 else ''
+  suffix = if nameIndex > 25 then Math.floor nameIndex / 25 else ''
   String.fromCharCode 97 + nameIndex % 25
 
 typeVariable = (name) ->
@@ -1699,6 +1985,7 @@ var from__nullable = function (jsValue) {
 
 ;
 """
+
 
 exports.compile = (source) ->
   library + compileDefinitions source
