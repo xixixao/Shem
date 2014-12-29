@@ -784,9 +784,13 @@ findHoistableWheres = ([graph, lookupTable]) ->
         break
     if not hoisted
       valid.push where
+  validLookup = lookupTableForGraph valid
+  # Remove the valid deps from hoistable defs so that the graphs are mutually exclusive
+  for where in hoistable
+    removeFromSet where.set, name for name of validLookup
   [
     [hoistable, lookupTableForGraph hoistable]
-    [valid, lookupTableForGraph valid]
+    [valid, validLookup]
   ]
 
 # Topological sort the dependency graph
