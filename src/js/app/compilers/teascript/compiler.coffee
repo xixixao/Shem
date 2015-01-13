@@ -86,6 +86,9 @@ constantLabeling = (atom) ->
     ['brace', token in ['{', '}']]
     ['whitespace', /^\s+$/.test token]
 
+_isCollectionDelim = (atom) ->
+  atom.label in ['bracket', 'brace']
+
 typed = (a, b) ->
   b.type = a.type
   b
@@ -108,9 +111,9 @@ walkOnly = (ast, cb) ->
 crawl = (ast, cb, parent) ->
   if Array.isArray ast
     typed ast, (for node in ast
-      crawl node, cb)
+      crawl node, cb, ast)
   else
-    cb ast, ast.token
+    cb ast, ast.token, parent
 
 crawlWhile = (ast, cond, cb) ->
   if Array.isArray ast
@@ -128,6 +131,12 @@ crouch = (ast, cb) ->
   else
     cb ast
   ast
+
+visitExpressions = (expression, cb) ->
+  cb expression
+  if isForm expression
+    for term in _terms expression
+      visitExpressions term, cb
 
 inside = (node) -> node[1...-1]
 
@@ -159,36 +168,47 @@ mapTokens = (tokens, ast, cb) ->
     if token in tokens
       cb word
 
+mapCompile = (fn, string) ->
+  fn (new Context), astize tokenize string
+
+mapTyping = (fn, string) ->
+  ast = astize tokenize string
+  fn (ctx = new Context), ast
+  expressions = []
+  visitExpressions ast, (expression) ->
+    expressions.push [(collapse toHtml expression), printType expression.tea] unless expression is ast
+  types: values mapMap (__ printType, _type), subtractMaps ctx._scope(), builtInContext new Context
+  subs: values mapMap printType, ctx.substitution
+  ast: expressions
+
+_type = (declaration) ->
+  declaration.type
+
+mapSyntax = (fn, string) ->
+  ast = astize tokenize string
+  fn (new Context), ast
+  collapse toHtml ast
+
 class Context
-  constructor: (@macros = builtInMacros, @expand = {}, @names = [], @types = builtInContext(), @kinds = builtInKinds(), @nameIndex = 0) ->
-    for phase in ['syntax', 'typing', 'translation']
-      @expand[phase] = do (phase) => (expression) =>
-        log phase, expression
-        expand = @expand[phase]
-        if isCall expression
-          op = _operator expression
-          if isAtom op
-            if op.token of @macros
-              if phase is 'syntax'
-                op.label = 'keyword'
-              expanded = @macros[op.token][phase] this, expression
-              if expanded is expression
-                expression
-              else
-                expand expanded
-            else
-              callCompile[phase] this, expression
-          else
-            expandedOp = expand op
-            if expandedOp is op
-              callCompile[phase] this, expression
-            else
-              expand replicate expression,
-                (form_ (join [expandedOp], (_arguments expression)))
-        else
-          expression
+  constructor: ->
+    @_macros = builtInMacros
+    @expand = {}
+    @names = []
+    @variableIndex = 0
+    @typeVariabeIndex = 0
+    @substitution = newMap()
+    @statement = []
+    @cacheScopes = [[]]
+    @_assignTos = []
+    @scopes = [builtInContext this] # dangerous passing itself in constructor
+
+  macros: ->
+    @_macros
 
   _name: ->
+    (@names[@names.length - 1] ? {}).token
+
+  _nameExpression: ->
     @names[@names.length - 1]
 
   setName: (name) ->
@@ -197,128 +217,744 @@ class Context
   resetName: ->
     @names.pop()
 
-  kindOrName: (name) ->
-    (lookupInMap @kinds, name.token) or
-      (lookupInMap @types, name.token)
+  setAssignTo: (compiled) ->
+    @_assignTos.push compiled
 
-topLevel =
-  syntax: (ctx, form) ->
-    for [name, def] in pairs _terms form
-      name.label = 'name'
-      if isAtom def
-        atomCompile.syntax def
+  assignTo: ->
+    @_assignTos[@_assignTos.length - 1]
+
+  resetAssignTo: ->
+    @_assignTos.pop()
+
+  _scope: ->
+    @scopes[@scopes.length - 1]
+
+  declaration: (name) ->
+    @_declarationInScope @scopes.length - 1, name
+
+  _declarationInScope: (i, name) ->
+    (lookupInMap @scopes[i], name) or
+      i > 0 and (@_declarationInScope i - 1, name) or
+      throw "Could not find declaration for #{name}"
+
+  addType: (name, type) ->
+    if lookupInMap @_scope(), name
+      (lookupInMap @_scope(), name).type = type
+    else
+      addToMap @_scope(), name, {type}
+
+  addArity: (name, arity) ->
+    if lookupInMap @_scope(), name
+      (lookupInMap @_scope(), name).arity = arity
+    else
+      addToMap @_scope(), name, {arity}
+
+  addTypes: (names, types) ->
+    for name, i in names
+      @addType name, types[i]
+
+  type: (name) ->
+    (@declaration name).type
+
+  arity: (name) ->
+    (@declaration name).arity
+
+  newScope: ->
+    @scopes.push newMap()
+
+  closeScope: ->
+    @scopes.pop()
+
+  freshTypeVariable: (kind) ->
+    if not kind
+      throw new Error "Provide kind in freshTypeVariable"
+    new TypeVariable (freshName @typeVariabeIndex++), kind
+
+  extendSubstitution: (substitution) ->
+    @substitution = joinSubs substitution, @substitution
+
+  newJsVariable: ->
+    "i#{@variableIndex++}"
+
+  setGroupTranslation: ->
+    @cacheScopes.push []
+
+  cacheAssignTo: ->
+    if @assignTo() and not @_translationCache()
+      # Replace assign to with cache name
+      cacheName = @newJsVariable()
+      cache = [cacheName, @assignTo()]
+      @_assignTos[@_assignTos.length - 1] = cacheName
+      @cacheScopes[@cacheScopes.length - 1][0] = cache
+
+  _translationCache: ->
+    @cacheScopes[@cacheScopes.length - 1][0]
+
+  translationCache: ->
+    if cache = @cacheScopes.pop()[0]
+      [compileAssign cache]
+    else
+      []
+
+expressionCompile = (ctx, expression) ->
+  throw "invalid expressionCompile args" unless ctx instanceof Context and expression
+  rememberCompiled expression,
+    if isAtom expression
+      atomCompile ctx, expression
+    else if _isTuple expression
+      tupleCompile ctx, expression
+    else if _isSeq expression
+      seqCompile ctx, expression
+    else if isCall expression
+        op = _operator expression
+        if isName op
+          (if op.token of ctx.macros()
+            macroCompile
+          else
+            callCompile) ctx, expression
+        else
+          expandedOp = termCompile ctx, op
+          if isTranslated expandedOp
+            callUnknownTranslate ctx, expandedOp, expression
+          else
+            expressionCompile replicate expression,
+              (call_ (join [expandedOp], (_arguments expression)))
+    else
+      log "Not handled", expression
+      throw "Not handled expression in expressionCompile"
+
+rememberCompiled = (expression, result) ->
+  expression.compiled = result
+
+_compiled = (expression) ->
+  expression.compiled
+
+callCompile = (ctx, call) ->
+  operator = _operator call
+  args = _labeled _arguments call
+  labeledArgs = labeledToMap args
+  operator.label = 'operator'
+
+  return 'malformed' if tagFreeLabels args
+
+  paramNames = ctx.arity operator.token
+  if not paramNames
+    throw "unknown function #{operator.token}"
+  positionalParams = filter ((param) -> not (lookupInMap labeledArgs, param)), paramNames
+  nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
+
+  if nonLabeledArgs.length > positionalParams.length
+    malformed call, 'Too many arguments'
+  else
+    extraParamNames = positionalParams[nonLabeledArgs.length..]
+    extraParams = map token_, extraParamNames
+    positionalArgs = map id, nonLabeledArgs # copy
+    extraArgs = map id, extraParams
+    argsInOrder = (for param in paramNames
+      (lookupInMap labeledArgs, param) or
+        positionalArgs.shift() or
+        extraArgs.shift())
+    sortedCall = (call_ operator,  argsInOrder)
+
+    if ctx.assignTo()
+      if isCapital operator
+        compiled = callConstructorPattern ctx, sortedCall, extraParamNames
+        retrieve call, sortedCall
+        compiled
       else
-        ctx.expand.syntax def
-    form
-  typing: (ctx, form) ->
-    expanded = form_ concat (for [name, def] in pairs _terms form
-      if isAtom def
-        addToMap ctx.types, name.token, inferCtx ctx, def
-        typed = def
+        malformed call, "function patterns not supported"
+    else
+      if nonLabeledArgs.length < positionalParams.length
+        lambda = (fn_ extraParams, sortedCall)
+        compiled = macroCompile ctx, lambda
+        retrieve call, lambda
+        compiled
       else
-        ctx.setName name.token
-        typed = ctx.expand.typing def
-      [name, typed])
-    name.tea = lookupInMap ctx.types, name.token
+        compiled = callSaturatedKnownCompile ctx, sortedCall
+        retrieve call, sortedCall
+        compiled
+
+callConstructorPattern = (ctx, call, extraParamNames) ->
+  operator = _operator call
+  args = _arguments call
+  isExtra = (arg) -> (isAtom arg) && (_token arg) in extraParamNames
+  paramNames = ctx.arity operator.token
+
+  if args.length - extraParamNames.length > 1
+    ctx.cacheAssignTo()
+
+  compiledArgs = (for arg, i in args when not isExtra arg
+    ctx.setAssignTo "#{ctx.assignTo()}#{jsObjectAccess paramNames[i]}"
+    elemCompiled = expressionCompile ctx, arg
+    ctx.resetAssignTo()
+    elemCompiled)
+
+  for arg in args when isExtra arg
+    arg.tea = ctx.freshTypeVariable star
+
+  # Typing operator like inside a known call
+  operator.tea = freshInstance ctx, ctx.type operator.token
+
+  # Gets the general type as if the extra arguments were supplied
+  callTyping ctx, call
+
+  combinePatterns join [
+    (precs: [(cond_ "#{ctx.assignTo()} instanceof #{operator.token}")])], compiledArgs
+
+jsObjectAccess = (fieldName) ->
+  if (validIdentifier fieldName) is fieldName
+    ".#{fieldName}"
+  else
+    "['#{fieldName}']"
+
+callSaturatedKnownCompile = (ctx, call) ->
+  operator = _operator call
+  args = _arguments call
+
+  # TODO: instead of freshInstance here should be using type schemes
+  operator.tea = freshInstance ctx, ctx.type operator.token
+  # log "compiling saturated", operator, printType operator.tea
+  compiledArgs = termsCompile ctx, args
+  # log "call typing for #{collapse crawl call, _token}"
+  callTyping ctx, call
+
+  opName = validIdentifier operator.token
+  translatedOperator = if isCapital operator then "#{opName}.create" else opName
+  assignCompile ctx, call, "#{translatedOperator}(#{listOf compiledArgs})"
+
+labeledToMap = (pairs) ->
+  labelNaming = ([label, value]) -> [(_labelName label), value]
+  newMapKeysVals (unzip map labelNaming, filter all, pairs)...
+
+tagFreeLabels = (pairs) ->
+  freeLabels = filter (([label, value]) -> not value), pairs
+  # Free labels not supported now inside calls
+  freeLabels.map (label) -> label.label = 'malformed'
+  return freeLabels.length > 0
+
+callUnknownTranslate = (ctx, translatedOperator, call) ->
+  args = _arguments call
+  argList = listOf termsCompile ctx, args
+  assignCompile ctx, call, "_#{args.length}(#{translatedOperator}, #{argList})"
+
+callTyping = (ctx, call) ->
+  call.tea = callInfer ctx, _terms call
+
+callInfer = (ctx, terms) ->
+  # Curry the call
+  if terms.length > 2
+    [subTerms..., lastArg] = terms
+    callInferSingle ctx, (callInfer ctx, subTerms), lastArg.tea
+  else
+    [op, arg] = terms
+    callInferSingle ctx, op.tea, arg.tea
+
+callInferSingle = (ctx, operatorTea, argTea) ->
+  returnType = ctx.freshTypeVariable star
+  unify ctx, operatorTea, (typeFn argTea, returnType)
+  returnType
+
+termsCompile = (ctx, list) ->
+  termCompile ctx, term for term in list
+
+termCompile = (ctx, term) ->
+  ctx.setName()
+  compiled = expressionCompile ctx, term
+  ctx.resetName()
+  compiled
+
+expressionsCompile = (ctx, list) ->
+  expressionCompile ctx, expression for expression in list
+
+tupleCompile = (ctx, form) ->
+  elems = _terms form
+  arity = elems.length
+  if arity > 1
+    ctx.cacheAssignTo()
+
+  compiledElems =
+    if ctx.assignTo()
+      for elem, i in elems
+        ctx.setAssignTo "#{ctx.assignTo()}[#{i}]"
+        elemCompiled = expressionCompile ctx, elem
+        ctx.resetAssignTo()
+        elemCompiled
+    else
+      termsCompile ctx, elems
+  # TODO: could support partial tuple application via bare labels
+  #   map [0: "hello" 1:] {"world", "le mond", "svete"}
+  # TODO: should we support bare records?
+  #   [a: 2 b: 3]
+  form.tea = applyKindFn (tupleType arity), (tea for {tea} in elems)...
+
+  if ctx.assignTo()
+    combinePatterns compiledElems
+  else
+    form.label = 'operator'
+    assignCompile ctx, form, "[#{listOf compiledElems}]"
+
+seqCompile = (ctx, form) ->
+  elems = _terms form
+  size = elems.length
+  if size > 1
+    ctx.cacheAssignTo()
+
+  if sequence = ctx.assignTo()
+    hasSplat = no
+    requiredElems = 0
+    for elem in elems
+      if isSplat elem
+        hasSplat = yes
+      else
+        requiredElems++
+
+    if hasSplat and requiredElems is 0
+      return malformed 'Matching on sequences requires at least one element name', form
+
+    compiledArgs = (for elem, i in elems
+      rhs =
+        if isSplat elem
+          "seq_splat(#{i}, #{elems.length - i - 1}, #{sequence})"
+        else
+          "seq_at(#{i}, #{sequence})"
+      ctx.setAssignTo rhs
+      elemCompiled = expressionCompile ctx, elem
+      ctx.resetAssignTo()
+      elemCompiled)
+    cond = "seq_size(#{sequence}) #{if hasSplat then '>=' else '=='} #{requiredElems}"
+    combinePatterns join [(precs: [(cond_ cond)])], compiledArgs
+  else
+    # Compile as calls for type checking
+    # {a b c} to (& a (& b (& c)))
+    expressionCompile ctx, arrayToConses elems
+
+    form.label = 'operator'
+    elemType = if size > 0
+      elems[0].tea
+    else
+      freshTypeVariable star
+    form.tea = new TypeApp arrayType, elemType
+    assignCompile ctx, form, "[#{listOf map _compiled, elems}]"
+
+
+  # if size > 0
+  #   firstElemType = elems[0].tea
+  #   for {tea} in elems
+
+  # form.tea = applyKindFn (tupleType size), (tea for {tea} in elems)...
+
+arrayToConses = (elems) ->
+  if elems.length is 0
+    token_ 'empty-array'
+  else
+    [x, xs...] = elems
+    (call_ (token_ 'cons-array'), [x, (arrayToConses xs)])
+
+assignCompile = (ctx, expression, translatedExpression) ->
+  if to = ctx._nameExpression()
+
+    ctx.setGroupTranslation()
+    {precs, assigns} = patternCompile ctx, to, expression, translatedExpression
+
+    if assigns.length is 0
+      throw new "No assign in assignCompile"
+    listOfLines join ctx.translationCache(), map compileAssign, assigns
+  else
+    translatedExpression
+
+patternCompile = (ctx, pattern, matched, translatedMatched) ->
+  ctx.setAssignTo translatedMatched
+  # caching can occur while compiling the pattern
+  # precs are {cond}s and {cache}s, sorted in order they need to be executed
+  {precs, assigns} = expressionCompile ctx, pattern
+  ctx.resetAssignTo()
+
+  # Check the types
+  unify ctx, matched.tea, pattern.tea
+  # TODO: malformed "LHS\'s type doesn\'t match the RHS in assignment", pattern
+
+  precs: precs ? []
+  assigns: assigns ? []
+
+macroCompile = (ctx, call) ->
+  op = _operator call
+  op.label = 'keyword'
+  expanded = ctx.macros()[op.token] ctx, call
+  if not isWellformed expanded
+    'malformed'
+  else if isTranslated expanded
     expanded
+  else
+    expressionCompile ctx, expanded
 
-  translation: (ctx, form) ->
-    listOfLines (for [name, def] in pairs _terms form
-      if isAtom def
-        "var #{name.token} = #{atomCompile.translation def};"
-      else
-        ctx.expand.translation def)
+isTranslated = (result) ->
+  typeof result is 'string' or result instanceof String
+
+topLevel = (ctx, form) ->
+  listOfLines (for [name, def] in pairs _terms form
+    # for now just atom names
+    # syntaxNewName 'Name pattern required', name
+    ctx.setName name
+    compiled = expressionCompile ctx, def
+    ctx.resetName()
+    compiled)
 
 builtInMacros =
-  data:
-    syntax: (ctx, form) ->
-      for term in _arguments form
-        if isAtom term
-          term.label = 'name'
-        else
-          for [name, type] in _labeled _terms term
-            type.label = 'typename'
-      form
-    typing: (ctx, form) -> #TODO: add to the type system the data
-      for [constr, params] in leftPairs isAtom, _arguments form
-        constrType = if params
-          join (_labeled _terms params).map(_snd).map(_token), [ctx._name()]
-        else
-          ctx._name()
-        addToMap ctx.types, constr.token, constrType
-        constr.tea = constrType
-      addToMap ctx.kinds, ctx._name(), ['*', '*']
-      form
-    translation: (ctx, form) ->
-      listOfLines (for [constr, params] in leftPairs isAtom, _arguments form
-        identifier = validIdentifier constr.token
-        paramNames = (_labeled _terms params or []).map(_fst).map(_labelName)
-          .map(validIdentifier)
-        paramList = paramNames.join(', ')
-        paramAssigns = blockOfLines paramNames.map (name) ->
-          "  this.#{name} = name;"
-        constrFn = """function #{identifier}(#{paramList}) {#{paramAssigns}};"""
-        constrValue = if params
-          """
-          #{identifier}.create = function(#{paramList}){
-            return new #{identifier}(#{paramList});
-          }"""
-        else
-          "#{identifier}.value = new #{identifier}();"
-        listOfLines [constrFn, constrValue]
-      )
-  record:
-    syntax: (ctx, form) ->
-      for [name, type] in _labeled _arguments form
-        type.label = 'typename'
-      form
-    typing: (ctx, form) ->
-      # (data #{ctx._name()} [#{_arguments form}])
-      replicate form,
-        (form_ [(token_ 'data'), (token_ ctx._name()), (tuple_ _arguments form)])
 
-inferCtx = (ctx, expression) ->
-  [s, nI, {tea}] = infer ctx.types, expression, ctx.nameIndex
-  tea
-
-atomCompile =
-  syntax: (atom) ->
-    {token} = atom
-    labelMapping atom,
-      ['numerical', /^~?\d+/.test token]
-      ['const', /^[A-Z][^\s]*$/.test token]
-      ['string', /^["']/.test token]
-      ['regex', /^\/[^ \/]/.test token]
-  translation: (atom) ->
-    {label, token} = atom
-    if label is 'numerical'
-      if token[0] is '-'
-        "(~ #{token})"
+  fn: (ctx, call) ->
+    # For now expect the curried constructor call
+    args = _arguments call
+    [paramList, defs...] = args
+    if not paramList or not _isTuple paramList
+      malformed call, 'Missing paramater list'
+      params = []
+    else
+      params = _terms paramList
+      map (syntaxNewName 'Parameter name expected'), params
+    defs ?= []
+    if defs.length is 0
+      malformed call, 'Missing function result'
+    else
+      [docs, defs] = partition isComment, defs
+      if defs.length % 2 == 0
+        [type, body, wheres...] = defs
       else
-        token
-    else if label is 'const'
+        [body, wheres...] = defs
+      paramNames = map _token, params
+      # pattern
+      paramTypes = map (-> ctx.freshTypeVariable star), params
+      ctx.newScope()
+      # log "adding types", (map _token, params), paramTypes
+      ctx.addTypes (map _token, params), paramTypes
+      # log "types added"
+      # log "compiling", body
+      compiledBody = termCompile ctx, body
+      # log "compiled", body.tea
+      ctx.closeScope()
+      call.tea = typeFn paramTypes..., body.tea
+
+      # Syntax
+      isUsedParam = (expression) ->
+        (isName expression) and (_token expression) in paramNames
+      map (syntaxNameAs '', 'param'), filterAst isUsedParam, body
+
+      # Arity
+      if ctx._name()
+        ctx.addArity ctx._name(), paramNames
+
+      assignCompile ctx, call,
+        """λ(function (#{listOf paramNames}) {
+          return #{compiledBody};
+        }"""
+  # data
+  #   listing or
+  #     pair
+  #       constructor-name
+  #       record
+  #         type
+  #     constant-name
+  data: (ctx, call) ->
+    defs = pairsLeft isAtom, _arguments call
+    # Syntax
+    syntaxNewName 'Name required to declare new algebraic data', ctx._nameExpression()
+    [names, typeArgLists] = unzip defs
+    map (syntaxNewName 'Type constructor name required'), names
+    for typeArgs in typeArgLists
+      if isRecord typeArgs
+        for type in _snd unzip _labeled _terms typeArgs
+          syntaxType type
+      else
+        typeArgs.label = 'malformed'
+    # Types
+    for [constr, params] in defs
+      constrType = desiplifyType if params
+        join (_labeled _terms params).map(_snd).map(_token), [ctx._name()]
+      else
+        ctx._name()
+      ctx.addType constr.token, constrType
+      constr.tea = constrType
+    # TODO: support polymorphic data
+    # We don't add binding to types, but maybe need to store elsewhere
+    # ctx.addType ctx._name(), typeConstant ctx._name()
+    # Arity
+    for [constr, params] in defs when params
+      addArity constr.token,
+        (_labeled _terms params).map(_fst).map(_labelName)
+    # Translate
+    listOfLines (for [constr, params] in defs
+      identifier = validIdentifier constr.token
+      paramNames = (_labeled _terms params or []).map(_fst).map(_labelName)
+        .map(validIdentifier)
+      paramList = paramNames.join(', ')
+      paramAssigns = blockOfLines paramNames.map (name) ->
+        "  this.#{name} = name;"
+      constrFn = """function #{identifier}(#{paramList}) {#{paramAssigns}};"""
+      constrValue = if params
+        """
+        #{identifier}.create = λ(function(#{paramList}){
+          return new #{identifier}(#{paramList});
+        });"""
+      else
+        "#{identifier}.value = new #{identifier}();"
+      listOfLines [constrFn, constrValue])
+
+  record: (ctx, call) ->
+    args = _arguments call
+    for [name, type] in _labeled args
+      if not name
+        malformed type, 'Label is required'
+      if not type
+        malformed name, 'Missing type'
+      if name and type
+        syntaxType type
+    if args.length is 0
+      malformed call, 'Missing arguments'
+    # TS: (data #{ctx._name()} [#{_arguments form}])
+    replicate call,
+      (call_ (token_ 'data'), [(token_ ctx._name()), (tuple_ args)])
+
+  # match
+  #   subject
+  #   listing of
+  #     pair
+  #       pattern
+  #       result
+  match: (ctx, call) ->
+    [subject, cases...] = _arguments call
+    varNames = []
+    if not subject
+      return malformed 'match `subject` missing', call
+    if cases.length % 2 != 0
+      return malformed 'match missing result for last pattern', call
+    subjectCompiled = termCompile ctx, subject
+
+    # To make sure all results have the same type
+    call.tea = resultType = ctx.freshTypeVariable star
+
+    ctx.setGroupTranslation()
+    compiledCases = conditional (for [pattern, result] in pairs cases
+
+      ctx.newScope() # for variables defined inside pattern
+
+      {precs, assigns} = patternCompile ctx, pattern, subject, subjectCompiled
+
+      # Compile the result, given current scope
+      compiledResult = termCompile ctx, result #compileImpl result, furtherHoistable
+      unify ctx, resultType, result.tea
+      ctx.closeScope()
+
+      varNames.push (findDeclarables precs)...
+
+      matchBranchTranslate precs, assigns, compiledResult
+    ), "throw new Error('match failed to match');" #TODO: what subject?
+    assignCompile ctx, call, iife listOfLines concat (filter _is, [
+      ctx.translationCache()
+      varList varNames
+      compiledCases])
+
+# Creates the condition and body of a branch inside match macro
+matchBranchTranslate = (precs, assigns, compiledResult) ->
+  {conds, preassigns} = constructCond precs
+  [hoistedWheres, furtherHoistable] = hoistWheres [], assigns #hoistWheres hoistableWheres, assigns
+
+  [conds, indentLines '  ',
+    concat [
+      (map compileAssign, (join preassigns, assigns))
+      hoistedWheres.map(compileDef)
+      ["return #{compiledResult};"]]]
+
+iife = (body) ->
+  """(function(){
+      #{body}}())"""
+
+varList = (varNames) ->
+  if varNames.length > 0 then "var #{listOf varNames};" else null
+
+conditional = (condCasePairs, elseCase) ->
+  if condCasePairs.length is 1
+    [[cond, branch]] = condCasePairs
+    if cond is 'true'
+      return branch
+  ((for [cond, branch], i in condCasePairs
+    control = if i is 0 then 'if' else ' else if'
+    """#{control} (#{cond}) {
+        #{branch}
+      }""").join '') + """ else {
+        #{elseCase}
+      }"""
+
+# From precs, find caches and the LHS are declarable variables
+findDeclarables = (precs) ->
+  map (__ _fst, _cache), (filter _cache, precs)
+
+combinePatterns = (list) ->
+  precs: concat map _precs, filter _precs, list
+  assigns: concat map _assigns, filter _assigns, list
+
+_precs = ({precs}) ->
+  precs
+
+_assigns = ({assigns}) ->
+  assigns
+
+_cache = ({cache}) ->
+  cache
+
+cache_ = (x) ->
+  cache: x
+
+cond_ = (x) ->
+  cond: x
+
+malformed = (expression, message) ->
+  # TODO support multiple malformations
+  expression.malformed = message
+  'malformed'
+
+isWellformed = (expression) ->
+  if expression.malformed
+    no
+  else
+    if isForm expression
+      for term in _terms expression
+        unless isWellformed term
+          return no
+    yes
+
+atomCompile = (ctx, atom) ->
+  {token} = atom
+  # Syntax
+  atom.label = regexMapping token,
+    ['numerical', /^~?\d+/]
+    ['const', /^[A-Z][^\s]*$/]
+    ['string', /^["]/]
+    ['char', /^[']/]
+    ['regex', /^\/[^ \/]/]
+  {label} = atom
+  # Typing and Translation
+  {type, translation, pattern} =
+    switch label
+      when 'numerical'
+        numericalCompile ctx, token
+      when 'regex'
+        regexCompile ctx, token
+      when 'char'
+        type: typeConstant 'Char'
+        translation: token
+        pattern: literalPattern ctx, token
+      when 'string'
+        type: typeConstant 'String'
+        translation: token
+        pattern: literalPattern ctx, token
+      when 'const'
+        constCompile ctx, token
+      else
+        nameCompile ctx, atom, token
+  atom.tea = type
+  if ctx.assignTo()
+    pattern
+  else
+    assignCompile ctx, atom, translation
+
+nameCompile = (ctx, atom, token) ->
+  if ctx.assignTo()
+    ctx.addType token, (type = ctx.freshTypeVariable star)
+    atom.label = 'name'
+    type: type
+    pattern:
+      assigns:
+        [[(validIdentifier token), ctx.assignTo()]]
+  else
+    type: ctx.type token
+    translation: validIdentifier token
+
+constCompile = (ctx, token) ->
+  type = ctx.type token
+  exp = ctx.assignTo()
+  if exp
+    type: type
+    pattern:
+      precs: [_cond
+        switch token
+          when 'True' then "#{exp}"
+          when 'False' then "!#{exp}"
+          else
+            "#{exp} instanceof #{token}"]
+  else
+    type: type
+    translation:
       switch token
         when 'True' then 'true'
         when 'False' then 'false'
-        else "#{token}.value"
-    else if label in ['regex', 'string']
-      token
+        else
+          field = if isConstructor ctx.type token then 'create' else 'value'
+          "#{validIdentifier token}.#{field}"
+
+numericalCompile = (ctx, token) ->
+  translation = if token[0] is '~' then "(-#{token})" else token
+  type: typeConstant 'Num'
+  translation: translation
+  pattern: literalPattern ctx, translation
+
+regexCompile = (ctx, token) ->
+  type: typeConstant 'Regex'
+  translation: token
+  pattern:
+    if ctx.assignTo()
+      precs: [cond_ "#{ctx.assignTo()}.string" + " === #{token}.string"]
+
+literalPattern = (ctx, translation) ->
+  if ctx.assignTo()
+    precs: [cond_ "#{ctx.assignTo()}" + " === #{translation}"]
+
+regexMapping = (token, regexes...) ->
+  for [label, regex] in regexes
+    if regex.test token
+      return label
+
+# type expressions syntax
+# or
+#   atom -> or
+#     type constant
+#     type variable
+#     partial type class (but we don't know that in syntax phase - get rid of phases?)
+#   form -> or
+#     call
+#       type constructor
+#       types
+#     tuple
+#       type
+#     call (partial type class call)
+#       type class
+#       types
+syntaxType = (expression) ->
+  # ignore type classes for now
+  if isName expression
+    expression.label = if isCapital then 'typename' else 'typevar'
+  else if isTuple expression
+    map syntaxType, (_terms expression)
+  else if isCall expression
+    syntaxNameAs 'Constructor name required', 'typecons', (_operator expression)
+    map syntaxType, (_arguments expression)
+
+syntaxNewName = (message, atom) ->
+  curried = (atom) ->
+    syntaxNameAs message, 'name', atom
+  if atom then curried atom else curried
+
+syntaxNameAs = (message, label, atom) ->
+  curried = (atom) ->
+    if isName atom
+      atom.label = label
     else
-      validIdentifier token
+      malformed atom, message
+  if atom then curried atom else curried
 
-callCompile =
-  syntax: (ctx, call) ->
-    op = _operator call
-    if isAtom op
-      op.label = 'operator'
-    for arg in _arguments call
-      ctx.expand.syntax arg
-    call
-
-form_ = (list) ->
+call_ = (op, args) ->
   concat [
     tokenize '('
-    list
+    [op]
+    args
     tokenize ')'
   ]
 
@@ -328,6 +964,9 @@ tuple_ = (list) ->
     list
     tokenize ']'
   ]
+
+fn_ = (params, body) ->
+  (call_ (token_ 'fn'), [(tuple_ params), body])
 
 token_ = (string) ->
   (tokenize string)[0]
@@ -341,9 +980,32 @@ blockOfLines = (lines) ->
 listOfLines = (lines) ->
   lines.join '\n'
 
+indentLines = (indent, lines) ->
+  blockOfLines map ((line) -> indent + line), (filter _notEmpty, lines)
+
+listOf = (args) ->
+  args.join ', '
+
+isComment = (expression) ->
+  (isCall expression) and ('#' is _token _operator expression)
+
 isCall = (expression) ->
-  (Array.isArray expression) and expression.length > 2 and
+  (isForm expression) and (isEmptyForm expression) and
     expression[0].label is 'paren'
+
+isRecord = (expression) ->
+  if _isTuple expression
+    [labels, values] = unzip pairs _terms expression
+    labels.length is values.length and (allMap isLabel, labels)
+
+_isSeq = (expression) ->
+  (isForm expression) and expression[0].label is 'brace'
+
+_isTuple = (expression) ->
+  (isForm expression) and expression[0].label is 'bracket'
+
+isEmptyForm = (form) ->
+  (_terms form).length > 0
 
 isForm = (expression) ->
   Array.isArray expression
@@ -351,34 +1013,60 @@ isForm = (expression) ->
 isLabel = (atom) ->
   /:$/.test atom.token
 
+isCapital = (atom) ->
+  /[A-Z]/.test atom.token
+
+isName = (expression) ->
+  throw "Nothing passed to isName" unless expression
+  (isAtom expression) and /[^~"'\/].*/.test expression.token
+
 isAtom = (expression) ->
   not (Array.isArray expression)
 
-# Returns tuples with all arguments, possibly with associated label
-_labeled = (terms) ->
-  rightPairs isLabel, terms
+_labeled = (list) ->
+  pairsLeft isLabel, list
 
-rightPairs = (keyTest, list) ->
+pairsLeft = (leftTest, list) ->
   listToPairsWith list, (item, next) ->
-    if next and not keyTest next
-      if item and keyTest item
-        [item, next]
-      else if next
-        [null, next]
-
-leftPairs = (keyTest, list) ->
-  listToPairsWith list, (item, next) ->
-    if item and keyTest item
-      if next and not keyTest next
-        [item, next]
-      else
+    if leftTest item
+      [item, (if next and not leftTest next then next else null)]
+    else
+      if leftTest item
         [item, null]
+      else
+        [null, item]
+
+pairsRight = (rightTest, list) ->
+  pairsLeft ((x) -> not rightTest x), list
+  ###listToPairsWith list, (item, next) ->
+    if next and rightTest next
+      [(if not rightTest item then item else null), next]
+    else
+      if rightTest item
+        [null, item]
+      else
+        [item, null]###
 
 listToPairsWith = (list, convertBy) ->
-  (convertBy list[i], list[i + 1] for i in [-1..list.length]).filter _is
+  filter _is, (i = 0; while i < list.length
+    result = convertBy list[i], list[i + 1]
+    if result[0] and result[1]
+      i++
+    i++
+    result)
+
+unzip = (pairs) ->
+  [
+    filter _is, map _fst, pairs
+    filter _is, map _snd, pairs
+  ]
 
 replicate = (expression, newForm) ->
   newForm
+
+retrieve = (expression, newForm) ->
+  expression.tea = newForm.tea
+  expression.malformed = newForm.malformed
 
 _operator = (call) ->
   (_terms call)[0]
@@ -387,7 +1075,7 @@ _arguments = (call) ->
   (_terms call)[1..]
 
 _terms = (form) ->
-  form[1...-1].filter ({token}) -> not (token and token.match /^\s+$/)
+  form[1...-1].filter ({label}) -> label isnt 'whitespace'
 
 _snd = ([a, b]) -> b
 
@@ -397,18 +1085,52 @@ _labelName = (atom) -> (_token atom)[0...-1]
 
 _token = ({token}) -> token
 
+filterAst = (test, expression) ->
+  join (filter test, [expression]),
+    if isForm expression
+      concat (filterAst test, term for term in _terms expression)
+    else
+      []
+
 join = (seq1, seq2) ->
   seq1.concat seq2
+
+concatMap = (fn, list) ->
+  concat map fn, list
 
 concat = (lists) ->
   [].concat lists...
 
+id = (x) -> x
+
+map = (fn, list) ->
+  if list then list.map fn else (list) -> map fn, list
+
+allMap = (fn, list) ->
+  all (map fn, list)
+
+all = (list) ->
+  (filter _is, list).length is list.length
+
+filter = (fn, list) ->
+  list.filter fn
+
+partition = (fn, list) ->
+  [(filter fn, list), (filter ((x) -> not (fn x)), list)]
+
+_notEmpty = (x) -> x.length > 0
+
 _is = (x) -> !!x
+
+__ = (fna, fnb) ->
+  (x) -> fna fnb x
 
 theme =
   keyword: 'red'
   numerical: '#FEDF6B'
-  typename: '#9C49B6'
+  const: '#FEDF6B'
+  typename: '#FEDF6B'
+  typecons: '#67B3DD'
   label: '#9C49B6'
   string: '#FEDF6B'
   paren: '#444'
@@ -660,8 +1382,14 @@ typifyWith = (ast, mainLabeling) ->
   apply ast, typifyMost, mainLabeling, labelOperators
 
 toHtml = (highlighted) ->
-  crawl highlighted, (word) ->
-    (word.ws or '') + colorize(theme[word.label ? 'normal'], word.token)
+  crawl highlighted, (word, token, parent) ->
+    (word.ws or '') + colorize(theme[labelOf word, parent], token)
+
+labelOf = (word, parent) ->
+  if (_isCollectionDelim word) and parent
+    parent.label
+  else
+    word.label or 'normal'
 
 apply = (onto, fns...) ->
   result = onto
@@ -1081,6 +1809,7 @@ findHoistableWheres = ([graph, lookupTable]) ->
 sortTopologically = ([graph, dependencies]) ->
   reversedDependencies = reverseGraph graph
   independent = []
+  console.log graph, dependencies
 
   for node in graph
     node.origSet = cloneSet node.set
@@ -1100,6 +1829,8 @@ sortTopologically = ([graph, dependencies]) ->
       removeFromSet child.set, name for name in finishedParent.names
       moveToIndependent child if child.set.size is 0
 
+
+  console.log "done", sorted, dependencies
   for node in sorted
     node.set = node.origSet
 
@@ -1179,14 +1910,20 @@ patternMatchingRules = [
   # Constants
   (pattern) ->
     trigger: pattern.label is 'const'
-    cond: (exp) -> ["'#{pattern.token}' in #{exp}"]
+    cond: (exp) ->
+      [switch pattern.token
+        when 'True' then "#{exp}"
+        when 'False' then "!#{exp}"
+        else
+          "#{exp} instanceof #{pattern.token}"]
   # Name
   (pattern) ->
-    trigger: pattern.label is 'name'
+    trigger: isName pattern
     assignTo: (exp) ->
       name = stripSplatFromName pattern.token
       if exp isnt identifier = validIdentifier name
-        addToEnclosingScope name, pattern
+        # TODO: add assumption
+        # addToEnclosingScope name, pattern
         [[identifier, exp]]
       else
         []
@@ -1276,8 +2013,11 @@ patternMatch = (pattern, def, defCache) ->
           precs: defCache.concat(conds, moreCaches.map(markCache), (recursed.map ({precs}) -> precs)...)
           assigns: [].concat (recursed.map ({assigns}) -> assigns)...
 
-markCond = (x) -> cond: x
-markCache = (x) -> cache: x
+markCond = (x) ->
+  cond: x
+
+markCache = (x) ->
+  cache: x
 
 newVar = ->
   "i#{variableCounter++}"
@@ -1364,33 +2104,46 @@ toJsString = (token) ->
 compileAssign = ([to, from]) ->
   "var #{to} = #{from};"
 
+# Takes precs and constructs the correct condition
+# if precs empty, returns true
+# preassigns are assignments that are not followed by a condition, so they
+# should be after the condition is checked
 constructCond = (precs) ->
-  return conds: ['true'], preassigns: [] if precs.length is 0
-  i = 0
-  lastCond = false
+  return conds: 'true', preassigns: [] if precs.length is 0
+  lastCond = no
   cases = []
   singleCase = []
-  wrapUp = ->
-    cases.push if singleCase.length is 1
-      singleCase[0]
+
+  translateCondPart = ({cond, cache}) ->
+    if cond
+      cond
     else
-      "(#{singleCase.join ', '})"
+      "(#{cache[0]} = #{cache[1]})"
+
+  # Each case is a (possibly empty) list of caching followed by a condition
+  pushCurrentCase = ->
+    condParts = map translateCondPart, singleCase
+    cases.push if condParts.length is 1
+      condParts[0]
+    else
+      "(#{listOf condParts})"
+    singleCase = []
+
   for prec, i in precs
-    if i is 0 and prec.cache
-      continue
-    if prec.cache and lastCond
-      wrapUp()
-      singleCase = []
-    if prec.cache
-      singleCase.push "(#{prec.cache[0]} = #{prec.cache[1]})"
-    else
-      lastCond = yes
-      singleCase.push prec.cond
+    # Don't know if still need to ignore the first cache, probably did
+    # because of the global cache
+    # if i is 0 and prec.cache
+    #   continue
+    if lastCond
+      pushCurrentCase()
+    singleCase.push prec
+    lastCond = prec.cond
+
   preassigns = if lastCond
-    wrapUp()
+    pushCurrentCase()
     []
   else
-    singleCase.map ({cache}) -> cache
+    map _cache, singleCase
   conds: cases.join " && "
   preassigns: preassigns
 
@@ -1501,22 +2254,19 @@ topScopeDefines = ->
 
 # Default type context with builtins
 
-binaryMathOpType = ['Num', ['Num', 'Num']]
-comparatorOpType = ['a', ['a', 'Bool']]
+binaryMathOpType = ['Num', 'Num', 'Num']
+comparatorOpType = ['a', 'a', 'Bool']
 
-builtInKinds = ->
-  newMapWith 'Fn', ['*', '*']
-
-builtInContext = ->
-  newMapWith 'true', 'Bool',
-    'false', 'Bool'
-    '&', ['a', ['b', 'b']] # TODO: replace with actual type
+builtInContext = (ctx) ->
+  concatMaps (mapMap desiplifyTypeAndArity, newMapWith 'True', 'Bool',
+    'False', 'Bool'
+    '&', ['a', 'b', 'b'] # TODO: replace with actual type
     'show-list', ['a', 'b'] # TODO: replace with actual type
     'from-nullable', ['a', 'b'] # TODO: replace with actual type JS -> Maybe a
 
     # TODO match
 
-    'if', ['Bool', ['a', ['a', 'a']]]
+    'if', ['Bool', 'a', 'a', 'a']
     # TODO JS interop
 
     'sqrt', ['Num', 'Num']
@@ -1530,8 +2280,8 @@ builtInContext = ->
     '*', binaryMathOpType
     '=', comparatorOpType
     '!=', comparatorOpType
-    'and', ['Bool', ['Bool', 'Bool']]
-    'or', ['Bool', ['Bool', 'Bool']]
+    'and', ['Bool', 'Bool', 'Bool']
+    'or', ['Bool', 'Bool', 'Bool']
 
     '-', binaryMathOpType
     '/', binaryMathOpType
@@ -1539,7 +2289,24 @@ builtInContext = ->
     '<', comparatorOpType
     '>', comparatorOpType
     '<=', comparatorOpType
-    '>=', comparatorOpType
+    '>=', comparatorOpType),
+    newMapWith 'empty-array', (type: (new TypeApp arrayType, (ctx.freshTypeVariable star))),
+      'cons-array', (
+        type:
+          (typeFn (elemType = ctx.freshTypeVariable star),
+            (new TypeApp arrayType, elemType),
+            (new TypeApp arrayType, elemType))
+        arity: ['what', 'onto'])
+
+desiplifyTypeAndArity = (simple) ->
+  type: desiplifyType simple
+  arity: ("a#{i}" for _, i in simple[0...simple.length - 1])
+
+desiplifyType = (simple) ->
+  if Array.isArray simple
+    typeFn (map typeConstant, simple)...
+  else
+    typeConstant simple
 
 
 # Set/Map implementation
@@ -1588,9 +2355,16 @@ inSet = (set, name) ->
 isSetEmpty = (set) ->
   set.size is 0
 
+mapSet =
+mapMap = (fn, set) ->
+  initialized = newMap()
+  for key, val of set.values
+    addToMap initialized, key, fn val
+  initialized
+
 newSetWith = (args...) ->
   initialized = newSet()
-  for k in args by 2
+  for k in args
     addToSet initialized, k
   initialized
 
@@ -1598,6 +2372,12 @@ newMapWith = (args...) ->
   initialized = newMap()
   for k, i in args by 2
     addToMap initialized, k, args[i + 1]
+  initialized
+
+newMapKeysVals = (keys, vals) ->
+  initialized = newMap()
+  for item, i in vals
+    addToMap initialized, keys[i], item
   initialized
 
 concatSets =
@@ -1608,9 +2388,87 @@ concatMaps = (maps...) ->
       addToMap concated, k, v
   concated
 
+subtractSets =
+subtractMaps = (from, what) ->
+  subtracted = newMap()
+  for k, v of from.values when k not of what.values
+    addToMap subtracted, k, v
+  subtracted
+
+values = (map) ->
+  map.values
+
 # end of Set
 
-# Type inference and checker
+# Type inference and checker ala Mark Jones
+
+unify = (ctx, t1, t2) ->
+  sub = ctx.substitution
+  ctx.extendSubstitution findSubToMatch (substitute sub, t1), (substitute sub, t2)
+
+findSubToMatch = (t1, t2) ->
+  if t1 instanceof TypeVariable
+    bindVariable t1, t2
+  else if t2 instanceof TypeVariable
+    bindVariable t2, t1
+  else if t1 instanceof TypeConstr and t2 instanceof TypeConstr and
+    t1.name is t2.name
+      emptySubstitution()
+  else if t1 instanceof TypeApp and t2 instanceof TypeApp
+    s1 = findSubToMatch t1.op, t2.op
+    s2 = findSubToMatch (substitute s1, t1.arg), (substitute s1, t2.arg)
+    joinSubs s1, s2
+  else
+    newMapWith "could not unify", [(printType t1), (printType t2)]
+
+bindVariable = (variable, type) ->
+  if type instanceof TypeVariable and variable.name is type.name
+    emptySubstitution()
+  else if inSet (findFree type), variable.name
+    newSetWith variable.name, "occurs check failed"
+  else if not kindsEq (kind variable), (kind type)
+    newSetWith variable.name, "kinds don't match for #{variable.name}"
+  else
+    newMapWith variable.name, type
+
+joinSubs = (s1,s2) ->
+  concatSets s1, mapMap ((type) -> substitute s1, type), s2
+
+emptySubstitution = ->
+  newMap()
+
+substitute = (substitution, type) ->
+  if type instanceof TypeVariable
+    if sub = lookupInMap substitution, type.name
+      sub
+    else
+      type
+  else if type instanceof TypeApp
+    new TypeApp (substitute substitution, type.op),
+      (substitute substitution, type.arg)
+  else if isBinding type
+    newBinding mapMap ((t) -> substitute substitution t) type
+  else
+    type
+
+findFree = (type) ->
+  if type instanceof TypeVariable
+    newMapWith type.name, type.kind
+  else if type instanceof TypeApp
+    concatMaps (findFree type.op), (findFree type.arg)
+  else
+    newMap()
+
+findBound = (name, binding) ->
+  (lookupInMap binding, name) or 'unbound name #{name}'
+
+# TODO: when using qualified types, replace with
+# freshInst over type schemes
+freshInstance = (ctx, type) ->
+  freshes = mapMap ((kind) -> ctx.freshTypeVariable kind), findFree type
+  substitute freshes, type
+
+# Old type inference
 
 assignTypes = (context, expression) ->
   [s, _, expression] = infer context, expression, 0
@@ -1666,14 +2524,13 @@ readType = (nameIndex, node) ->
 tokens = (words) ->
   words.map (x) -> x.token
 
-
 infer = (context, expression, nameIndex) ->
   switch expression.label
     when 'numerical'
       expression.tea = 'Num'
       [newMap(), nameIndex, expression]
     when 'string'
-      expression.tea = if /$"/.test expression.token then 'String' else 'Char'
+      expression.tea = if /^"/.test expression.token then 'String' else 'Char'
       [newMap(), nameIndex, expression]
     else
       # Reference
@@ -1723,11 +2580,6 @@ inferCall = (context, pair, nameIndex) ->
   [s2, nextIndex, arg] = infer (subContext s1, context), arg, nextIndex
   s3 = unify (subExp s2, opTea), [arg.tea, returnName]
   [(concatMaps s3, s2, s1), nextIndex, (subExp s3, returnName)]
-
-
-
-unify = (t1, t2) ->
-  unifyWith newMap(), [[t1, t2]]
 
 unifyWith = (subs, pairs) ->
   if pairs.length is 0
@@ -1799,36 +2651,112 @@ freshName = (nameIndex) ->
   suffix = if nameIndex > 25 then Math.floor nameIndex / 25 else ''
   String.fromCharCode 97 + nameIndex % 25
 
-typeVariable = (name) ->
-  new TypeVariable name
+# Kind (data
+#   Star
+#   KindFn [from: Kind to: Kind])
+#
+# Type (data
+#   TypeVariable [var: TypeVariable]
+#   KnownType [const: TypeConstr]
+#   TypeApplication [op: Type arg: Type]
+#   QuantifiedVar [var: Int])
+#
+# TypeVariable (record name: String kind: Kind)
+# TypeConstr (record name: String kind: Kind)
 
-nullaryType = (name) ->
-  new NullaryType name
+isBinding = (x) ->
+  if not x
+    throw new Error "nothing passed to isBinding"
+  x.binding
 
-naryType = (name, params) ->
-  new PolyType name, params
+newBinding = (map) ->
+  map.binding = yes
+  map
 
-class MonoType
-  constructor: (@name) ->
+typeConstant = (name) ->
+  new TypeConstr name, star
 
-class TypeVariable extends MonoType
-class NullaryType extends MonoType
+tupleType = (arity) ->
+  new TypeConstr "[#{arity}]", kindFn arity
 
-class PolyType
-  constructor: (@name, @params) ->
+kindFn = (arity) ->
+  if arity is 1
+    new KindFn star, star
+  else
+    new KindFn star, kindFn arity - 1
 
-class NaryType extends PolyType
+typeFn = (from, to, args...) ->
+  if args.length is 0
+    new TypeApp (new TypeApp arrowType, from), to
+  else
+    typeFn from, (typeFn to, args...)
 
-ignoreTypeErrors = (fn) ->
-  try
-    ret = fn()
-  catch e
-    unless e instanceof TypeError
-      throw e
+applyKindFn = (fn, arg, args...) ->
+  if args.length is 0
+    new TypeApp fn, arg
+  else
+    applyKindFn (applyKindFn fn, arg), args...
 
-class TypeError extends Error
-  # required for instanceof to work
-  constructor: (@message, @data) -> super @message
+isConstructor = (type) ->
+  (kind type) instanceof KindFn
+
+kind = (type) ->
+  if type.kind
+    type.kind
+  else if type instanceof TypeApp
+    (kind type.op).to
+  else
+    throw "Invalid type in kind"
+
+kindsEq = (k1, k2) ->
+  k1 is k2 or
+    (kindsEq k1.from, k2.from) and
+    (kindsEq k1.to, k2.to)
+
+class KindFn
+  constructor: (@from, @to) ->
+
+class TypeVariable
+  constructor: (@name, @kind) ->
+class TypeConstr
+  constructor: (@name, @kind) ->
+class TypeApp
+  constructor: (@op, @arg) ->
+class QuantifiedVar
+  constructor: (@var) ->
+
+star = '*'
+arrowType = new TypeConstr '->', kindFn 2
+arrayType = new TypeConstr 'Array', kindFn 1
+
+kind = (type) ->
+  if type.kind
+    kind
+  else if type.op
+    kind type.op
+  else
+    throw "Invalid type in kind"
+
+printType = (type) ->
+  if type instanceof TypeVariable
+    type.name
+  else if type instanceof TypeConstr
+    type.name
+  else if type instanceof TypeApp
+    "(#{printType type.op} #{printType type.arg})"
+  else
+    type
+
+# ignoreTypeErrors = (fn) ->
+#   try
+#     ret = fn()
+#   catch e
+#     unless e instanceof TypeError
+#       throw e
+
+# class TypeError extends Error
+#   # required for instanceof to work
+#   constructor: (@message, @data) -> super @message
 
 # mycroft = (context, node, environment) ->
 #   if node.label is 'numerical'
@@ -1861,10 +2789,6 @@ class TypeError extends Error
 # defaultEnvironment = (name) ->
 #   switch name
 #     when '+' then ['Int', 'Int']
-
-
-
-
 
 library = """
 var $listize = function (list) {
@@ -1963,16 +2887,9 @@ var show__list = function (x) {
   return t;
 };
 
-var $curry = function (f) {
-  var _curry = function(args) {
-    return f.length == 1 ? f : function(){
-      var params = args ? args.concat() : [];
-      return params.push.apply(params, arguments) < f.length && arguments.length
-        ? _curry.call(this, params)
-        : f.apply(this, params);
-    };
-  };
-  return _curry();
+var λ = function (n, f) {
+  f._ = n;
+  return f;
 };
 
 var from__nullable = function (jsValue) {
@@ -1982,7 +2899,23 @@ var from__nullable = function (jsValue) {
     return {':just': [jsValue]};
   }
 };
-
+""" +
+(for i in [1..9]
+  varNames = "abcdefghi".split ''
+  first = (j) -> varNames[0...j].join ', '
+  # TODO: handle A9 first branch
+  """var _#{i} = function (f, #{first i}) {
+    if (f._ === #{i} || f.length === #{i}) {
+      return f(#{first i});
+    } else if (f._ > #{i} || f.length > #{i}) {
+      return function (#{varNames[i]}) {
+        return _#{i + 1}(f, #{first i + 1});
+      };
+    } else {
+      return _1(#{if i is 1 then "f()" else "_#{i - 1}(f, #{first i - 1})"}, #{varNames[i - 1]});
+    }
+  };""").join('\n\n') +
+"""
 ;
 """
 
