@@ -176,7 +176,7 @@ mapTyping = (fn, string) ->
   fn (ctx = new Context), ast
   expressions = []
   visitExpressions ast, (expression) ->
-    expressions.push [(collapse toHtml expression), printType expression.tea] unless expression is ast
+    expressions.push [(collapse toHtml expression), printType expression.tea] if expression.tea
   types: values mapMap (__ printType, _type), subtractMaps ctx._scope(), builtInContext new Context
   subs: values mapMap printType, ctx.substitution
   ast: expressions
@@ -201,6 +201,8 @@ class Context
     @cacheScopes = [[]]
     @_assignTos = []
     @scopes = [builtInContext this] # dangerous passing itself in constructor
+    @_scope().deferred = []
+    @_defer = undefined
 
   macros: ->
     @_macros
@@ -229,13 +231,21 @@ class Context
   _scope: ->
     @scopes[@scopes.length - 1]
 
+  newScope: ->
+    scope = newMap()
+    scope.deferred = []
+    @scopes.push scope
+
+  closeScope: ->
+    @scopes.pop()
+
   declaration: (name) ->
     @_declarationInScope @scopes.length - 1, name
 
   _declarationInScope: (i, name) ->
     (lookupInMap @scopes[i], name) or
       i > 0 and (@_declarationInScope i - 1, name) or
-      throw "Could not find declaration for #{name}"
+      undefined # throw "Could not find declaration for #{name}"
 
   addType: (name, type) ->
     if lookupInMap @_scope(), name
@@ -258,12 +268,6 @@ class Context
 
   arity: (name) ->
     (@declaration name).arity
-
-  newScope: ->
-    @scopes.push newMap()
-
-  closeScope: ->
-    @scopes.pop()
 
   freshTypeVariable: (kind) ->
     if not kind
@@ -296,40 +300,71 @@ class Context
     else
       []
 
+  setDefer: (dependencyName) ->
+    @_defer = dependencyName
+
+  shouldDefer: ->
+    @_defer
+
+  addDeferred: (dependencyName, lhs, rhs) ->
+    @_scope().deferred.push [dependencyName, lhs, rhs]
+
+  deferred: ->
+    @_scope().deferred
+
 expressionCompile = (ctx, expression) ->
   throw "invalid expressionCompile args" unless ctx instanceof Context and expression
-  rememberCompiled expression,
-    if isAtom expression
-      atomCompile ctx, expression
-    else if _isTuple expression
-      tupleCompile ctx, expression
-    else if _isSeq expression
-      seqCompile ctx, expression
-    else if isCall expression
-        op = _operator expression
-        if isName op
-          (if op.token of ctx.macros()
-            macroCompile
-          else
-            callCompile) ctx, expression
-        else
-          expandedOp = termCompile ctx, op
-          if isTranslated expandedOp
-            callUnknownTranslate ctx, expandedOp, expression
-          else
-            expressionCompile replicate expression,
-              (call_ (join [expandedOp], (_arguments expression)))
-    else
-      log "Not handled", expression
-      throw "Not handled expression in expressionCompile"
+  (if isAtom expression
+    atomCompile
+  else if _isTuple expression
+    tupleCompile
+  else if _isSeq expression
+    seqCompile
+  else if isCall expression
+    callCompile
+  else
+    log "Not handled", expression
+    throw "Not handled expression in expressionCompile"
+  ) ctx, expression
 
-rememberCompiled = (expression, result) ->
-  expression.compiled = result
+# -- This was used to use compiled results from some parent macro while
+#    compiling as something else
+# rememberCompiled = (expression, result) ->
+#   expression.compiled = result
 
-_compiled = (expression) ->
-  expression.compiled
+# _compiled = (expression) ->
+#   expression.compiled
 
 callCompile = (ctx, call) ->
+  op = _operator call
+  if isName op
+    (if op.token of ctx.macros()
+      macroCompile
+    else
+      callKnownCompile) ctx, call
+  else
+    expandedOp = termCompile ctx, op
+    if isTranslated expandedOp
+      callUnknownTranslate ctx, expandedOp, call
+    else
+      expressionCompile replicate call,
+        (call_ (join [expandedOp], (_arguments call)))
+
+macroCompile = (ctx, call) ->
+  op = _operator call
+  op.label = 'keyword'
+  expanded = ctx.macros()[op.token] ctx, call
+  if not isWellformed expanded
+    'malformed'
+  else if isTranslated expanded
+    expanded
+  else
+    expressionCompile ctx, expanded
+
+isTranslated = (result) ->
+  typeof result is 'string' or result instanceof String
+
+callKnownCompile = (ctx, call) ->
   operator = _operator call
   args = _labeled _arguments call
   labeledArgs = labeledToMap args
@@ -339,7 +374,7 @@ callCompile = (ctx, call) ->
 
   paramNames = ctx.arity operator.token
   if not paramNames
-    throw "unknown function #{operator.token}"
+    return ctx.setDefer operator.token
   positionalParams = filter ((param) -> not (lookupInMap labeledArgs, param)), paramNames
   nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
 
@@ -512,49 +547,63 @@ seqCompile = (ctx, form) ->
       return malformed 'Matching on sequences requires at least one element name', form
 
     compiledArgs = (for elem, i in elems
-      rhs =
+      [lhs, rhs] =
         if isSplat elem
-          "seq_splat(#{i}, #{elems.length - i - 1}, #{sequence})"
+          elem.label = 'name'
+          [(splatToName elem), "seq_splat(#{i}, #{elems.length - i - 1}, #{sequence})"]
         else
-          "seq_at(#{i}, #{sequence})"
+          [elem, "seq_at(#{i}, #{sequence})"]
       ctx.setAssignTo rhs
-      elemCompiled = expressionCompile ctx, elem
+      lhsCompiled = expressionCompile ctx, lhs
+      retrieve elem, lhs
       ctx.resetAssignTo()
-      elemCompiled)
+      lhsCompiled)
+    elemType = ctx.freshTypeVariable star
+    for elem in elems
+      unify ctx, elemType, elem.tea
+    # TODO use (Seq c e) instead of (Array e)
+    form.tea = new TypeApp arrayType, elemType
     cond = "seq_size(#{sequence}) #{if hasSplat then '>=' else '=='} #{requiredElems}"
     combinePatterns join [(precs: [(cond_ cond)])], compiledArgs
   else
+    # The below worked, but not for patterns
     # Compile as calls for type checking
     # {a b c} to (& a (& b (& c)))
-    expressionCompile ctx, arrayToConses elems
+    # expressionCompile ctx, arrayToConses elems
+    # result =>         "[#{listOf map _compiled, elems}]"
+
+    elemType = ctx.freshTypeVariable star
+    compiledElems = termsCompile ctx, elems
+    for elem in elems
+      unify ctx, elemType, elem.tea
 
     form.label = 'operator'
-    elemType = if size > 0
-      elems[0].tea
-    else
-      freshTypeVariable star
     form.tea = new TypeApp arrayType, elemType
-    assignCompile ctx, form, "[#{listOf map _compiled, elems}]"
+    assignCompile ctx, form, "[#{listOf compiledElems}]"
 
+isSplat = (expression) ->
+  (isAtom expression) and (_token expression)[...2] is '..'
 
-  # if size > 0
-  #   firstElemType = elems[0].tea
-  #   for {tea} in elems
+splatToName = (splat) ->
+  replicate splat,
+    (token_ (_token splat)[2...])
 
-  # form.tea = applyKindFn (tupleType size), (tea for {tea} in elems)...
-
-arrayToConses = (elems) ->
-  if elems.length is 0
-    token_ 'empty-array'
-  else
-    [x, xs...] = elems
-    (call_ (token_ 'cons-array'), [x, (arrayToConses xs)])
+# arrayToConses = (elems) ->
+#   if elems.length is 0
+#     token_ 'empty-array'
+#   else
+#     [x, xs...] = elems
+#     (call_ (token_ 'cons-array'), [x, (arrayToConses xs)])
 
 assignCompile = (ctx, expression, translatedExpression) ->
   if to = ctx._nameExpression()
 
     ctx.setGroupTranslation()
     {precs, assigns} = patternCompile ctx, to, expression, translatedExpression
+
+    if ctx.shouldDefer()
+      ctx.addDeferred ctx.shouldDefer(), to, expression
+      return 'deferred'
 
     if assigns.length is 0
       throw new "No assign in assignCompile"
@@ -563,6 +612,8 @@ assignCompile = (ctx, expression, translatedExpression) ->
     translatedExpression
 
 patternCompile = (ctx, pattern, matched, translatedMatched) ->
+  return {} if ctx.shouldDefer()
+
   ctx.setAssignTo translatedMatched
   # caching can occur while compiling the pattern
   # precs are {cond}s and {cache}s, sorted in order they need to be executed
@@ -576,28 +627,34 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
   precs: precs ? []
   assigns: assigns ? []
 
-macroCompile = (ctx, call) ->
-  op = _operator call
-  op.label = 'keyword'
-  expanded = ctx.macros()[op.token] ctx, call
-  if not isWellformed expanded
-    'malformed'
-  else if isTranslated expanded
-    expanded
-  else
-    expressionCompile ctx, expanded
-
-isTranslated = (result) ->
-  typeof result is 'string' or result instanceof String
-
 topLevel = (ctx, form) ->
-  listOfLines (for [name, def] in pairs _terms form
-    # for now just atom names
-    # syntaxNewName 'Name pattern required', name
-    ctx.setName name
-    compiled = expressionCompile ctx, def
-    ctx.resetName()
-    compiled)
+  compiledPairs = []
+  for [lhs, rhs] in pairs _terms form
+    topLevelPairCompile ctx, compiledPairs, lhs, rhs
+
+  if ctx.deferred()
+    log ctx.deferred()
+    deferredCount = 0
+    while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
+      [dependencyName, lhs, rhs] = deferred = ctx.deferred().shift()
+      if ctx.declaration dependencyName
+        deferredCount = 0
+        topLevelPairCompile ctx, compiledPairs, lhs, rhs
+      else
+        # If can't compile, defer further
+        deferredCount++
+        ctx.addDeferred deferred
+
+  listOfLines compiledPairs
+
+topLevelPairCompile = (ctx, compiledPairs, lhs, rhs) ->
+  ctx.setName lhs
+  compiled = expressionCompile ctx, rhs
+  ctx.resetName()
+  if ctx.shouldDefer()
+    ctx.setDefer false
+  else
+    compiledPairs.push compiled
 
 builtInMacros =
 
@@ -631,16 +688,20 @@ builtInMacros =
       compiledBody = termCompile ctx, body
       # log "compiled", body.tea
       ctx.closeScope()
+
+      # Arity - before deferring
+      if ctx._name()
+        ctx.addArity ctx._name(), paramNames
+
+      return 'deferred' if ctx.shouldDefer()
+
+      # Typing
       call.tea = typeFn paramTypes..., body.tea
 
       # Syntax
       isUsedParam = (expression) ->
         (isName expression) and (_token expression) in paramNames
       map (syntaxNameAs '', 'param'), filterAst isUsedParam, body
-
-      # Arity
-      if ctx._name()
-        ctx.addArity ctx._name(), paramNames
 
       assignCompile ctx, call,
         """λ(function (#{listOf paramNames}) {
@@ -850,7 +911,7 @@ atomCompile = (ctx, atom) ->
         constCompile ctx, token
       else
         nameCompile ctx, atom, token
-  atom.tea = type
+  atom.tea = type if type
   if ctx.assignTo()
     pattern
   else
@@ -865,8 +926,14 @@ nameCompile = (ctx, atom, token) ->
       assigns:
         [[(validIdentifier token), ctx.assignTo()]]
   else
-    type: ctx.type token
-    translation: validIdentifier token
+    if ctx.declaration token
+      {
+        type: ctx.type token
+        translation: validIdentifier token
+      }
+    else
+      ctx.setDefer token
+      translation: 'deferred'
 
 constCompile = (ctx, token) ->
   type = ctx.type token
@@ -2022,15 +2089,6 @@ markCache = (x) ->
 newVar = ->
   "i#{variableCounter++}"
 
-isSplat = (elem) ->
-  elem.token and elem.token[...2] is '..'
-
-stripSplatFromName = (token) ->
-  if token[...2] is '..'
-    token[2...]
-  else
-    token
-
 # end of Pattern matching
 
 # Match, the only real macro so far (doesn't evaluate arguments)
@@ -2403,6 +2461,7 @@ values = (map) ->
 # Type inference and checker ala Mark Jones
 
 unify = (ctx, t1, t2) ->
+  throw "invalid args to unify" unless ctx instanceof Context and t1 and t2
   sub = ctx.substitution
   ctx.extendSubstitution findSubToMatch (substitute sub, t1), (substitute sub, t2)
 
@@ -2918,7 +2977,6 @@ var from__nullable = function (jsValue) {
 """
 ;
 """
-
 
 exports.compile = (source) ->
   library + compileDefinitions source
