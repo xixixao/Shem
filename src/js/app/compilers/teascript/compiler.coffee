@@ -244,7 +244,7 @@ class Context
 
   setName: (expression) ->
     @names.push
-      name: expression.token
+      name: expression?.token
       expression: expression
       deferredBindings: []
       definedNames: []
@@ -310,7 +310,6 @@ class Context
       undefined # throw "Could not find declaration for #{name}"
 
   addType: (name, type) ->
-    throw new "Trying to add a non ForAll type" if type not instanceof ForAll
     if lookupInMap @_scope(), name
       (lookupInMap @_scope(), name).type = type
     else
@@ -361,10 +360,6 @@ class Context
   extendSubstitution: (substitution) ->
     @substitution = joinSubs substitution, @substitution
 
-  applySubstitution: ->
-    for name, {type, arity} of values @_scope() when type
-      @addType name, substitute @substitution, type
-
   newJsVariable: ->
     "i#{@variableIndex++}"
 
@@ -389,7 +384,11 @@ class Context
       []
 
   setDefer: (dependencyName) ->
-    @_defer = dependencyName
+    @_defer =
+      if dependencyName
+        @_defer or dependencyName
+      else
+        dependencyName
 
   shouldDefer: ->
     @_defer
@@ -464,12 +463,14 @@ callKnownCompile = (ctx, call) ->
   args = _labeled _arguments call
   labeledArgs = labeledToMap args
 
-  return 'malformed' if tagFreeLabels args
+  if tagFreeLabels args
+    return malformed 'labels without values inside call', call
 
   paramNames = ctx.arity operator.token
-  log "param names", paramNames
   if not paramNames
-    return ctx.setDefer operator.token
+    log "deferring in known call #{operator.token}"
+    ctx.setDefer operator.token
+    return 'deferred'
   positionalParams = filter ((param) -> not (lookupInMap labeledArgs, param)), paramNames
   nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
 
@@ -488,13 +489,17 @@ callKnownCompile = (ctx, call) ->
 
     if ctx.assignTo()
       if isCapital operator
-        compiled = callConstructorPattern ctx, sortedCall, extraParamNames
-        retrieve call, sortedCall
-        compiled
+        if args.length < paramNames.length and nonLabeledArgs.length > 0
+          malformed call, "curried constructor pattern"
+        else
+          compiled = callConstructorPattern ctx, sortedCall, extraParamNames
+          retrieve call, sortedCall
+          compiled
       else
         malformed call, "function patterns not supported"
     else
       if nonLabeledArgs.length < positionalParams.length
+        log "currying known call"
         lambda = (fn_ extraParams, sortedCall)
         compiled = macroCompile ctx, lambda
         retrieve call, lambda
@@ -524,11 +529,12 @@ callConstructorPattern = (ctx, call, extraParamNames) ->
 
   # Typing operator like inside a known call
   precsForData = operatorCompile ctx, call
+  log 'op in pattern', precsForData
 
   # Gets the general type as if the extra arguments were supplied
   callTyping ctx, call
 
-  combinePatterns join precsForData, compiledArgs
+  combinePatterns join [precsForData], compiledArgs
 
 jsObjectAccess = (fieldName) ->
   if (validIdentifier fieldName) is fieldName
@@ -541,6 +547,7 @@ callSaturatedKnownCompile = (ctx, call) ->
   args = _arguments call
 
   compiledOperator = operatorCompile ctx, call
+  log "compiled saturated", operator, call
 
   compiledArgs = termsCompile ctx, args
 
@@ -560,14 +567,20 @@ tagFreeLabels = (pairs) ->
 
 operatorCompile = (ctx, call) ->
   ctx.setIsOperator yes
-  log "compiling operator"
+  ctx.subName()
   compiledOperator = atomCompile ctx, _operator call
+  ctx.resetName()
   ctx.resetIsOperator()
   compiledOperator
 
 callUnknownTranslate = (ctx, translatedOperator, call) ->
   args = _arguments call
-  argList = listOf termsCompile ctx, args
+
+
+  argList = if ctx.shouldDefer()
+    'deferred'
+  else
+    listOf termsCompile ctx, args
 
   callTyping ctx, call
 
@@ -648,7 +661,7 @@ seqCompile = (ctx, form) ->
         requiredElems++
 
     if hasSplat and requiredElems is 0
-      return malformed 'Matching on sequences requires at least one element name', form
+      return malformed 'Matching with splat requires at least one element name', form
 
     compiledArgs = (for elem, i in elems
       [lhs, rhs] =
@@ -663,10 +676,16 @@ seqCompile = (ctx, form) ->
       ctx.resetAssignTo()
       lhsCompiled)
     elemType = ctx.freshTypeVariable star
-    for elem in elems
-      unify ctx, elemType, elem.tea
     # TODO use (Seq c e) instead of (Array e)
     form.tea = new TypeApp arrayType, elemType
+
+    for elem in elems
+      unify ctx, elem.tea,
+        if isSplat elem
+          form.tea
+        else
+          elemType
+
     cond = "seq_size(#{sequence}) #{if hasSplat then '>=' else '=='} #{requiredElems}"
     combinePatterns join [(precs: [(cond_ cond)])], compiledArgs
   else
@@ -728,15 +747,17 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
 
   definedNames = ctx.definedNames()
 
-  # Make sure deferred names are added to scope so they are compiled withing functions
+  # Make sure deferred names are added to scope so they are compiled within functions
   if ctx.shouldDefer()
     for {name} in definedNames
       if not ctx.arity name
         ctx.addToScope name
+    log "exiting pattern early", pattern, "for", ctx.shouldDefer()
     return {}
 
   # Check the types
-  unify ctx, matched.tea, pattern.tea
+  if pattern.tea
+    unify ctx, matched.tea, pattern.tea
 
   # And substitute to get correct types TODO: make sure this works for match as well
 
@@ -746,6 +767,7 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
     # or use the substitution instead of type below:
     mapMap (-> {name, type}), findFree substitute ctx.substitution, type)
 
+  log "pattern compiel", definedNames
   for {name, type} in definedNames
     currentType = substitute ctx.substitution, type
     deps = concat mapToArray intersectRight (findFree currentType), tempVars
@@ -757,15 +779,18 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
         ctx.addToDeferred {name: dep.name, type: dep.type, deps: [name]}
       ctx.addType name, new TempType type
     else
-      log "adding type for lhs #{name}"
+      log "adding type for lhs #{name}", currentType
       ctx.addArity name, [] unless ctx.arity name
-      ctx.addType name, quantify (findFree currentType), currentType
+      ctx.addType name, if ctx._nameExpression()
+        quantifyAll currentType
+      else
+        toForAll currentType
   # here I will create type schemes for all definitions
   # The problem is I don't know which are impricise, because the names are done inside the
   # pattern. I can use the context to know which types where added in the current assignment.
 
-
   # TODO: malformed "LHS\'s type doesn\'t match the RHS in assignment", pattern
+
   precs: precs ? []
   assigns: assigns ? []
 
@@ -813,9 +838,11 @@ topLevel = (ctx, form) ->
 topLevelPairCompile = (ctx, compiledPairs, lhs, rhs) ->
   log "COMPILING", lhs, rhs
   ctx.setName lhs
+  log "deferrement before assign !!!", ctx.shouldDefer()
   compiled = expressionCompile ctx, rhs
   ctx.resetName()
   if ctx.shouldDefer()
+    log "RESETTING DEFER"
     ctx.setDefer false
   else
     compiledPairs.push compiled
@@ -903,6 +930,7 @@ builtInMacros =
       else
         ctx._name()
       # TODO support polymorphic data
+      log "Adding constructor #{constr.token}"
       ctx.addType constr.token, toForAll constrType
       constr.tea = constrType
     # TODO: support polymorphic data
@@ -923,7 +951,7 @@ builtInMacros =
       constrFn = """function #{identifier}(#{paramList}) {#{paramAssigns}};"""
       constrValue = if params
         """
-        #{identifier}.create = λ(function(#{paramList}){
+        #{identifier}.value = λ(function(#{paramList}){
           return new #{identifier}(#{paramList});
         });"""
       else
@@ -967,14 +995,20 @@ builtInMacros =
     compiledCases = conditional (for [pattern, result] in pairs cases
 
       ctx.newScope() # for variables defined inside pattern
+      ctx.setName()
 
       {precs, assigns} = patternCompile ctx, pattern, subject, subjectCompiled
 
+      ctx.resetName()
       # Compile the result, given current scope
       compiledResult = termCompile ctx, result #compileImpl result, furtherHoistable
-      unify ctx, resultType, result.tea
       ctx.closeScope()
 
+      if ctx.shouldDefer()
+        continue
+
+      log "unifying in match", resultType, result.tea
+      unify ctx, resultType, result.tea
       varNames.push (findDeclarables precs)...
 
       matchBranchTranslate precs, assigns, compiledResult
@@ -1078,8 +1112,6 @@ atomCompile = (ctx, atom) ->
         type: typeConstant 'String'
         translation: token
         pattern: literalPattern ctx, token
-      when 'const'
-        constCompile ctx, token
       else
         nameCompile ctx, atom, token
   atom.tea = type if type
@@ -1092,30 +1124,30 @@ atomCompile = (ctx, atom) ->
     assignCompile ctx, atom, translation
 
 nameCompile = (ctx, atom, token) ->
+  contextType = ctx.type token
   if exp = ctx.assignTo()
     if atom.label is 'const'
-      type: ctx.type token
-      pattern:
-        precs: [_cond
-          switch token
-            when 'True' then "#{exp}"
-            when 'False' then "!#{exp}"
-            else
-              "#{exp} instanceof #{validIdentifier token}"]
+      if contextType
+        type: freshInstance ctx, ctx.type token
+        pattern: constPattern ctx, token
+      else
+        log "deferring in pattern for #{token}"
+        ctx.setDefer token
+        pattern: []
     else
       atom.label = 'name'
-      ctx.addToDefinedNames {name: token, type: (type = ctx.freshTypeVariable star)}
+      type = ctx.freshTypeVariable star
+      ctx.addToDefinedNames {name: token, type: type}
       type: type
       pattern:
         assigns:
           [[(validIdentifier token), exp]]
   else
     # Name typed, use a fresh instance
-    contextType = ctx.type token
     if contextType and contextType not instanceof TempType
       {
         type: freshInstance ctx, contextType
-        translation: validIdentifier token
+        translation: nameTranslate ctx, atom, token
       }
     # Inside function only defer compilation if we don't know arity
     else if ctx.isInLateScope() and (ctx.declaration token) or contextType instanceof TempType
@@ -1124,39 +1156,30 @@ nameCompile = (ctx, atom, token) ->
       ctx.addToDeferredNames {name: token, type: type}
       {
         type: type
-        translation: validIdentifier token
+        translation: nameTranslate ctx, atom, token
       }
     else
-      log "compilation deferring #{token}"
+      log "deferring for #{token}"
       ctx.setDefer token
       translation: 'deferred'
 
-constCompile = (ctx, token) ->
-  type = ctx.type token
+constPattern = (ctx, token) ->
   exp = ctx.assignTo()
-  if exp
-    type: type
-    pattern:
-      precs: [_cond
-        switch token
-          when 'True' then "#{exp}"
-          when 'False' then "!#{exp}"
-          else
-            "#{exp} instanceof #{token}"]
+  precs: [(cond_ switch token
+      when 'True' then "#{exp}"
+      when 'False' then "!#{exp}"
+      else
+        "#{exp} instanceof #{token}")]
+
 nameTranslate = (ctx, atom, token) ->
   if atom.label is 'const'
     switch token
       when 'True' then 'true'
       when 'False' then 'false'
       else
-        field = if isConstructor ctx.type token then 'create' else 'value'
-        "#{validIdentifier token}.#{field}"
+        "#{validIdentifier token}.value"
   else
     validIdentifier token
-
-nameTyping: (ctx, atom, token) ->
-
-
 
 numericalCompile = (ctx, token) ->
   translation = if token[0] is '~' then "(-#{token})" else token
@@ -1199,7 +1222,7 @@ syntaxType = (expression) ->
   # ignore type classes for now
   if isName expression
     expression.label = if isCapital then 'typename' else 'typevar'
-  else if isTuple expression
+  else if _isTuple expression
     map syntaxType, (_terms expression)
   else if isCall expression
     syntaxNameAs 'Constructor name required', 'typecons', (_operator expression)
@@ -2558,7 +2581,7 @@ builtInContext = (ctx) ->
         arity: ['what', 'onto'])
 
 desiplifyTypeAndArity = (simple) ->
-  type: desiplifyType simple
+  type: quantifyAll desiplifyType simple
   arity: ("a#{i}" for _, i in simple[0...simple.length - 1])
 
 desiplifyType = (simple) ->
@@ -3028,8 +3051,11 @@ class TempType
 toForAll = (type) ->
   new ForAll [], type
 
+quantifyAll = (type) ->
+  quantify (findFree type), type
+
 quantify = (vars, type) ->
-  polymorphicVars = filterMap ((name) -> name in vars), findFree type
+  polymorphicVars = filterMap ((name) -> inSet vars, name), findFree type
   kinds = mapToArray polymorphicVars
   varIndex = 0
   quantifiedVars = mapMap (-> new QuantifiedVar varIndex++), polymorphicVars
@@ -3041,32 +3067,59 @@ arrayType = new TypeConstr 'Array', kindFn 1
 
 
 printType = (type) ->
-  if type instanceof TypeVariable
-    type.name
-  else if type instanceof QuantifiedVar
-    type.var
-  else if type instanceof TypeConstr
-    type.name
-  else if type instanceof TypeApp
-    types = collectArgs type
-    if types.length is 1
-      types[0]
-    else
-      "(Fn #{types.join ' '})"
-  else if type instanceof ForAll
-    "(∀ #{printType type.type})"
-  else if type instanceof TempType
-    "(. #{printType type.type})"
-  else if Array.isArray type
-    "\"#{type.join ', '}\""
+  (flattenType type) or
+    if type instanceof TypeVariable
+      type.name
+    else if type instanceof QuantifiedVar
+      type.var
+    else if type instanceof TypeConstr
+      type.name
+    else if type instanceof TypeApp
+      types = collectArgs type
+      if types.length is 1
+        types[0]
+      else
+        "(Fn #{types.join ' '})"
+    else if type instanceof ForAll
+      "(∀ #{printType type.type})"
+    else if type instanceof TempType
+      "(. #{printType type.type})"
+    else if Array.isArray type
+      "\"#{listOf type}\""
+    else if type is undefined
+      "undefined"
 
 collectArgs = (type) ->
   if type.op?.op?.name is '->'
     join [printType type.op.arg], collectArgs type.arg
+  # else if match = type.op?.op?.name?.match /^\[(\d)\]$/
+  #   arity = parseInt match[1]
+  #   for i in [0...arity]
+
   else if type.op
     ["(#{printType type.op} #{printType type.arg})"]
   else
     [printType type]
+
+flattenType = (type) ->
+  if type instanceof TypeConstr and match = type.name.match /^\[(\d)\]$/
+    {
+      arity: parseInt match[1]
+      types: []
+    }
+  else if type instanceof TypeApp
+    flattenedOp = flattenType type.op
+    if flattenedOp?.arity
+      if flattenedOp.arity is flattenedOp.types.length + 1
+        "[#{(join flattenedOp.types, [printType type.arg]).join ' '}]"
+      else
+        flattenedOp.types.push printType type.arg
+        flattenedOp
+    else
+      undefined
+  else
+    undefined
+
 
 
 # ignoreTypeErrors = (fn) ->
@@ -3240,6 +3293,7 @@ var from__nullable = function (jsValue) {
 """
 ;
 """
+
 
 
 exports.compile = (source) ->
