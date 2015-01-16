@@ -1,35 +1,4 @@
-keywords = 'data class instance fn proc match if \\
-            access call new
-            require'.split ' '
-
 controls = '\\(\\)\\[\\]\\{\\}'
-
-tokenize2 = (input) ->
-  whitespace = ''
-  currentPos = 0
-  while input.length > 0
-    match = input.match ///
-      ^ # must be at the start
-      (
-        \s+ # pure whitespace
-      | [#{controls}] # brackets
-      | /([^\ /]|\\/)([^/]|\\/)*?/ # regex
-      | "[^"]*?" # strings
-      | '\\?[^']' # char
-      | [^#{controls}"'\s]+  normal tokens
-      )///
-    if not match
-      throw new Error "Could not recognize a token starting with `#{input[0..10]}`"
-    [token] = match
-    input = input[token.length...]
-    if /\s+$/.test token
-      whitespace = token
-      continue
-    ws = whitespace
-    pos = currentPos
-    currentPos += ws.length + token.length
-    whitespace = ''
-    {token, ws, pos}
 
 tokenize = (input) ->
   currentPos = 0
@@ -56,6 +25,7 @@ tokenize = (input) ->
 noWS = (tokens) ->
   tokens.filter (token) -> token.label isnt 'whitespace'
 
+
 astize = (tokens) ->
   tree = []
   current = []
@@ -65,11 +35,19 @@ astize = (tokens) ->
       stack.push [token]
     else if token.token in rightDelims
       closed = stack.pop()
+      if token.token isnt delims[closed[0].token]
+        throw "Wrong closing delimiter #{token.token} for opening delimiter #{closed[0].token}"
       closed.push token
+      if not stack[stack.length - 1]
+        throw "Missing opening delimeter matching #{token.token}"
       stack[stack.length - 1].push closed
     else
       stack[stack.length - 1].push token
-  stack[0][0]
+  ast = stack[0][0]
+  if not ast
+    throw "Missing closing delimeter matching #{stack[stack.length - 1][0].token}"
+  else
+    ast
 
 leftDelims = ['(', '[', '{']
 rightDelims = [')', ']', '}']
