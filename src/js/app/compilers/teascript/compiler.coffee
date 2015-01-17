@@ -16,9 +16,10 @@ tokenize = (input, initPos = 0) ->
       throw new Error "Could not recognize a token starting with `#{input[0..10]}`"
     [symbol] = match
     input = input[symbol.length...]
-    pos = currentPos
+    start = currentPos
     currentPos += symbol.length
-    constantLabeling {symbol, pos}
+    end = currentPos
+    constantLabeling {symbol, start, end}
 
 controls = '\\(\\)\\[\\]\\{\\}'
 
@@ -31,12 +32,15 @@ astize = (tokens) ->
   stack = [[]]
   for token in tokens
     if token.symbol in leftDelims
-      stack.push [token]
+      form = [token]
+      form.start = token.start
+      stack.push form
     else if token.symbol in rightDelims
       closed = stack.pop()
       if token.symbol isnt delims[closed[0].symbol]
         throw "Wrong closing delimiter #{token.symbol} for opening delimiter #{closed[0].symbol}"
       closed.push token
+      closed.end = token.end
       if not stack[stack.length - 1]
         throw "Missing opening delimeter matching #{token.symbol}"
       stack[stack.length - 1].push closed
@@ -340,7 +344,7 @@ class Context
 
 
 expressionCompile = (ctx, expression) ->
-  throw "invalid expressionCompile args" unless ctx instanceof Context and expression
+  throw new Error "invalid expressionCompile args" unless ctx instanceof Context and expression
   (if isAtom expression
     atomCompile
   else if isTuple expression
@@ -350,7 +354,7 @@ expressionCompile = (ctx, expression) ->
   else if isCall expression
     callCompile
   else
-    log "Not handled", expression
+    # log "Not handled", expression
     throw "Not handled expression in expressionCompile"
   ) ctx, expression
 
@@ -407,7 +411,7 @@ callKnownCompile = (ctx, call) ->
 
   paramNames = ctx.arity operator.symbol
   if not paramNames
-    log "deferring in known call #{operator.symbol}"
+    # log "deferring in known call #{operator.symbol}"
     ctx.setDefer operator.symbol
     return 'deferred'
   positionalParams = filter ((param) -> not (lookupInMap labeledArgs, param)), paramNames
@@ -438,7 +442,7 @@ callKnownCompile = (ctx, call) ->
         malformed call, "function patterns not supported"
     else
       if nonLabeledArgs.length < positionalParams.length
-        log "currying known call"
+        # log "currying known call"
         lambda = (fn_ extraParams, sortedCall)
         compiled = macroCompile ctx, lambda
         retrieve call, lambda
@@ -468,7 +472,7 @@ callConstructorPattern = (ctx, call, extraParamNames) ->
 
   # Typing operator like inside a known call
   precsForData = operatorCompile ctx, call
-  log 'op in pattern', precsForData
+  # log 'op in pattern', precsForData
 
   # Gets the general type as if the extra arguments were supplied
   callTyping ctx, call
@@ -486,7 +490,7 @@ callSaturatedKnownCompile = (ctx, call) ->
   args = _arguments call
 
   compiledOperator = operatorCompile ctx, call
-  log "compiled saturated", operator, call
+  # log "compiled saturated", operator, call
 
   compiledArgs = termsCompile ctx, args
 
@@ -658,14 +662,14 @@ splatToName = (splat) ->
 #     (call_ (token_ 'cons-array'), [x, (arrayToConses xs)])
 
 assignCompile = (ctx, expression, translatedExpression) ->
-  if not translatedExpression
-    log expression
+  # if not translatedExpression # TODO: throw here?
+    #log expression
   if to = ctx._nameExpression()
 
     ctx.setGroupTranslation()
     {precs, assigns} = patternCompile ctx, to, expression, translatedExpression
 
-    log "ASSIGN #{ctx._name()}", ctx.shouldDefer()
+    #log "ASSIGN #{ctx._name()}", ctx.shouldDefer()
     if ctx.shouldDefer()
       ctx.addDeferred ctx.shouldDefer(), to, expression
       return 'deferred'
@@ -691,7 +695,7 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
     for {name} in definedNames
       if not ctx.arity name
         ctx.addToScope name
-    log "exiting pattern early", pattern, "for", ctx.shouldDefer()
+    #log "exiting pattern early", pattern, "for", ctx.shouldDefer()
     return {}
 
   # Check the types
@@ -706,19 +710,19 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
     # or use the substitution instead of type below:
     mapMap (-> {name, type}), findFree substitute ctx.substitution, type)
 
-  log "pattern compiel", definedNames
+  #log "pattern compiel", definedNames
   for {name, type} in definedNames
     currentType = substitute ctx.substitution, type
     deps = concat mapToArray intersectRight (findFree currentType), tempVars
     if deps.length > 0
       depsNames =  deps
-      log "adding top level lhs to deferred #{name}"
+      #log "adding top level lhs to deferred #{name}"
       ctx.addToDeferred {name, type, deps: (map (({name}) -> name), deps)}
       for dep in deps
         ctx.addToDeferred {name: dep.name, type: dep.type, deps: [name]}
       ctx.addType name, new TempType type
     else
-      log "adding type for lhs #{name}", currentType
+      #log "adding type for lhs #{name}", currentType
       ctx.addArity name, [] unless ctx.arity name
       ctx.addType name, if ctx._nameExpression()
         quantifyAll currentType
@@ -738,12 +742,16 @@ topLevel = (ctx, form) ->
 
 definitionList = (ctx, pairs) ->
   compiledPairs = filter _is, (for [lhs, rhs] in pairs
-    definitionPairCompile ctx, lhs, rhs)
+    if rhs
+      definitionPairCompile ctx, lhs, rhs
+    else
+      malformed lhs, 'missing value in definition'
+      undefined)
 
   compiledPairs = join compiledPairs, compileDeferred ctx
   resolveDeferredTypes ctx
 
-  log "yay"
+  #log "yay"
 
   listOfLines compiledPairs
 
@@ -755,7 +763,7 @@ resolveDeferredTypes = (ctx) ->
     for name, types of values names
       canonicalType = ctx.freshTypeVariable star
       for type in types
-        log type.constructor
+        #log type.constructor
         # log "unifying", canonicalType, type
         unify ctx, canonicalType, type
         # log "done unifying one"
@@ -823,11 +831,11 @@ builtInMacros =
       # log "adding types", (map _symbol, params), paramTypes
       ctx.addTypes (map _symbol, params), paramTypes
 
-      log "compiling wheres", pairs wheres
+      #log "compiling wheres", pairs wheres
       compiledWheres = definitionList ctx, pairs wheres
 
       # log "types added"
-      log "compiling", body
+      #log "compiling", body
       compiledBody = termCompile ctx, body
       # log "compiled", body.tea
       ctx.closeScope()
@@ -842,7 +850,7 @@ builtInMacros =
 
       # Arity - before deferring instead go to assignCompile, because this makes the naming of functions special
       if ctx._name()
-        log "adding arity for #{ctx._name()}", paramNames
+        #log "adding arity for #{ctx._name()}", paramNames
         ctx.addArity ctx._name(), paramNames
 
       assignCompile ctx, call,
@@ -851,7 +859,7 @@ builtInMacros =
         else
           # Typing
           if not body.tea
-            log body
+            #log body
             throw "Body not typed"
           call.tea = typeFn (map _type, paramTypes)..., body.tea
 
@@ -885,7 +893,7 @@ builtInMacros =
       else
         ctx._name()
       # TODO support polymorphic data
-      log "Adding constructor #{constr.symbol}"
+      #log "Adding constructor #{constr.symbol}"
       ctx.addType constr.symbol, toForAll constrType
       constr.tea = constrType
     # TODO: support polymorphic data
@@ -977,7 +985,7 @@ builtInMacros =
       if ctx.shouldDefer()
         continue
 
-      log "unifying in match", resultType, result.tea
+      #log "unifying in match", resultType, result.tea
       unify ctx, resultType, result.tea
       varNames.push (findDeclarables precs)...
 
@@ -1110,7 +1118,7 @@ nameCompile = (ctx, atom, symbol) ->
         type: freshInstance ctx, ctx.type symbol
         pattern: constPattern ctx, symbol
       else
-        log "deferring in pattern for #{symbol}"
+        #log "deferring in pattern for #{symbol}"
         ctx.setDefer symbol
         pattern: []
     else
@@ -1138,7 +1146,7 @@ nameCompile = (ctx, atom, symbol) ->
         translation: nameTranslate ctx, atom, symbol
       }
     else
-      log "deferring for #{symbol}"
+      #log "deferring for #{symbol}"
       ctx.setDefer symbol
       translation: 'deferred'
 
@@ -1366,39 +1374,6 @@ filterAst = (test, expression) ->
     else
       []
 
-join = (seq1, seq2) ->
-  seq1.concat seq2
-
-concatMap = (fn, list) ->
-  concat map fn, list
-
-concat = (lists) ->
-  [].concat lists...
-
-id = (x) -> x
-
-map = (fn, list) ->
-  if list then list.map fn else (list) -> map fn, list
-
-allMap = (fn, list) ->
-  all (map fn, list)
-
-all = (list) ->
-  (filter _is, list).length is list.length
-
-filter = (fn, list) ->
-  list.filter fn
-
-partition = (fn, list) ->
-  [(filter fn, list), (filter ((x) -> not (fn x)), list)]
-
-_notEmpty = (x) -> x.length > 0
-
-_is = (x) -> !!x
-
-__ = (fna, fnb) ->
-  (x) -> fna fnb x
-
 theme =
   keyword: 'red'
   numerical: '#FEDF6B'
@@ -1508,13 +1483,6 @@ collapse = (nodes) ->
     crawl node, (node) ->
       collapsed += node
   collapsed
-
-# TODO need?
-# Correct offset by 1 in positions, when we wrap the source in an S-exp
-shiftPos = (ast) ->
-  crawl ast, (word) ->
-    word.pos = word.pos - 1
-    word
 
 # TODO: need?
 parentize = (highlighted) ->
@@ -2055,15 +2023,15 @@ newMapKeysVals = (keys, vals) ->
 concatSets =
 concatMaps = (maps...) ->
   concated = newMap()
-  for map in maps
-    for k, v of map.values
+  for m in maps
+    for k, v of m.values
       addToMap concated, k, v
   concated
 
 concatConcatMaps = (maps) ->
   concated = newMap()
-  for map in maps
-    for k, v of map.values
+  for m in maps
+    for k, v of m.values
       if list = lookupInMap concated, k
         list.push v
       else
@@ -2437,17 +2405,70 @@ var from__nullable = function (jsValue) {
 ;
 """
 
+# API
 
-
-exports.compileTopLevel = (ast) ->
+compileTopLevel = (ast) ->
   compiled = topLevel (ctx = new Context), ast
-    types: values mapMap (__ highlightType, _type), ctx._scope()
-    js: library + compiled
+  types: values mapMap (__ highlightType, _type), ctx._scope()
+  js: library + compiled
 
-exports.compileExpression = (ast) ->
+compileExpression = (ast) ->
   compiled = expressionCompile (ctx = new Context), ast
-    types: values mapMap (__ highlightType, _type), ctx._scope()
-    js: compiled
+  types: values mapMap (__ highlightType, _type), ctx._scope()
+  js: compiled
+
+astizeList = (source) ->
+  astize tokenize "(#{source})", -1
+
+astizeExpression = (source) ->
+  astize tokenize source
+
+
+# end of API
+
+# Utils
+
+join = (seq1, seq2) ->
+  seq1.concat seq2
+
+concatMap = (fn, list) ->
+  concat map fn, list
+
+concat = (lists) ->
+  [].concat lists...
+
+id = (x) -> x
+
+map = (fn, list) ->
+  if list then list.map fn else (list) -> map fn, list
+
+allMap = (fn, list) ->
+  all (map fn, list)
+
+all = (list) ->
+  (filter _is, list).length is list.length
+
+filter = (fn, list) ->
+  list.filter fn
+
+partition = (fn, list) ->
+  [(filter fn, list), (filter ((x) -> not (fn x)), list)]
+
+_notEmpty = (x) -> x.length > 0
+
+_is = (x) -> !!x
+
+__ = (fna, fnb) ->
+  (x) -> fna fnb x
+
+# end of Utils
+
+
+
+exports.compileTopLevel = compileTopLevel
+exports.compileExpression = compileExpression
+exports.astizeList = astizeList
+exports.astizeExpression = astizeExpression
 
 # exports.compileModule = (source) ->
 #   """
@@ -2456,12 +2477,21 @@ exports.compileExpression = (ast) ->
 #   #{compileDefinitionsInModule source}
 #   exports"""
 
-exports.astizeList = (source) ->
-  astize tokenize "(#{source})", -1
-
-exports.astize = (source) ->
-  astize tokenize source
-
 exports.library = library
 
 exports.walk = walk
+exports.isForm = isForm
+
+
+exports.join = join
+exports.concatMap = concatMap
+exports.concat = concat
+exports.id = id
+exports.map = map
+exports.allMap = allMap
+exports.all = all
+exports.filter = filter
+exports.partition = partition
+exports._notEmpty = _notEmpty
+exports._is = _is
+exports.__ = __
