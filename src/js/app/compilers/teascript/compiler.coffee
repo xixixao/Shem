@@ -836,12 +836,7 @@ builtInMacros =
     # For now expect the curried constructor call
     args = _arguments call
     [paramList, defs...] = args
-    if not paramList or not isTuple paramList
-      malformed call, 'Missing paramater list'
-      params = []
-    else
-      params = _terms paramList
-      map (syntaxNewName 'Parameter name expected'), params
+    paramTuple paramList
     defs ?= []
     if defs.length is 0
       malformed call, 'Missing function result'
@@ -963,6 +958,21 @@ builtInMacros =
     replicate call,
       (call_ (token_ 'data'), [(token_ ctx._name()), (tuple_ args)])
 
+  # TODO:
+  # For now support the simplest function macros, just compiling down to source
+  # strings
+  # macro: (ctx, call) ->
+  #   args = _arguments call
+  #   [paramList, body] = args
+  #   paramTuple paramList
+  #   if not body
+  #     malformed call, 'Missing macro definition'
+
+  #   ctx.
+  #   # then in assign compile:
+  #   ctx.macros[ctx._name()]
+
+
   # match
   #   subject
   #   listing of
@@ -1038,6 +1048,15 @@ conditional = (condCasePairs, elseCase) ->
       }""").join '') + """ else {
         #{elseCase}
       }"""
+
+paramTuple = (call, expression) ->
+  if not expression or not isTuple expression
+    malformed call, 'Missing paramater list'
+    params = []
+  else
+    params = _terms expression
+    map (syntaxNewName 'Parameter name expected'), params
+  params
 
 # From precs, find caches and the LHS are declarable variables
 findDeclarables = (precs) ->
