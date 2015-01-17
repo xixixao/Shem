@@ -1,5 +1,5 @@
-tokenize = (input) ->
-  currentPos = 0
+tokenize = (input, initPos = 0) ->
+  currentPos = initPos
   while input.length > 0
     match = input.match ///
       ^ # must be at the start
@@ -14,11 +14,11 @@ tokenize = (input) ->
       )///
     if not match
       throw new Error "Could not recognize a token starting with `#{input[0..10]}`"
-    [token] = match
-    input = input[token.length...]
+    [symbol] = match
+    input = input[symbol.length...]
     pos = currentPos
-    currentPos += token.length
-    constantLabeling {token, pos}
+    currentPos += symbol.length
+    constantLabeling {symbol, pos}
 
 controls = '\\(\\)\\[\\]\\{\\}'
 
@@ -30,21 +30,21 @@ astize = (tokens) ->
   current = []
   stack = [[]]
   for token in tokens
-    if token.token in leftDelims
+    if token.symbol in leftDelims
       stack.push [token]
-    else if token.token in rightDelims
+    else if token.symbol in rightDelims
       closed = stack.pop()
-      if token.token isnt delims[closed[0].token]
-        throw "Wrong closing delimiter #{token.token} for opening delimiter #{closed[0].token}"
+      if token.symbol isnt delims[closed[0].symbol]
+        throw "Wrong closing delimiter #{token.symbol} for opening delimiter #{closed[0].symbol}"
       closed.push token
       if not stack[stack.length - 1]
-        throw "Missing opening delimeter matching #{token.token}"
+        throw "Missing opening delimeter matching #{token.symbol}"
       stack[stack.length - 1].push closed
     else
       stack[stack.length - 1].push token
   ast = stack[0][0]
   if not ast
-    throw "Missing closing delimeter matching #{stack[stack.length - 1][0].token}"
+    throw "Missing closing delimeter matching #{stack[stack.length - 1][0].symbol}"
   else
     ast
 
@@ -53,18 +53,18 @@ rightDelims = [')', ']', '}']
 delims = '(': ')', '[': ']', '{': '}'
 
 constantLabeling = (atom) ->
-  {token} = atom
+  {symbol} = atom
   labelMapping atom,
-    ['numerical', /^-?\d+/.test token]
+    ['numerical', /^-?\d+/.test symbol]
     ['label', isLabel atom]
-    ['string', /^["']/.test token]
-    ['regex', /^\/[^ \/]/.test token]
-    ['paren', token in ['(', ')']]
-    ['bracket', token in ['[', ']']]
-    ['brace', token in ['{', '}']]
-    ['whitespace', /^\s+$/.test token]
+    ['string', /^["']/.test symbol]
+    ['regex', /^\/[^ \/]/.test symbol]
+    ['paren', symbol in ['(', ')']]
+    ['bracket', symbol in ['[', ']']]
+    ['brace', symbol in ['{', '}']]
+    ['whitespace', /^\s+$/.test symbol]
 
-_isCollectionDelim = (atom) ->
+isCollectionDelim = (atom) ->
   atom.label in ['bracket', 'brace']
 
 # TODO: remove
@@ -86,43 +86,13 @@ crawl = (ast, cb, parent) ->
     typed ast, (for node in ast
       crawl node, cb, ast)
   else
-    cb ast, ast.token, parent
+    cb ast, ast.symbol, parent
 
 visitExpressions = (expression, cb) ->
   cb expression
   if isForm expression
     for term in _terms expression
       visitExpressions term, cb
-
-inside = (node) -> node[1...-1]
-
-matchNode = (to, node) ->
-  return false unless node.length >= 3
-  [paren, {token}] = node
-  paren.token is '(' and token is to
-
-matchAnyNode = (tos, node) ->
-  for to in tos
-    if matchNode to, node
-      return true
-  return false
-
-macro = (operator, ast, cb) ->
-  walk ast, (node) ->
-    if matchNode operator, node
-      return cb node, inside node
-    node
-
-typedMacro = (type, ast, cb) ->
-  walk ast, (node) ->
-    if node.type is type
-      return cb node, inside node
-    node
-
-mapTokens = (tokens, ast, cb) ->
-  crawl ast, (word, token) ->
-    if token in tokens
-      cb word
 
 teas = (fn, string) ->
   ast = astize tokenize string
@@ -199,7 +169,7 @@ class Context
 
   setName: (expression) ->
     @names.push
-      name: expression?.token
+      name: expression?.symbol
       expression: expression
       deferredBindings: []
       definedNames: []
@@ -394,7 +364,7 @@ expressionCompile = (ctx, expression) ->
 
 callCompile = (ctx, call) ->
   operator = _operator call
-  operatorName = _token operator
+  operatorName = _symbol operator
   if isName operator
     (if operatorName of ctx.macros()
       macroCompile
@@ -413,7 +383,7 @@ callCompile = (ctx, call) ->
 macroCompile = (ctx, call) ->
   op = _operator call
   op.label = 'keyword'
-  expanded = ctx.macros()[op.token] ctx, call
+  expanded = ctx.macros()[op.symbol] ctx, call
   if not isWellformed expanded
     'malformed'
   else if isTranslated expanded
@@ -435,10 +405,10 @@ callKnownCompile = (ctx, call) ->
   if tagFreeLabels args
     return malformed 'labels without values inside call', call
 
-  paramNames = ctx.arity operator.token
+  paramNames = ctx.arity operator.symbol
   if not paramNames
-    log "deferring in known call #{operator.token}"
-    ctx.setDefer operator.token
+    log "deferring in known call #{operator.symbol}"
+    ctx.setDefer operator.symbol
     return 'deferred'
   positionalParams = filter ((param) -> not (lookupInMap labeledArgs, param)), paramNames
   nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
@@ -481,8 +451,8 @@ callKnownCompile = (ctx, call) ->
 callConstructorPattern = (ctx, call, extraParamNames) ->
   operator = _operator call
   args = _arguments call
-  isExtra = (arg) -> (isAtom arg) && (_token arg) in extraParamNames
-  paramNames = ctx.arity operator.token
+  isExtra = (arg) -> (isAtom arg) && (_symbol arg) in extraParamNames
+  paramNames = ctx.arity operator.symbol
 
   if args.length - extraParamNames.length > 1
     ctx.cacheAssignTo()
@@ -674,11 +644,11 @@ seqCompile = (ctx, form) ->
     assignCompile ctx, form, "[#{listOf compiledElems}]"
 
 isSplat = (expression) ->
-  (isAtom expression) and (_token expression)[...2] is '..'
+  (isAtom expression) and (_symbol expression)[...2] is '..'
 
 splatToName = (splat) ->
   replicate splat,
-    (token_ (_token splat)[2...])
+    (token_ (_symbol splat)[2...])
 
 # arrayToConses = (elems) ->
 #   if elems.length is 0
@@ -846,12 +816,12 @@ builtInMacros =
         [type, body, wheres...] = defs
       else
         [body, wheres...] = defs
-      paramNames = map _token, params
+      paramNames = map _symbol, params
       # pattern
       paramTypes = map (-> toForAll ctx.freshTypeVariable star), params
       ctx.newLateScope()
-      # log "adding types", (map _token, params), paramTypes
-      ctx.addTypes (map _token, params), paramTypes
+      # log "adding types", (map _symbol, params), paramTypes
+      ctx.addTypes (map _symbol, params), paramTypes
 
       log "compiling wheres", pairs wheres
       compiledWheres = definitionList ctx, pairs wheres
@@ -865,7 +835,7 @@ builtInMacros =
       # Syntax - used params in function body
       # !! TODO: possibly add to nameCompile instead, or defer to IDE
       isUsedParam = (expression) ->
-        (isName expression) and (_token expression) in paramNames
+        (isName expression) and (_symbol expression) in paramNames
       labelUsedParams = (expression) ->
         map (syntaxNameAs '', 'param'), filterAst isUsedParam, expression
       map labelUsedParams, join [body], wheres
@@ -911,23 +881,23 @@ builtInMacros =
     # Types
     for [constr, params] in defs
       constrType = desiplifyType if params
-        join (_labeled _terms params).map(_snd).map(_token), [ctx._name()]
+        join (_labeled _terms params).map(_snd).map(_symbol), [ctx._name()]
       else
         ctx._name()
       # TODO support polymorphic data
-      log "Adding constructor #{constr.token}"
-      ctx.addType constr.token, toForAll constrType
+      log "Adding constructor #{constr.symbol}"
+      ctx.addType constr.symbol, toForAll constrType
       constr.tea = constrType
     # TODO: support polymorphic data
     # We don't add binding to types, but maybe need to store elsewhere
     # ctx.addType ctx._name(), typeConstant ctx._name()
     # Arity
     for [constr, params] in defs when params
-      ctx.addArity constr.token,
+      ctx.addArity constr.symbol,
         (_labeled _terms params).map(_fst).map(_labelName)
     # Translate
     listOfLines (for [constr, params] in defs
-      identifier = validIdentifier constr.token
+      identifier = validIdentifier constr.symbol
       paramNames = (_labeled _terms params or []).map(_fst).map(_labelName)
         .map(validIdentifier)
       paramList = paramNames.join(', ')
@@ -1097,9 +1067,9 @@ isWellformed = (expression) ->
     yes
 
 atomCompile = (ctx, atom) ->
-  {token} = atom
+  {symbol} = atom
   # Syntax
-  atom.label = regexMapping token,
+  atom.label = regexMapping symbol,
     ['numerical', /^~?\d+/]
     ['const', /^[A-Z][^\s]*$/]
     ['string', /^["]/]
@@ -1110,19 +1080,19 @@ atomCompile = (ctx, atom) ->
   {type, translation, pattern} =
     switch label
       when 'numerical'
-        numericalCompile ctx, token
+        numericalCompile ctx, symbol
       when 'regex'
-        regexCompile ctx, token
+        regexCompile ctx, symbol
       when 'char'
         type: typeConstant 'Char'
-        translation: token
-        pattern: literalPattern ctx, token
+        translation: symbol
+        pattern: literalPattern ctx, symbol
       when 'string'
         type: typeConstant 'String'
-        translation: token
-        pattern: literalPattern ctx, token
+        translation: symbol
+        pattern: literalPattern ctx, symbol
       else
-        nameCompile ctx, atom, token
+        nameCompile ctx, atom, symbol
   atom.tea = type if type
   if ctx.isOperator()
     # TODO: maybe don't use label here, it's getting confusing what is its purpose
@@ -1132,84 +1102,84 @@ atomCompile = (ctx, atom) ->
   else
     assignCompile ctx, atom, translation
 
-nameCompile = (ctx, atom, token) ->
-  contextType = ctx.type token
+nameCompile = (ctx, atom, symbol) ->
+  contextType = ctx.type symbol
   if exp = ctx.assignTo()
     if atom.label is 'const'
       if contextType
-        type: freshInstance ctx, ctx.type token
-        pattern: constPattern ctx, token
+        type: freshInstance ctx, ctx.type symbol
+        pattern: constPattern ctx, symbol
       else
-        log "deferring in pattern for #{token}"
-        ctx.setDefer token
+        log "deferring in pattern for #{symbol}"
+        ctx.setDefer symbol
         pattern: []
     else
       atom.label = 'name'
       type = ctx.freshTypeVariable star
-      ctx.addToDefinedNames {name: token, type: type}
+      ctx.addToDefinedNames {name: symbol, type: type}
       type: type
       pattern:
         assigns:
-          [[(validIdentifier token), exp]]
+          [[(validIdentifier symbol), exp]]
   else
     # Name typed, use a fresh instance
     if contextType and contextType not instanceof TempType
       {
         type: freshInstance ctx, contextType
-        translation: nameTranslate ctx, atom, token
+        translation: nameTranslate ctx, atom, symbol
       }
     # Inside function only defer compilation if we don't know arity
-    else if ctx.isInLateScope() and (ctx.declaration token) or contextType instanceof TempType
+    else if ctx.isInLateScope() and (ctx.declaration symbol) or contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = ctx.freshTypeVariable star
-      ctx.addToDeferredNames {name: token, type: type}
+      ctx.addToDeferredNames {name: symbol, type: type}
       {
         type: type
-        translation: nameTranslate ctx, atom, token
+        translation: nameTranslate ctx, atom, symbol
       }
     else
-      log "deferring for #{token}"
-      ctx.setDefer token
+      log "deferring for #{symbol}"
+      ctx.setDefer symbol
       translation: 'deferred'
 
-constPattern = (ctx, token) ->
+constPattern = (ctx, symbol) ->
   exp = ctx.assignTo()
-  precs: [(cond_ switch token
+  precs: [(cond_ switch symbol
       when 'True' then "#{exp}"
       when 'False' then "!#{exp}"
       else
-        "#{exp} instanceof #{token}")]
+        "#{exp} instanceof #{symbol}")]
 
-nameTranslate = (ctx, atom, token) ->
+nameTranslate = (ctx, atom, symbol) ->
   if atom.label is 'const'
-    switch token
+    switch symbol
       when 'True' then 'true'
       when 'False' then 'false'
       else
-        "#{validIdentifier token}.value"
+        "#{validIdentifier symbol}.value"
   else
-    validIdentifier token
+    validIdentifier symbol
 
-numericalCompile = (ctx, token) ->
-  translation = if token[0] is '~' then "(-#{token})" else token
+numericalCompile = (ctx, symbol) ->
+  translation = if symbol[0] is '~' then "(-#{symbol})" else symbol
   type: typeConstant 'Num'
   translation: translation
   pattern: literalPattern ctx, translation
 
-regexCompile = (ctx, token) ->
+regexCompile = (ctx, symbol) ->
   type: typeConstant 'Regex'
-  translation: token
+  translation: symbol
   pattern:
     if ctx.assignTo()
-      precs: [cond_ "#{ctx.assignTo()}.string" + " === #{token}.string"]
+      precs: [cond_ "#{ctx.assignTo()}.string" + " === #{symbol}.string"]
 
 literalPattern = (ctx, translation) ->
   if ctx.assignTo()
     precs: [cond_ "#{ctx.assignTo()}" + " === #{translation}"]
 
-regexMapping = (token, regexes...) ->
+regexMapping = (symbol, regexes...) ->
   for [label, regex] in regexes
-    if regex.test token
+    if regex.test symbol
       return label
 
 # type expressions syntax
@@ -1287,7 +1257,7 @@ listOf = (args) ->
   args.join ', '
 
 isComment = (expression) ->
-  (isCall expression) and ('#' is _token _operator expression)
+  (isCall expression) and ('#' is _symbol _operator expression)
 
 isCall = (expression) ->
   (isForm expression) and (isEmptyForm expression) and
@@ -1311,14 +1281,14 @@ isForm = (expression) ->
   Array.isArray expression
 
 isLabel = (atom) ->
-  /:$/.test atom.token
+  /:$/.test atom.symbol
 
 isCapital = (atom) ->
-  /[A-Z]/.test atom.token
+  /[A-Z]/.test atom.symbol
 
 isName = (expression) ->
   throw "Nothing passed to isName" unless expression
-  (isAtom expression) and /[^~"'\/].*/.test expression.token
+  (isAtom expression) and /[^~"'\/].*/.test expression.symbol
 
 isAtom = (expression) ->
   not (Array.isArray expression)
@@ -1385,9 +1355,9 @@ _snd = ([a, b]) -> b
 
 _fst = ([a, b]) -> a
 
-_labelName = (atom) -> (_token atom)[0...-1]
+_labelName = (atom) -> (_symbol atom)[0...-1]
 
-_token = ({token}) -> token
+_symbol = ({symbol}) -> symbol
 
 filterAst = (test, expression) ->
   join (filter test, [expression]),
@@ -1455,7 +1425,7 @@ labelMapping = (word, rules...) ->
   word
 
 isDelim = (token) ->
-  /[\(\)\[\]\{\}]/.test token.token
+  /[\(\)\[\]\{\}]/.test token.symbol
 
 # TODO: support classes and instances
 # classDefinition = (node) ->
@@ -1523,11 +1493,11 @@ labelRequires = (ast) ->
 # Syntax printing to HTML
 
 toHtml = (highlighted) ->
-  crawl highlighted, (word, token, parent) ->
-    (word.ws or '') + colorize(theme[labelOf word, parent], token)
+  crawl highlighted, (word, symbol, parent) ->
+    (word.ws or '') + colorize(theme[labelOf word, parent], symbol)
 
 labelOf = (word, parent) ->
-  if (_isCollectionDelim word) and parent
+  if (isCollectionDelim word) and parent
     parent.label
   else
     word.label or 'normal'
@@ -1561,8 +1531,8 @@ exportList = (source) ->
   wheres = whereList inside preCompileDefs source
   names = []
   for [pattern] in wheres
-    if pattern.token and pattern.token isnt '_'
-      names.push pattern.token
+    if pattern.symbol and pattern.symbol isnt '_'
+      names.push pattern.symbol
   names
 
 # Valid identifiers
@@ -1700,7 +1670,7 @@ validIdentifier = (name) ->
 #           addToSet child.set, name for name in parent.names unless child is parent
 #           addToSet deps, parent
 #         else if isReference(node) and !lookupIdentifier token, node
-#           addToSet child.missing, node.token
+#           addToSet child.missing, node.symbol
 #   [graph, lookupByName]
 
 # lookupTableForGraph = (graph) ->
@@ -1715,7 +1685,7 @@ validIdentifier = (name) ->
 #   names = []
 #   crawl pattern, (node) ->
 #     if node.label is 'name'
-#       names.push node.token
+#       names.push node.symbol
 #   names
 
 
@@ -1725,7 +1695,7 @@ validIdentifier = (name) ->
 # (pattern) ->
 #   # expect lists from here on
 #   if not Array.isArray pattern
-#     throw new Error "pattern match expected pattern but saw token #{pattern.token}"
+#     throw new Error "pattern match expected pattern but saw token #{pattern.symbol}"
 #   [constr, elems...] = inside pattern
 #   label = "'#{constructorToJsField constr}'" if constr
 #   trigger: isMap pattern
@@ -1775,7 +1745,7 @@ validIdentifier = (name) ->
 #       #{content} else {throw new Error('match failed to match');}}())"""
 #   'require': (from, list) ->
 #     args = inside(list).map(compileName).map(toJsString).join ', '
-#     "$listize(window.requireModule(#{toJsString from.token}, [#{args}]))"
+#     "$listize(window.requireModule(#{toJsString from.symbol}, [#{args}]))"
 #   'list': (items...) ->
 #     "$listize(#{compileList items})"
 
@@ -1803,8 +1773,8 @@ validIdentifier = (name) ->
 #         set: stillMissingDeps
 #   [hoisted, notHoisted]
 
-toJsString = (token) ->
-  "'#{token}'"
+toJsString = (symbol) ->
+  "'#{symbol}'"
 
 compileAssign = ([to, from]) ->
   "var #{to} = #{from};"
@@ -2469,25 +2439,28 @@ var from__nullable = function (jsValue) {
 
 
 
-exports.compile = (source) ->
-  library + compileDefinitions source
+exports.compileTopLevel = (ast) ->
+  compiled = topLevel (ctx = new Context), ast
+    types: values mapMap (__ highlightType, _type), ctx._scope()
+    js: library + compiled
 
-exports.compileModule = (source) ->
-  """
-  #{library}
-  var exports = {};
-  #{compileDefinitionsInModule source}
-  exports"""
+exports.compileExpression = (ast) ->
+  compiled = expressionCompile (ctx = new Context), ast
+    types: values mapMap (__ highlightType, _type), ctx._scope()
+    js: compiled
 
-exports.compileExp = compiledBottom
+# exports.compileModule = (source) ->
+#   """
+#   #{library}
+#   var exports = {};
+#   #{compileDefinitionsInModule source}
+#   exports"""
 
-exports.tokenize = tokenizeAndTypeInferDefinitions
+exports.astizeList = (source) ->
+  astize tokenize "(#{source})", -1
 
-exports.tokenizeExp = tokenizedExp
-
-exports.syntaxedExpHtml = syntaxedExp
-
-exports.exportList = exportList
+exports.astize = (source) ->
+  astize tokenize source
 
 exports.library = library
 
