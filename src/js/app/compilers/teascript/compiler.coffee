@@ -1,5 +1,3 @@
-controls = '\\(\\)\\[\\]\\{\\}'
-
 tokenize = (input) ->
   currentPos = 0
   while input.length > 0
@@ -22,9 +20,10 @@ tokenize = (input) ->
     currentPos += token.length
     constantLabeling {token, pos}
 
+controls = '\\(\\)\\[\\]\\{\\}'
+
 noWS = (tokens) ->
   tokens.filter (token) -> token.label isnt 'whitespace'
-
 
 astize = (tokens) ->
   tree = []
@@ -51,6 +50,7 @@ astize = (tokens) ->
 
 leftDelims = ['(', '[', '{']
 rightDelims = [')', ']', '}']
+delims = '(': ')', '[': ']', '{': '}'
 
 constantLabeling = (atom) ->
   {token} = atom
@@ -67,10 +67,7 @@ constantLabeling = (atom) ->
 _isCollectionDelim = (atom) ->
   atom.label in ['bracket', 'brace']
 
-typed = (a, b) ->
-  b.type = a.type
-  b
-
+# TODO: remove
 walk = (ast, cb) ->
   if Array.isArray ast
     ast = cb ast
@@ -79,12 +76,10 @@ walk = (ast, cb) ->
         walk node, cb)
   ast
 
-walkOnly = (ast, cb) ->
-  if Array.isArray ast
-    cb ast
-    for node in ast
-      walk node, cb
-  ast
+# TODO: remove
+typed = (a, b) ->
+  b.type = a.type
+  b
 
 crawl = (ast, cb, parent) ->
   if Array.isArray ast
@@ -92,15 +87,6 @@ crawl = (ast, cb, parent) ->
       crawl node, cb, ast)
   else
     cb ast, ast.token, parent
-
-crawlWhile = (ast, cond, cb) ->
-  if Array.isArray ast
-    if cond ast
-      for node in ast
-        crawlWhile node, cond, cb
-  else
-    cb ast, ast.token
-  return
 
 crouch = (ast, cb) ->
   if Array.isArray ast
@@ -204,7 +190,6 @@ class Context
     @cacheScopes = [[]]
     @_assignTos = []
     @scopes = [@_augmentScope builtInContext this] # dangerous passing itself in constructor
-    @_defer = undefined
 
   macros: ->
     @_macros
@@ -260,6 +245,9 @@ class Context
 
   _scope: ->
     @scopes[@scopes.length - 1]
+
+  _parentScope: ->
+    @scopes[@scopes.length - 2]
 
   newScope: ->
     @scopes.push @_augmentScope newMap()
@@ -362,14 +350,25 @@ class Context
       []
 
   setDefer: (dependencyName) ->
-    @_defer =
+    @_setDeferIn @_scope(), dependencyName
+
+  setDeferParent: (dependencyName) ->
+    if not @scopes.length >= 2
+      throw new "Deferring parent although this is top level scope"
+    @_setDeferIn @_parentScope(), dependencyName
+
+  _setDeferIn: (scope, dependencyName) ->
+    scope._defer =
       if dependencyName
-        @_defer or dependencyName
+        (@_shouldDeferIn scope) or dependencyName
       else
         dependencyName
 
   shouldDefer: ->
-    @_defer
+    @_shouldDeferIn @_scope()
+
+  _shouldDeferIn: (scope) ->
+    scope._defer
 
   addDeferred: (dependencyName, lhs, rhs) ->
     @_scope().deferred.push [dependencyName, lhs, rhs]
@@ -704,7 +703,7 @@ assignCompile = (ctx, expression, translatedExpression) ->
     ctx.setGroupTranslation()
     {precs, assigns} = patternCompile ctx, to, expression, translatedExpression
 
-    # log "assigning #{ctx._name()}", ctx.shouldDefer()
+    log "ASSIGN #{ctx._name()}", ctx.shouldDefer()
     if ctx.shouldDefer()
       ctx.addDeferred ctx.shouldDefer(), to, expression
       return 'deferred'
@@ -773,57 +772,71 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
   assigns: assigns ? []
 
 topLevel = (ctx, form) ->
-  compiledPairs = []
-  for [lhs, rhs] in pairs _terms form
-    topLevelPairCompile ctx, compiledPairs, lhs, rhs
+  definitionList ctx, pairs _terms form
 
+definitionList = (ctx, pairs) ->
+  compiledPairs = filter _is, (for [lhs, rhs] in pairs
+    definitionPairCompile ctx, lhs, rhs)
+
+  compiledPairs = join compiledPairs, compileDeferred ctx
+  resolveDeferredTypes ctx
+
+  log "yay"
+
+  listOfLines compiledPairs
+
+resolveDeferredTypes = (ctx) ->
+  if _notEmpty ctx.deferredBindings()
+    # TODO: proper dependency analysis to get the smallest circular deps
+    #       now we are just compiling as if they were all mutually recursive
+    names = concatConcatMaps map (({name, type}) -> newMapWith name, type), ctx.deferredBindings()
+    for name, types of values names
+      canonicalType = ctx.freshTypeVariable star
+      for type in types
+        log type.constructor
+        # log "unifying", canonicalType, type
+        unify ctx, canonicalType, type
+        # log "done unifying one"
+    # log "done unifying"
+    for name of values names
+      # log "done"
+      ctx.addType name, substitute ctx.substitution, canonicalType
+      # log "added"
+
+compileDeferred = (ctx) ->
+  compiledPairs = []
   if _notEmpty ctx.deferred()
     deferredCount = 0
     while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
       prevSize = ctx.deferred().length
       [dependencyName, lhs, rhs] = deferred = ctx.deferred().shift()
       if ctx.declaration dependencyName
-        topLevelPairCompile ctx, compiledPairs, lhs, rhs
+        compiledPairs.push definitionPairCompile ctx, lhs, rhs
       else
         # If can't compile, defer further
-        ctx.addDeferred deferred
+        ctx.addDeferred deferred...
       if prevSize is ctx.deferred().length
         deferredCount++
 
+  # defer completely current scope
   if _notEmpty ctx.deferred()
-    log "dependency cycles", ctx.deferred()
+    for [dependencyName, lhs, rhs] in ctx.deferred()
+      ctx.setDeferParent dependencyName
 
-  if _notEmpty ctx.deferredBindings()
-    # TODO: proper dependency analysis to get the smallest circular deps
-    names = concatConcatMaps map (({name, type}) -> newMapWith name, type), ctx.deferredBindings()
-    for name, types of values names
-      canonicalType = ctx.freshTypeVariable star
-      for type in types
-        log type.constructor
-        log "unifying", canonicalType, type
-        unify ctx, canonicalType, type
-        log "done unifying one"
-    log "done unifying"
-    for name of values names
-      log "done"
-      ctx.addType name, substitute ctx.substitution, canonicalType
-      log "added"
+  compiledPairs
 
-  log "yay"
-
-  listOfLines compiledPairs
-
-topLevelPairCompile = (ctx, compiledPairs, lhs, rhs) ->
-  log "COMPILING", lhs, rhs
+definitionPairCompile = (ctx, lhs, rhs) ->
+  # log "COMPILING", lhs, rhs
   ctx.setName lhs
-  log "deferrement before assign !!!", ctx.shouldDefer()
+  # log "deferrement before assign !!!", ctx.shouldDefer()
   compiled = expressionCompile ctx, rhs
   ctx.resetName()
   if ctx.shouldDefer()
-    log "RESETTING DEFER"
+    # log "RESETTING DEFER"
     ctx.setDefer false
+    undefined
   else
-    compiledPairs.push compiled
+    compiled
 
 builtInMacros =
 
@@ -852,6 +865,10 @@ builtInMacros =
       ctx.newLateScope()
       # log "adding types", (map _token, params), paramTypes
       ctx.addTypes (map _token, params), paramTypes
+
+      log "compiling wheres", pairs wheres
+      compiledWheres = definitionList ctx, pairs wheres
+
       # log "types added"
       log "compiling", body
       compiledBody = termCompile ctx, body
@@ -859,10 +876,12 @@ builtInMacros =
       ctx.closeScope()
 
       # Syntax - used params in function body
-      # TODO: possibly add to nameCompile instead, or defer to IDE
+      # !! TODO: possibly add to nameCompile instead, or defer to IDE
       isUsedParam = (expression) ->
         (isName expression) and (_token expression) in paramNames
-      map (syntaxNameAs '', 'param'), filterAst isUsedParam, body
+      labelUsedParams = (expression) ->
+        map (syntaxNameAs '', 'param'), filterAst isUsedParam, expression
+      map labelUsedParams, join [body], wheres
 
       # Arity - before deferring instead go to assignCompile, because this makes the naming of functions special
       if ctx._name()
@@ -880,6 +899,7 @@ builtInMacros =
           call.tea = typeFn (map _type, paramTypes)..., body.tea
 
           """λ(function (#{listOf paramNames}) {
+            #{compiledWheres}
             return #{compiledBody};
           }"""
   # data
@@ -2410,6 +2430,7 @@ constructCond = (precs) ->
 # end of Match
 
 # Simple macros and builtin functions
+# TODO: reimplement the simple macros
 
 macros =
   'if': (cond, zen, elz) ->
@@ -2495,22 +2516,6 @@ expandBuiltings invertedBinaryOpMapping, (to) ->
       "function(__a, __b){return __b #{to} __a;}"
 
 # end of Simple macros
-
-# Default scope with builtins
-
-topScopeDefines = ->
-  ids = 'true false & show-list from-nullable'.split(' ')
-    .concat unaryFnMapping.from,
-      binaryOpMapping.from,
-      binaryFnMapping.from,
-      invertedBinaryOpMapping.from,
-      invertedBinaryFnMapping.from,
-      (key for own key of macros),
-      (key for own key of trueMacros)
-  scope = {}
-  for id in ids
-    scope[id] = true
-  scope
 
 # Default type context with builtins
 
@@ -2762,185 +2767,6 @@ freshInstance = (ctx, type) ->
   throw "not a forall in freshInstance" unless type instanceof ForAll
   freshes = map ((kind) -> ctx.freshTypeVariable kind), type.kinds
   (substitute freshes, type).type
-
-# Old type inference
-
-assignTypes = (context, expression) ->
-  [s, _, expression] = infer context, expression, 0
-  crouch expression, (node) ->
-    node.tea = subExp s, node.tea if node.tea
-
-inferWheres = (context, pairs, nameIndex) ->
-  # 1st find all classes
-
-  # classEnv = {}
-  # for [name, def] in pairs when def.type is 'class'
-  #   if classEnv[name]
-  #     throw new TypeError "Redefining class #{name}"
-  #   {context} = classDefinition def
-  #   classEnv[name] = [(tokens inside context), []]
-
-  # 1,5th find all instances
-
-  # for [name, def] in pairs when def.type is 'instance'
-  #   {klass} = instanceDefinition def
-  #   if not classEnv[name]
-  #     throw new TypeError "Missing class #{klass} for instance #{name}"
-  #   [supers, instances] = classEnv[klass]
-  #   instances.push  #TODO finish
-
-
-
-  # 2nd find all declarations
-  for [name, def] in pairs when def.type not in ['class', 'instance']
-    [nameIndex, type] = freshOrDeclared def, nameIndex
-    addToMap context, name.token, type
-
-  # 3rd type check
-  for [name, def] in pairs when def.type not in ['class', 'instance']
-    [s1, nameIndex, def] = infer context, def, nameIndex
-    s2 = unify (subExp s1, (inSet context, name.token)), def.tea
-    context = subContext (concatMaps s2, s1), context
-  for [name, def] in pairs
-    name.tea = def.tea = (inSet context, name.token)
-    [name, def]
-
-freshOrDeclared = (def, nameIndex) ->
-  if def.type is 'function'
-    {type} = fnDefinition def
-    if type
-      return readType nameIndex, type
-  type = freshName nameIndex++
-  [nameIndex, type]
-
-readType = (nameIndex, node) ->
-  freshenFree nameIndex, tokens (inside node)[1..].filter isReference
-
-tokens = (words) ->
-  words.map (x) -> x.token
-
-infer = (context, expression, nameIndex) ->
-  switch expression.label
-    when 'numerical'
-      expression.tea = 'Num'
-      [newMap(), nameIndex, expression]
-    when 'string'
-      expression.tea = if /^"/.test expression.token then 'String' else 'Char'
-      [newMap(), nameIndex, expression]
-    else
-      # Reference
-      if (isReference expression) or expression.label in ['keyword', 'const']
-        # TODO: replace free type variables with new unused names in function
-        concreteType = lookupInMap context, expression.token
-        unless concreteType
-          throw new TypeError "Unbound name #{expression.token}"
-        [nextIndex, concreteType] = freshenFree nameIndex, concreteType
-        expression.tea = concreteType
-        [newMap(), nextIndex, expression]
-      # Lambda
-      else if expression.type is 'function'
-        {params, body, wheres} = fnDefinition expression
-        # TODO: more params
-        if !params or !body
-          throw new TypeError "Invalid function declaration"
-        definedParams = inside params
-        if definedParams.length is 0
-          throw new TypeError "Typing lambdas without a param not implemented yet"
-        argName = freshName nameIndex
-        param = definedParams[0]
-        context = concatMaps context, newMapWith param.token, argName
-        [s1, nextIndex, body] = infer context, body, nameIndex + 1
-        expression.tea = (subExp s1, [argName, body.tea])
-        [s1, nextIndex, expression]
-
-      # Call
-      else if (Array.isArray expression) and expression.length > 3
-        [op..., arg] = inside expression
-        [s, nextIndex, tea] = inferCall context, [op, arg], nameIndex
-        expression.tea = tea
-        [s, nextIndex, expression]
-      else
-        throw new TypeError "Other patterns not typable yet"
-
-inferCall = (context, pair, nameIndex) ->
-  [ops, arg] = pair
-  returnName = freshName nameIndex
-  if ops.length >= 2
-    [op..., prevArg] = ops
-    [s1, nextIndex, opTea] = inferCall context, [op, prevArg], nameIndex + 1
-  else
-    [op] = ops
-    [s1, nextIndex, op] = infer context, op, nameIndex + 1
-    opTea = op.tea
-  [s2, nextIndex, arg] = infer (subContext s1, context), arg, nextIndex
-  s3 = unify (subExp s2, opTea), [arg.tea, returnName]
-  [(concatMaps s3, s2, s1), nextIndex, (subExp s3, returnName)]
-
-unifyWith = (subs, pairs) ->
-  if pairs.length is 0
-    subs
-  else
-    [[t1, t2], rest...] = pairs
-    if t1 is t2
-      unifyWith subs, rest
-    else if isTypeVariable t1
-      sub = addToMap newMap(), t1, t2
-      unifyWith (addToMap subs, t1, t2), subPairs sub, rest
-    else if isTypeVariable t2
-      sub = addToMap newMap(), t2, t1
-      unifyWith (addToMap subs, t2, t1), subPairs sub, rest
-    else if (Array.isArray t1) and (Array.isArray t2) and t1.length is t2.length
-      [t1from, t1to] = t1
-      [t2from, t2to] = t2
-      unifyWith subs, [[t1from, t2from], [t1to, t2to]].concat rest
-    else
-      throw new TypeError "Types #{t1}, #{t2} could not be unified", [t1, t2]
-
-subPairs = (subs, pairs) ->
-  for [t1, t2] in pairs
-    [(subExp subs, t1), (subExp subs, t2)]
-
-subExp = (subs, type) ->
-  if Array.isArray type
-    for subType in type
-      subExp subs, subType
-  else
-    if sub = lookupInMap subs, type
-      sub
-    else
-      type
-
-subContext = (subs, context) ->
-  newContext = newMap()
-  for name, t of context.values
-    addToMap newContext, name, (subExp subs, t)
-  newContext
-
-freshenFree = (nameIndex, type) ->
-  if Array.isArray type
-    [nextIndex, subs] = makeFreshForEach nameIndex, findFrees type
-    [nextIndex, (subExp subs, type)]
-  else
-    [nameIndex, type]
-
-makeFreshForEach = (nameIndex, vars) ->
-  subs = newMap()
-  for type in setToArray vars
-    addToMap subs, type, (freshName nameIndex++)
-  [nameIndex, subs]
-
-findFrees = (type) ->
-  if Array.isArray type
-    concatSets (for subType in type
-      findFrees subType)...
-  else
-    if isTypeVariable type
-      newSetWith type
-    else
-      newSet()
-
-isTypeVariable = (name) ->
-  not (Array.isArray name) and name.charCodeAt(0) >= 97
 
 freshName = (nameIndex) ->
   suffix = if nameIndex > 25 then Math.floor nameIndex / 25 else ''
