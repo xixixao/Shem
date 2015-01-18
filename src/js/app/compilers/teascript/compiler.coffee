@@ -4,7 +4,7 @@ tokenize = (input, initPos = 0) ->
     match = input.match ///
       ^ # must be at the start
       (
-        \x20+\n? # spaces possibly at end of line
+        \x20+ # spaces
       | \n # newline
       | [#{controls}] # delims
       | /([^\\x20]|\\/)([^/]|\\/)*?/ # regex
@@ -71,24 +71,10 @@ constantLabeling = (atom) ->
 isCollectionDelim = (atom) ->
   atom.label in ['bracket', 'brace']
 
-# TODO: remove
-walk = (ast, cb) ->
-  if Array.isArray ast
-    ast = cb ast
-    if Array.isArray ast
-      ast = typed ast, (for node in ast
-        walk node, cb)
-  ast
-
-# TODO: remove
-typed = (a, b) ->
-  b.type = a.type
-  b
-
 crawl = (ast, cb, parent) ->
   if Array.isArray ast
-    typed ast, (for node in ast
-      crawl node, cb, ast)
+    for node in ast
+      crawl node, cb, ast
   else
     cb ast, ast.symbol, parent
 
@@ -1350,23 +1336,6 @@ retrieve = (expression, newForm) ->
   expression.tea = newForm.tea
   expression.malformed = newForm.malformed
 
-_operator = (call) ->
-  (_terms call)[0]
-
-_arguments = (call) ->
-  (_terms call)[1..]
-
-_terms = (form) ->
-  form[1...-1].filter ({label}) -> label isnt 'whitespace'
-
-_snd = ([a, b]) -> b
-
-_fst = ([a, b]) -> a
-
-_labelName = (atom) -> (_symbol atom)[0...-1]
-
-_symbol = ({symbol}) -> symbol
-
 filterAst = (test, expression) ->
   join (filter test, [expression]),
     if isForm expression
@@ -1398,9 +1367,6 @@ labelMapping = (word, rules...) ->
     word.label = label
     return word
   word
-
-isDelim = (token) ->
-  /[\(\)\[\]\{\}]/.test token.symbol
 
 # TODO: support classes and instances
 # classDefinition = (node) ->
@@ -1484,12 +1450,17 @@ collapse = (nodes) ->
       collapsed += node
   collapsed
 
-# TODO: need?
-parentize = (highlighted) ->
-  walkOnly highlighted, (node) ->
+parentize = (ast) ->
+  walk ast, (node) ->
     for subNode in node
       subNode.parent = node
-    node
+
+walk = (ast, cb) ->
+  if Array.isArray ast
+    cb ast
+    for node in ast
+      walk node, cb
+  ast
 
 # end of Syntax printing
 
@@ -2418,13 +2389,32 @@ compileExpression = (ast) ->
   js: compiled
 
 astizeList = (source) ->
-  astize tokenize "(#{source})", -1
+  parentize astize tokenize "(#{source})", -1
 
 astizeExpression = (source) ->
-  astize tokenize source
+  parentize astize tokenize source
 
 
 # end of API
+
+# AST accessors
+
+_operator = (call) ->
+  (_terms call)[0]
+
+_arguments = (call) ->
+  (_terms call)[1..]
+
+_terms = (form) ->
+  form[1...-1].filter ({label}) -> label isnt 'whitespace'
+
+_snd = ([a, b]) -> b
+
+_fst = ([a, b]) -> a
+
+_labelName = (atom) -> (_symbol atom)[0...-1]
+
+_symbol = ({symbol}) -> symbol
 
 # Utils
 
@@ -2479,8 +2469,8 @@ exports.astizeExpression = astizeExpression
 
 exports.library = library
 
-exports.walk = walk
 exports.isForm = isForm
+exports.isAtom = isAtom
 
 
 exports.join = join
@@ -2495,3 +2485,11 @@ exports.partition = partition
 exports._notEmpty = _notEmpty
 exports._is = _is
 exports.__ = __
+
+exports._operator = _operator
+exports._arguments = _arguments
+exports._terms = _terms
+exports._snd = _snd
+exports._fst = _fst
+exports._labelName = _labelName
+exports._symbol = _symbol
