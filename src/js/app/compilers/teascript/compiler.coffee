@@ -9,7 +9,7 @@ tokenize = (input, initPos = 0) ->
       | [#{controls}] # delims
       | /([^\\x20]|\\/)([^/]|\\/)*?/ # regex
       | "[^"]*?" # strings
-      | '\\?[^']' # char
+      | \\[^\x20] # char
       | [^#{controls}"'\s]+ # normal tokens
       )///
     if not match
@@ -61,8 +61,10 @@ constantLabeling = (atom) ->
   labelMapping atom,
     ['numerical', /^-?\d+/.test symbol]
     ['label', isLabel atom]
-    ['string', /^["']/.test symbol]
+    ['string', /^"/.test symbol]
+    ['char', /^\\/.test symbol]
     ['regex', /^\/[^ \/]/.test symbol]
+    ['const', /^[A-Z][^\s]*$/.test symbol] # TODO: instead label based on context
     ['paren', symbol in ['(', ')']]
     ['bracket', symbol in ['[', ']']]
     ['brace', symbol in ['{', '}']]
@@ -1061,15 +1063,7 @@ isWellformed = (expression) ->
     yes
 
 atomCompile = (ctx, atom) ->
-  {symbol} = atom
-  # Syntax
-  atom.label = regexMapping symbol,
-    ['numerical', /^~?\d+/]
-    ['const', /^[A-Z][^\s]*$/]
-    ['string', /^["]/]
-    ['char', /^[']/]
-    ['regex', /^\/[^ \/]/]
-  {label} = atom
+  {symbol, label} = atom
   # Typing and Translation
   {type, translation, pattern} =
     switch label
