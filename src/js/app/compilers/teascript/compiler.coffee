@@ -143,7 +143,9 @@ class Context
     @statement = []
     @cacheScopes = [[]]
     @_assignTos = []
-    @scopes = [@_augmentScope builtInContext this] # dangerous passing itself in constructor
+    topScope = @_augmentScope builtInContext this # dangerous passing itself in constructor
+    topScope.topLevel = yes
+    @scopes = [topScope]
 
   macros: ->
     @_macros
@@ -220,6 +222,9 @@ class Context
 
   isInLateScope: ->
     @_scope().late
+
+  isInTopScope: ->
+    @_scope().topLevel
 
   declaration: (name) ->
     @_declarationInScope @scopes.length - 1, name
@@ -303,20 +308,20 @@ class Context
     else
       []
 
-  setDefer: (dependencyName) ->
-    @_setDeferIn @_scope(), dependencyName
+  setDefer: (expression, dependencyName) ->
+    @_setDeferIn @_scope(), expression, dependencyName
 
   setDeferParent: (dependencyName) ->
-    if not @scopes.length >= 2
-      throw new "Deferring parent although this is top level scope"
+    if not (@scopes.length >= 2)
+      throw new Error "Deferring parent although this is top level scope"
     @_setDeferIn @_parentScope(), dependencyName
 
-  _setDeferIn: (scope, dependencyName) ->
+  _setDeferIn: (scope, expression, dependencyName) ->
     scope._defer =
-      if dependencyName
-        (@_shouldDeferIn scope) or dependencyName
+      if expression
+        (@_shouldDeferIn scope) or [expression, dependencyName]
       else
-        dependencyName
+        no
 
   shouldDefer: ->
     @_shouldDeferIn @_scope()
@@ -324,8 +329,8 @@ class Context
   _shouldDeferIn: (scope) ->
     scope._defer
 
-  addDeferred: (dependencyName, lhs, rhs) ->
-    @_scope().deferred.push [dependencyName, lhs, rhs]
+  addDeferredDefinition: (expression, dependencyName, lhs, rhs) ->
+    @_scope().deferred.push [expression, dependencyName, lhs, rhs]
 
   deferred: ->
     @_scope().deferred
@@ -659,7 +664,7 @@ assignCompile = (ctx, expression, translatedExpression) ->
 
     #log "ASSIGN #{ctx._name()}", ctx.shouldDefer()
     if ctx.shouldDefer()
-      ctx.addDeferred ctx.shouldDefer(), to, expression
+      ctx.addDeferredDefinition ctx.shouldDefer().concat to, expression
       return 'deferred'
 
     if assigns.length is 0
@@ -767,19 +772,22 @@ compileDeferred = (ctx) ->
     deferredCount = 0
     while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
       prevSize = ctx.deferred().length
-      [dependencyName, lhs, rhs] = deferred = ctx.deferred().shift()
+      [expression, dependencyName, lhs, rhs] = deferred = ctx.deferred().shift()
       if ctx.declaration dependencyName
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
       else
         # If can't compile, defer further
-        ctx.addDeferred deferred...
+        ctx.addDeferredDefinition deferred...
       if prevSize is ctx.deferred().length
         deferredCount++
 
   # defer completely current scope
   if _notEmpty ctx.deferred()
-    for [dependencyName, lhs, rhs] in ctx.deferred()
-      ctx.setDeferParent dependencyName
+    for [expression, dependencyName, lhs, rhs] in ctx.deferred()
+      if ctx.isInTopScope()
+        malformed expression, "#{dependencyName} is not defined"
+      else
+        ctx.setDeferParent dependencyName
 
   compiledPairs
 
@@ -1099,7 +1107,7 @@ nameCompile = (ctx, atom, symbol) ->
         pattern: constPattern ctx, symbol
       else
         #log "deferring in pattern for #{symbol}"
-        ctx.setDefer symbol
+        ctx.setDefer atom, symbol
         pattern: []
     else
       atom.label = 'name'
@@ -1127,7 +1135,7 @@ nameCompile = (ctx, atom, symbol) ->
       }
     else
       #log "deferring for #{symbol}"
-      ctx.setDefer symbol
+      ctx.setDefer atom, symbol
       translation: 'deferred'
 
 constPattern = (ctx, symbol) ->
