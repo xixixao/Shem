@@ -668,7 +668,7 @@ assignCompile = (ctx, expression, translatedExpression) ->
       return 'deferred'
 
     if assigns.length is 0
-      throw new "No assign in assignCompile"
+      return malformed to, 'Not an assignable pattern'
     listOfLines join ctx.translationCache(), map compileAssign, assigns
   else
     translatedExpression
@@ -810,7 +810,7 @@ builtInMacros =
     # For now expect the curried constructor call
     args = _arguments call
     [paramList, defs...] = args
-    paramTuple paramList
+    params = paramTuple paramList
     defs ?= []
     if defs.length is 0
       malformed call, 'Missing function result'
@@ -2135,7 +2135,10 @@ kindFn = (arity) ->
 
 typeFn = (from, to, args...) ->
   if args.length is 0
-    new TypeApp (new TypeApp arrowType, from), to
+    if not to
+      from
+    else
+      new TypeApp (new TypeApp arrowType, from), to
   else
     typeFn from, (typeFn to, args...)
 
