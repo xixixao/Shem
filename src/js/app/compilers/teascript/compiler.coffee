@@ -348,8 +348,8 @@ expressionCompile = (ctx, expression) ->
     callCompile
   else
     # log "Not handled", expression
-    throw "Not handled expression in expressionCompile"
-  ) ctx, expression
+    malformed expression, 'not a valid expression'
+  )? ctx, expression
 
 # -- This was used to use compiled results from some parent macro while
 #    compiling as something else
@@ -730,6 +730,12 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
   precs: precs ? []
   assigns: assigns ? []
 
+topLevelExpression = (ctx, expression) ->
+  ctx.setName false
+  compiled = expressionCompile ctx, expression
+  ctx.resetName()
+  compiled
+
 topLevel = (ctx, form) ->
   definitionList ctx, pairs _terms form
 
@@ -810,7 +816,7 @@ builtInMacros =
     # For now expect the curried constructor call
     args = _arguments call
     [paramList, defs...] = args
-    params = paramTuple paramList
+    params = paramTuple call, paramList
     defs ?= []
     if defs.length is 0
       malformed call, 'Missing function result'
@@ -859,10 +865,10 @@ builtInMacros =
             throw "Body not typed"
           call.tea = typeFn (map _type, paramTypes)..., body.tea
 
-          """λ(function (#{listOf paramNames}) {
+          """λ#{paramNames.length}(function (#{listOf paramNames}) {
             #{compiledWheres}
             return #{compiledBody};
-          }"""
+          })"""
   # data
   #   listing or
   #     pair
@@ -910,7 +916,7 @@ builtInMacros =
       constrFn = """function #{identifier}(#{paramList}) {#{paramAssigns}};"""
       constrValue = if params
         """
-        #{identifier}.value = λ(function(#{paramList}){
+        #{identifier}.value = λ#{paramNames.length}(function(#{paramList}){
           return new #{identifier}(#{paramList});
         });"""
       else
@@ -2254,7 +2260,7 @@ flattenType = (type) ->
 
 library = """
 var $listize = function (list) {
-  if (list.length == 0) {
+  if (list.length === 0) {
    return {length: 0};
   }
   return and_(list[0], $listize(list.slice(1)));
@@ -2265,7 +2271,7 @@ var and_ = function (x, xs) {
     throw new Error('Second argument to & must be a sequence');
   }
   if (typeof xs == 'string' || xs instanceof String) {
-    if (xs == '' && !(typeof x == 'string' || x instanceof String)) {
+    if (xs === '' && !(typeof x == 'string' || x instanceof String)) {
       return [x];
     } else {
       return x + xs;
@@ -2284,7 +2290,7 @@ var $sequenceSize = function (xs) {
   if (typeof xs === "undefined" || xs === null) {
     throw new Error('Pattern matching on size of undefined');
   }
-  if (xs.length != null) {
+  if (xs.length !== null) {
     return xs.length;
   }
   return 1 + $sequenceSize(xs.tail);
@@ -2294,13 +2300,13 @@ var $sequenceAt = function (i, xs) {
   if (typeof xs === "undefined" || xs === null) {
     throw new Error('Pattern matching required sequence got undefined');
   }
-  if (xs.length != null) {
+  if (xs.length !== null) {
     if (i >= xs.length) {
       throw new Error('Pattern matching required a list of size at least ' + (i + 1));
     }
     return xs[i];
   }
-  if (i == 0) {
+  if (i === 0) {
     return xs.head;
   }
   return $sequenceAt(i - 1, xs.tail);
@@ -2331,10 +2337,10 @@ var $empty = function (xs) {
 };
 
 var $listSlice = function (from, n, xs) {
-  if (n == 0) {
+  if (n === 0) {
     return $listize([]);
   }
-  if (from == 0) {
+  if (from === 0) {
     return and_(xs.head, $listSlice(from, n - 1, xs.tail));
   }
   return $listSlice(from - 1, n, xs.tail);
@@ -2342,16 +2348,11 @@ var $listSlice = function (from, n, xs) {
 
 var show__list = function (x) {
   var t = [];
-  while (x.length != 0) {
+  while (x.length !== 0) {
     t.push(x.head);
     x = x.tail;
   }
   return t;
-};
-
-var λ = function (n, f) {
-  f._ = n;
-  return f;
 };
 
 var from__nullable = function (jsValue) {
@@ -2377,27 +2378,43 @@ var from__nullable = function (jsValue) {
       return _1(#{if i is 1 then "f()" else "_#{i - 1}(f, #{first i - 1})"}, #{varNames[i - 1]});
     }
   };""").join('\n\n') +
+(for i in [0..9]
+  """var λ#{i} = function (f) {
+      f._ = #{i};
+      return f;
+    };""").join('\n\n') +
 """
 ;
 """
 
 # API
 
-compileTopLevel = (ast) ->
-  compiled = topLevel (ctx = new Context), ast
-  types: values mapMap (__ highlightType, _type), ctx._scope()
-  js: library + compiled
+syntaxedExpHtml = (string) ->
+  collapse toHtml astize tokenize string
 
-compileExpression = (ast) ->
-  compiled = expressionCompile (ctx = new Context), ast
-  types: values mapMap (__ highlightType, _type), ctx._scope()
-  js: compiled
+compileTopLevel = (source) ->
+  ast = astize tokenize "(#{source})", -1
+  compiled = topLevel (ctx = new Context), ast
+  jsWithAstTypes ctx, ast, compiled
+
+compileTopLevelAndExpression = (source) ->
+  [terms..., expression] = _terms astize tokenize source
+  compiledDefinitions = definitionList (ctx = new Context), pairs terms
+  compiledExpression = topLevelExpression ctx, expression
+  jsWithAstTypes ctx, null, library + compiledDefinitions + compiledExpression
+
+jsWithAstTypes = (ctx, ast, js) ->
+  types = values mapMap _type, ctx._scope()
+  {js, ast, types}
 
 astizeList = (source) ->
   parentize astize tokenize "(#{source})", -1
 
 astizeExpression = (source) ->
   parentize astize tokenize source
+
+astizeExpressionWithWrapper = (source) ->
+  parentize astize tokenize "(#{source})", -1
 
 
 # end of API
@@ -2461,9 +2478,11 @@ __ = (fna, fnb) ->
 
 
 exports.compileTopLevel = compileTopLevel
-exports.compileExpression = compileExpression
+exports.compileTopLevelAndExpression = compileTopLevelAndExpression
 exports.astizeList = astizeList
 exports.astizeExpression = astizeExpression
+exports.astizeExpressionWithWrapper = astizeExpressionWithWrapper
+exports.syntaxedExpHtml = syntaxedExpHtml
 
 # exports.compileModule = (source) ->
 #   """
