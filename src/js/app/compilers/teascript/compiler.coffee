@@ -159,15 +159,16 @@ class Context
       inside: 0
       deferredBindings: []
       definedNames: []
+      _defer: undefined
 
   leaveDefinition: ->
     @_scope().definition = undefined
 
   downInsideDefinition: ->
-    @_definition().inside++
+    @_definition()?.inside++
 
   upInsideDefinition: ->
-    @_definition().inside--
+    @_definition()?.inside--
 
   # If the current definition's pattern is a name, returns it
   definitionName: ->
@@ -326,28 +327,34 @@ class Context
     else
       []
 
-  setDefer: (expression, dependencyName) ->
-    @_setDeferIn @_scope(), expression, dependencyName
+  doDefer: (expression, dependencyName) ->
+    @_setDeferIn @_definition(), expression, dependencyName
+
+  dontDefer: ->
+    @_setDeferIn @_definition(), false
 
   setDeferParent: (dependencyName) ->
-    if not (@scopes.length >= 2)
+    if @scopes.length < 2
       throw new Error "Deferring parent although this is top level scope"
     @_setDeferIn @_parentScope(), dependencyName
 
-  _setDeferIn: (scope, expression, dependencyName) ->
-    scope._defer =
+  _setDeferIn: (definition, expression, dependencyName) ->
+    definition._defer =
       if expression
-        (@_shouldDeferIn scope) or [expression, dependencyName]
+        (@_deferReasonOf definition) or [expression, dependencyName]
       else
         no
 
+  deferReason: ->
+    @_deferReasonOf @_definition()
+
   shouldDefer: ->
-    @_shouldDeferIn @_scope()
+    !!(@_deferReasonOf @_definition())
 
-  _shouldDeferIn: (scope) ->
-    scope._defer
+  _deferReasonOf: (definition) ->
+    definition?._defer
 
-  addDeferredDefinition: (expression, dependencyName, lhs, rhs) ->
+  addDeferredDefinition: ([expression, dependencyName, lhs, rhs]) ->
     @_scope().deferred.push [expression, dependencyName, lhs, rhs]
 
   deferred: ->
@@ -423,7 +430,7 @@ callKnownCompile = (ctx, call) ->
   paramNames = ctx.arity operator.symbol
   if not paramNames
     # log "deferring in known call #{operator.symbol}"
-    ctx.setDefer operator, operator.symbol
+    ctx.doDefer operator, operator.symbol
     return 'deferred'
   positionalParams = filter ((param) -> not (lookupInMap labeledArgs, param)), paramNames
   nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
@@ -501,7 +508,6 @@ callSaturatedKnownCompile = (ctx, call) ->
   args = _arguments call
 
   compiledOperator = operatorCompile ctx, call
-  # log "compiled saturated", operator, call
 
   compiledArgs = termsCompile ctx, args
 
@@ -683,7 +689,7 @@ assignCompile = (ctx, expression, translatedExpression) ->
 
     #log "ASSIGN #{ctx.definitionName()}", ctx.shouldDefer()
     if ctx.shouldDefer()
-      ctx.addDeferredDefinition ctx.shouldDefer().concat to, expression
+      ctx.addDeferredDefinition ctx.deferReason().concat [to, expression]
       return 'deferred'
 
     if assigns.length is 0
@@ -738,11 +744,10 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
       if not ctx.isDeclared name
         ctx.declare name
       ctx.assignType name,
-        type:
-          if ctx.isAtDefinition()
-            quantifyAll currentType
-          else
-            toForAll currentType
+        if ctx.isAtDefinition()
+          quantifyAll currentType
+        else
+          toForAll currentType
   # here I will create type schemes for all definitions
   # The problem is I don't know which are impricise, because the names are done inside the
   # pattern. I can use the context to know which types where added in the current assignment.
@@ -794,7 +799,6 @@ resolveDeferredTypes = (ctx) ->
 
 compileDeferred = (ctx) ->
   compiledPairs = []
-  log "DEFED", ctx.deferred()
   if _notEmpty ctx.deferred()
     deferredCount = 0
     while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
@@ -804,7 +808,7 @@ compileDeferred = (ctx) ->
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
       else
         # If can't compile, defer further
-        ctx.addDeferredDefinition deferred...
+        ctx.addDeferredDefinition deferred
       if prevSize is ctx.deferred().length
         deferredCount++
 
@@ -814,19 +818,18 @@ compileDeferred = (ctx) ->
       if ctx.isInTopScope()
         malformed expression, "#{dependencyName} is not defined"
       else
-        ctx.setDeferParent dependencyName
+        ctx.doDefer expression, dependencyName
 
   compiledPairs
 
 definitionPairCompile = (ctx, pattern, value) ->
-  # log "COMPILING", pattern, value
   ctx.definePattern pattern
   # log "deferrement before assign !!!", ctx.shouldDefer()
   compiled = expressionCompile ctx, value
+  wasDeferred = ctx.shouldDefer()
   ctx.leaveDefinition()
-  if ctx.shouldDefer()
+  if wasDeferred
     # log "RESETTING DEFER"
-    ctx.setDefer false
     undefined
   else
     compiled
@@ -872,7 +875,7 @@ builtInMacros =
       map labelUsedParams, join [body], wheres
 
       # Arity - before deferring instead put to assignCompile, because this makes the naming of functions special
-      if ctx.definitionName()
+      if ctx.isAtDefinition()
         #log "adding arity for #{ctx.definitionName()}", paramNames
         ctx.declareArity ctx.definitionName(), paramNames
 
@@ -885,7 +888,7 @@ builtInMacros =
           # Typing
           if not body.tea
             #log body
-            throw "Body not typed"
+            throw new Error "Body not typed"
           call.tea = typeFn (map _type, paramTypes)..., body.tea
 
           """λ#{paramNames.length}(function (#{listOf paramNames}) {
@@ -1041,7 +1044,7 @@ matchBranchTranslate = (precs, assigns, compiledResult) ->
   [conds, indentLines '  ',
     concat [
       (map compileAssign, (join preassigns, assigns))
-      hoistedWheres.map(compileDef)
+      # hoistedWheres.map(compileDef)
       ["return #{compiledResult};"]]]
 
 iife = (body) ->
@@ -1148,7 +1151,7 @@ nameCompile = (ctx, atom, symbol) ->
         pattern: constPattern ctx, symbol
       else
         #log "deferring in pattern for #{symbol}"
-        ctx.setDefer atom, symbol
+        ctx.doDefer atom, symbol
         pattern: []
     else
       atom.label = 'name'
@@ -1176,7 +1179,7 @@ nameCompile = (ctx, atom, symbol) ->
       }
     else
       #log "deferring for #{symbol}"
-      ctx.setDefer atom, symbol
+      ctx.doDefer atom, symbol
       translation: 'deferred'
 
 constPattern = (ctx, symbol) ->
@@ -1734,26 +1737,26 @@ validIdentifier = (name) ->
 # findDeclarables = (precs) ->
 #   precs.filter((p) -> p.cache).map(({cache}) -> cache[0])
 
-# hoistWheres = (hoistable, assigns) ->
-#   defined = addAllToSet newSet(), (n for [n, _] in assigns)
-#   hoistedNames = newSet()
-#   hoisted = []
-#   notHoisted = []
-#   for where in hoistable
-#     {missing, names, def, set} = where
-#     stillMissingNames = addAllToSet newSet(),
-#       (name for name in (setToArray missing) when not inSet defined, name)
-#     stillMissingDeps = removeAllFromSet (cloneSet set), setToArray hoistedNames
-#     if stillMissingNames.size == 0 and stillMissingDeps.size == 0
-#       hoisted.push def
-#       addAllToSet hoistedNames, names
-#     else
-#       notHoisted.push
-#         def: def
-#         names: names
-#         missing: stillMissingNames
-#         set: stillMissingDeps
-#   [hoisted, notHoisted]
+hoistWheres = (hoistable, assigns) ->
+  defined = addAllToSet newSet(), (n for [n, _] in assigns)
+  hoistedNames = newSet()
+  hoisted = []
+  notHoisted = []
+  for where in hoistable
+    {missing, names, def, set} = where
+    stillMissingNames = addAllToSet newSet(),
+      (name for name in (setToArray missing) when not inSet defined, name)
+    stillMissingDeps = removeAllFromSet (cloneSet set), setToArray hoistedNames
+    if stillMissingNames.size == 0 and stillMissingDeps.size == 0
+      hoisted.push def
+      addAllToSet hoistedNames, names
+    else
+      notHoisted.push
+        def: def
+        names: names
+        missing: stillMissingNames
+        set: stillMissingDeps
+  [hoisted, notHoisted]
 
 toJsString = (symbol) ->
   "'#{symbol}'"
@@ -2264,6 +2267,8 @@ printType = (type) ->
       "\"#{listOf type}\""
     else if type is undefined
       "undefined"
+    else
+      throw "Unrecognized type in printType"
 
 collectArgs = (type) ->
   if type.op?.op?.name is '->'
@@ -2522,9 +2527,15 @@ __ = (fna, fnb) ->
 # Unit tests
 test = (teaSource, result) ->
   try
-    result is (eval compileTopLevelAndExpression teaSource)
+    compiled = (topLevelAndExpression teaSource)
   catch e
-    log "Error in test", e.message
+    logError "Failed to compile test #{teaSource}", e
+    return
+  try
+    log (collapse toHtml compiled.ast)
+    log result is (eval compiled.compiled)
+  catch e
+    logError "Error in test #{teaSource}", e
 
 tests = [
   """a 2
@@ -2543,15 +2554,33 @@ tests = [
     a (Adult "Adam")
     b Baby
     c (Adult "Adam")
-    (= (Adult.name a) (Adult.name c))
+    name (fn [person]
+      (match person
+        (Adult name) name))
+    (= (name a) (name c))
   """, true
+  """Person (record name: String id: Num)
+    name (fn [person]
+      (match person
+        (Adult name) name))
+    ((Person id: 3) "Mike")
+    """, true
+  """f (fn [x] (g x))
+    g (fn [x] 2)
+    (f 4)
+  """, 2
+
 ]
+
+
+logError = (message, error) ->
+  log message, error.message, error.stack
+    .replace(/\n?((\w+)[^>\n]+>[^>\n]+>[^>\n]+:(\d+:\d+)|.*)(?=\n)/g, '\n$2 $3')
+    .replace(/\n (?=\n)/g, '')
 
 runTests = (tests) ->
   for [source, result] in pairs tests
-    #log (topLevelAndExpression source).compiled
-    log (collapse toHtml (topLevelAndExpression source).ast),
-      test source, result
+    test source, result
   "Finished"
 # end of tests
 
