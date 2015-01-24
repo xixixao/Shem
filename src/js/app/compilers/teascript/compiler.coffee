@@ -135,7 +135,7 @@ class Context
   constructor: ->
     @_macros = builtInMacros
     @expand = {}
-    @names = []
+    @definitions = []
     @_isOperator = []
     @variableIndex = 0
     @typeVariabeIndex = 0
@@ -150,36 +150,49 @@ class Context
   macros: ->
     @_macros
 
-  _name: ->
-    if @_onTopName()
-       @_currentName().name
-
-  _nameExpression: ->
-    if @_onTopName()
-      @_currentName().expression
-
-  _currentName: ->
-    @names[@names.length - 1]
-
-  setName: (expression) ->
-    @names.push
-      name: expression?.symbol
-      expression: expression
+  definePattern: (pattern) ->
+    if @isDefining()
+      throw "already defining, forgot to leaveDefinition?"
+    @_scope().definition =
+      name: pattern?.symbol
+      pattern: pattern
+      inside: 0
       deferredBindings: []
       definedNames: []
-      subs: []
 
-  subName: ->
-    @_currentName().subs.push yes
+  leaveDefinition: ->
+    @_scope().definition = undefined
 
-  resetName: ->
-    if @_onTopName()
-      @names.pop()
-    else
-      @_currentName().subs.pop()
+  downInsideDefinition: ->
+    @_definition().inside++
 
-  _onTopName: ->
-    @_currentName().subs.length is 0
+  upInsideDefinition: ->
+    @_definition().inside--
+
+  # If the current definition's pattern is a name, returns it
+  definitionName: ->
+    @_definition().name
+
+  definitionPattern: ->
+    @_definition().pattern
+
+  _currentDefinition: ->
+    @_scope().definition
+
+  _definition: ->
+    @_definitionAtScope @scopes.length - 1
+
+  _definitionAtScope: (i) ->
+    @scopes[i].definition or i > 0 and (@_definitionAtScope i - 1) or undefined
+
+  isDefining: ->
+    !!@_scope().definition
+
+  isAtDefinition: ->
+    (definition = @_currentDefinition()) and definition.inside is 0
+
+  # isInsideDefinition: ->
+  #   (definition = @_currentDefinition()) and definition.inside isnt 0
 
   isOperator: ->
     @_isOperator[@_isOperator.length - 1]
@@ -226,7 +239,10 @@ class Context
   isInTopScope: ->
     @_scope().topLevel
 
-  declaration: (name) ->
+  isDeclared: (name) ->
+    !!(@_declaration name)
+
+  _declaration: (name) ->
     @_declarationInScope @scopes.length - 1, name
 
   _declarationInScope: (i, name) ->
@@ -234,48 +250,50 @@ class Context
       i > 0 and (@_declarationInScope i - 1, name) or
       undefined # throw "Could not find declaration for #{name}"
 
-  addType: (name, type) ->
+  assignType: (name, type) ->
     if lookupInMap @_scope(), name
       (lookupInMap @_scope(), name).type = type
     else
-      addToMap @_scope(), name, {type}
+      throw new Error "assignType: #{name} is not declared"
 
   addToDeferredNames: (binding) ->
-    @_currentName().deferredBindings.push binding
+    @_definition().deferredBindings.push binding
 
   addToDeferred: (binding) ->
     @_scope().deferredBindings.push binding
 
   addToDefinedNames: (binding) ->
-    @_currentName().definedNames.push binding
+    @_definition().definedNames.push binding
 
   definedNames: ->
-    @_currentName().definedNames
+    @_definition().definedNames
 
   deferredNames: ->
-    @_currentName().deferredBindings
+    @_definition().deferredBindings
 
   deferredBindings: ->
     @_scope().deferredBindings
 
-  addToScope: (name) ->
-    addToMap @_scope(), name, {}
+  declareArity: (name, arity) ->
+    @declare name, arity: arity
 
-  addArity: (name, arity) ->
+  # Returns whether the declaration was successful (not redundant)
+  declare: (name, declaration = {}) ->
     if lookupInMap @_scope(), name
-      (lookupInMap @_scope(), name).arity = arity
+      false
     else
-      addToMap @_scope(), name, {arity}
+      addToMap @_scope(), name, declaration
+      true
 
-  addTypes: (names, types) ->
+  declareTypes: (names, types) ->
     for name, i in names
-      @addType name, types[i]
+      @declare name, type: types[i]
 
   type: (name) ->
-    (@declaration name)?.type
+    (@_declaration name)?.type
 
   arity: (name) ->
-    (@declaration name)?.arity
+    (@_declaration name)?.arity
 
   freshTypeVariable: (kind) ->
     if not kind
@@ -365,10 +383,10 @@ callCompile = (ctx, call) ->
   if isName operator
     (if operatorName of ctx.macros()
       macroCompile
-    else if ctx.arity operatorName
-      callKnownCompile
+    else if (ctx.isDeclared operatorName) and not ctx.arity operatorName
+      callUnknownCompile
     else
-      callUnknownCompile) ctx, call
+      callKnownCompile) ctx, call
   else
     expandedOp = termCompile ctx, operator
     if isTranslated expandedOp
@@ -405,7 +423,7 @@ callKnownCompile = (ctx, call) ->
   paramNames = ctx.arity operator.symbol
   if not paramNames
     # log "deferring in known call #{operator.symbol}"
-    ctx.setDefer operator.symbol
+    ctx.setDefer operator, operator.symbol
     return 'deferred'
   positionalParams = filter ((param) -> not (lookupInMap labeledArgs, param)), paramNames
   nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
@@ -503,9 +521,9 @@ tagFreeLabels = (pairs) ->
 
 operatorCompile = (ctx, call) ->
   ctx.setIsOperator yes
-  ctx.subName()
+  ctx.downInsideDefinition()
   compiledOperator = atomCompile ctx, _operator call
-  ctx.resetName()
+  ctx.upInsideDefinition()
   ctx.resetIsOperator()
   compiledOperator
 
@@ -544,11 +562,11 @@ termsCompile = (ctx, list) ->
   termCompile ctx, term for term in list
 
 termCompile = (ctx, term) ->
-  ctx.subName()
+  ctx.downInsideDefinition()
   ctx.setIsOperator no
   compiled = expressionCompile ctx, term
   ctx.resetIsOperator()
-  ctx.resetName()
+  ctx.upInsideDefinition()
   compiled
 
 expressionsCompile = (ctx, list) ->
@@ -657,12 +675,13 @@ splatToName = (splat) ->
 assignCompile = (ctx, expression, translatedExpression) ->
   # if not translatedExpression # TODO: throw here?
     #log expression
-  if to = ctx._nameExpression()
+  if ctx.isAtDefinition()
+    to = ctx.definitionPattern()
 
     ctx.setGroupTranslation()
     {precs, assigns} = patternCompile ctx, to, expression, translatedExpression
 
-    #log "ASSIGN #{ctx._name()}", ctx.shouldDefer()
+    #log "ASSIGN #{ctx.definitionName()}", ctx.shouldDefer()
     if ctx.shouldDefer()
       ctx.addDeferredDefinition ctx.shouldDefer().concat to, expression
       return 'deferred'
@@ -687,7 +706,7 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
   if ctx.shouldDefer()
     for {name} in definedNames
       if not ctx.arity name
-        ctx.addToScope name
+        ctx.declare name
     #log "exiting pattern early", pattern, "for", ctx.shouldDefer()
     return {}
 
@@ -713,14 +732,17 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
       ctx.addToDeferred {name, type, deps: (map (({name}) -> name), deps)}
       for dep in deps
         ctx.addToDeferred {name: dep.name, type: dep.type, deps: [name]}
-      ctx.addType name, new TempType type
+      ctx.declare name, type: new TempType type
     else
-      #log "adding type for lhs #{name}", currentType
-      ctx.addArity name, [] unless ctx.arity name
-      ctx.addType name, if ctx._nameExpression()
-        quantifyAll currentType
-      else
-        toForAll currentType
+      # TODO: this is because functions might declare arity before being declared
+      if not ctx.isDeclared name
+        ctx.declare name
+      ctx.assignType name,
+        type:
+          if ctx.isAtDefinition()
+            quantifyAll currentType
+          else
+            toForAll currentType
   # here I will create type schemes for all definitions
   # The problem is I don't know which are impricise, because the names are done inside the
   # pattern. I can use the context to know which types where added in the current assignment.
@@ -731,9 +753,7 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
   assigns: assigns ? []
 
 topLevelExpression = (ctx, expression) ->
-  ctx.setName false
   compiled = expressionCompile ctx, expression
-  ctx.resetName()
   compiled
 
 topLevel = (ctx, form) ->
@@ -754,6 +774,7 @@ definitionList = (ctx, pairs) ->
 
   listOfLines compiledPairs
 
+# This function resolves the types of mutually recursive functions
 resolveDeferredTypes = (ctx) ->
   if _notEmpty ctx.deferredBindings()
     # TODO: proper dependency analysis to get the smallest circular deps
@@ -768,18 +789,18 @@ resolveDeferredTypes = (ctx) ->
         # log "done unifying one"
     # log "done unifying"
     for name of values names
-      # log "done"
-      ctx.addType name, substitute ctx.substitution, canonicalType
-      # log "added"
+      # All functions must have been declared already
+      ctx.assignType name, substitute ctx.substitution, canonicalType
 
 compileDeferred = (ctx) ->
   compiledPairs = []
+  log "DEFED", ctx.deferred()
   if _notEmpty ctx.deferred()
     deferredCount = 0
     while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
       prevSize = ctx.deferred().length
       [expression, dependencyName, lhs, rhs] = deferred = ctx.deferred().shift()
-      if ctx.declaration dependencyName
+      if ctx.isDeclared dependencyName
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
       else
         # If can't compile, defer further
@@ -797,12 +818,12 @@ compileDeferred = (ctx) ->
 
   compiledPairs
 
-definitionPairCompile = (ctx, lhs, rhs) ->
-  # log "COMPILING", lhs, rhs
-  ctx.setName lhs
+definitionPairCompile = (ctx, pattern, value) ->
+  # log "COMPILING", pattern, value
+  ctx.definePattern pattern
   # log "deferrement before assign !!!", ctx.shouldDefer()
-  compiled = expressionCompile ctx, rhs
-  ctx.resetName()
+  compiled = expressionCompile ctx, value
+  ctx.leaveDefinition()
   if ctx.shouldDefer()
     # log "RESETTING DEFER"
     ctx.setDefer false
@@ -831,7 +852,7 @@ builtInMacros =
       paramTypes = map (-> toForAll ctx.freshTypeVariable star), params
       ctx.newLateScope()
       # log "adding types", (map _symbol, params), paramTypes
-      ctx.addTypes (map _symbol, params), paramTypes
+      ctx.declareTypes (map _symbol, params), paramTypes
 
       #log "compiling wheres", pairs wheres
       compiledWheres = definitionList ctx, pairs wheres
@@ -850,10 +871,12 @@ builtInMacros =
         map (syntaxNameAs '', 'param'), filterAst isUsedParam, expression
       map labelUsedParams, join [body], wheres
 
-      # Arity - before deferring instead go to assignCompile, because this makes the naming of functions special
-      if ctx._name()
-        #log "adding arity for #{ctx._name()}", paramNames
-        ctx.addArity ctx._name(), paramNames
+      # Arity - before deferring instead put to assignCompile, because this makes the naming of functions special
+      if ctx.definitionName()
+        #log "adding arity for #{ctx.definitionName()}", paramNames
+        ctx.declareArity ctx.definitionName(), paramNames
+
+      # log "inside #{ctx.definitionName()}", ctx.shouldDefer(), body.tea
 
       assignCompile ctx, call,
         if ctx.shouldDefer()
@@ -879,7 +902,10 @@ builtInMacros =
   data: (ctx, call) ->
     defs = pairsLeft isAtom, _arguments call
     # Syntax
-    syntaxNewName 'Name required to declare new algebraic data', ctx._nameExpression()
+    if ctx.isAtDefinition()
+      syntaxNewName 'Name required to declare new algebraic data', ctx.definitionPattern()
+    else
+      malformed call, 'Name required to declare new algebraic data'
     [names, typeArgLists] = unzip defs
     map (syntaxNewName 'Type constructor name required'), names
     for typeArgs in typeArgLists
@@ -888,23 +914,25 @@ builtInMacros =
           syntaxType type
       else
         typeArgs.label = 'malformed'
-    # Types
+    dataName = ctx.definitionName()
+    if not dataName
+      return 'malformed'
+
+    # Types, Arity
     for [constr, params] in defs
       constrType = desiplifyType if params
-        join (_labeled _terms params).map(_snd).map(_symbol), [ctx._name()]
+        join (_labeled _terms params).map(_snd).map(_symbol), [dataName]
       else
-        ctx._name()
+        dataName
       # TODO support polymorphic data
       #log "Adding constructor #{constr.symbol}"
-      ctx.addType constr.symbol, toForAll constrType
+      ctx.declare constr.symbol,
+        type: toForAll constrType
+        arity: ((_labeled _terms params).map(_fst).map(_labelName) if params)
       constr.tea = constrType
-    # TODO: support polymorphic data
-    # We don't add binding to types, but maybe need to store elsewhere
-    # ctx.addType ctx._name(), typeConstant ctx._name()
-    # Arity
-    for [constr, params] in defs when params
-      ctx.addArity constr.symbol,
-        (_labeled _terms params).map(_fst).map(_labelName)
+    # We don't add binding to kind constructors, but maybe we need to
+    # ctx.addType dataName, typeConstant dataName
+
     # Translate
     listOfLines (for [constr, params] in defs
       identifier = validIdentifier constr.symbol
@@ -934,9 +962,9 @@ builtInMacros =
         syntaxType type
     if args.length is 0
       malformed call, 'Missing arguments'
-    # TS: (data #{ctx._name()} [#{_arguments form}])
+    # TS: (data #{ctx.definitionName()} [#{_arguments form}])
     replicate call,
-      (call_ (token_ 'data'), [(token_ ctx._name()), (tuple_ args)])
+      (call_ (token_ 'data'), [(token_ ctx.definitionName()), (tuple_ args)])
 
   # TODO:
   # For now support the simplest function macros, just compiling down to source
@@ -950,7 +978,7 @@ builtInMacros =
 
   #   ctx.
   #   # then in assign compile:
-  #   ctx.macros[ctx._name()]
+  #   ctx.macros[ctx.definitionName()]
 
 
   # match
@@ -975,11 +1003,9 @@ builtInMacros =
     compiledCases = conditional (for [pattern, result] in pairs cases
 
       ctx.newScope() # for variables defined inside pattern
-      ctx.setName()
 
       {precs, assigns} = patternCompile ctx, pattern, subject, subjectCompiled
 
-      ctx.resetName()
       # Compile the result, given current scope
       compiledResult = termCompile ctx, result #compileImpl result, furtherHoistable
       ctx.closeScope()
@@ -997,6 +1023,15 @@ builtInMacros =
       ctx.translationCache()
       varList varNames
       compiledCases])
+  '=': (ctx, call) ->
+    [a, b] = _arguments call
+    operatorCompile ctx, call
+    compiledA = termCompile ctx, a
+    compiledB = termCompile ctx, b
+
+    callTyping ctx, call
+    assignCompile ctx, call, "(#{compiledA} === #{compiledB})"
+
 
 # Creates the condition and body of a branch inside match macro
 matchBranchTranslate = (precs, assigns, compiledResult) ->
@@ -1131,7 +1166,7 @@ nameCompile = (ctx, atom, symbol) ->
         translation: nameTranslate ctx, atom, symbol
       }
     # Inside function only defer compilation if we don't know arity
-    else if ctx.isInLateScope() and (ctx.declaration symbol) or contextType instanceof TempType
+    else if ctx.isInLateScope() and (ctx.isDeclared symbol) or contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = ctx.freshTypeVariable star
       ctx.addToDeferredNames {name: symbol, type: type}
@@ -1956,9 +1991,12 @@ setToArray = (set) ->
 mapToArray = (map) ->
   val for key, val of map.values
 
-cloneSet = (set) ->
+cloneSet =
+cloneMap = (set) ->
   clone = newSet()
-  addAllToSet clone, setToArray set
+  for key, val of set.values
+    addToMap clone, key, val
+  clone
 
 lookupInMap =
 inSet = (set, name) ->
@@ -2398,10 +2436,16 @@ compileTopLevel = (source) ->
   jsWithAstTypes ctx, ast, compiled
 
 compileTopLevelAndExpression = (source) ->
-  [terms..., expression] = _terms astize tokenize source
+  (topLevelAndExpression source).compiled
+
+topLevelAndExpression = (source) ->
+  ast = astize tokenize "(#{source})", -1
+  [terms..., expression] = _terms ast
   compiledDefinitions = definitionList (ctx = new Context), pairs terms
   compiledExpression = topLevelExpression ctx, expression
-  jsWithAstTypes ctx, null, library + compiledDefinitions + compiledExpression
+  types: ctx._scope()
+  ast: ast
+  compiled: library + compiledDefinitions + compiledExpression
 
 jsWithAstTypes = (ctx, ast, js) ->
   types = values mapMap _type, ctx._scope()
@@ -2475,45 +2519,39 @@ __ = (fna, fnb) ->
 
 # end of Utils
 
+# Unit tests
+test = (teaSource, result) ->
+  try
+    result is (eval compileTopLevelAndExpression teaSource)
+  catch e
+    log "Error in test", e.message
 
+tests = [
+  """a 2
+    a""", 2
+  """a 2
+    b 3
+    a""", 2
+  """Color (data Red Blue)
+    r Red
+    b Blue
+    r2 Red
+    (= r r2)""", true
+  """Person (data
+    Baby
+    Adult [name: String])
+    a (Adult "Adam")
+    b Baby
+    c (Adult "Adam")
+    (= (Adult.name a) (Adult.name c))
+  """, true
+]
 
-exports.compileTopLevel = compileTopLevel
-exports.compileTopLevelAndExpression = compileTopLevelAndExpression
-exports.astizeList = astizeList
-exports.astizeExpression = astizeExpression
-exports.astizeExpressionWithWrapper = astizeExpressionWithWrapper
-exports.syntaxedExpHtml = syntaxedExpHtml
+runTests = (tests) ->
+  for [source, result] in pairs tests
+    #log (topLevelAndExpression source).compiled
+    log (collapse toHtml (topLevelAndExpression source).ast),
+      test source, result
+  "Finished"
+# end of tests
 
-# exports.compileModule = (source) ->
-#   """
-#   #{library}
-#   var exports = {};
-#   #{compileDefinitionsInModule source}
-#   exports"""
-
-exports.library = library
-
-exports.isForm = isForm
-exports.isAtom = isAtom
-
-
-exports.join = join
-exports.concatMap = concatMap
-exports.concat = concat
-exports.id = id
-exports.map = map
-exports.allMap = allMap
-exports.all = all
-exports.filter = filter
-exports.partition = partition
-exports._notEmpty = _notEmpty
-exports._is = _is
-exports.__ = __
-
-exports._operator = _operator
-exports._arguments = _arguments
-exports._terms = _terms
-exports._snd = _snd
-exports._fst = _fst
-exports._labelName = _labelName
-exports._symbol = _symbol
