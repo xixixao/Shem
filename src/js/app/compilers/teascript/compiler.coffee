@@ -157,9 +157,15 @@ class Context
       name: pattern?.symbol
       pattern: pattern
       inside: 0
+      late: no
       deferredBindings: []
       definedNames: []
+      deferrable: yes
       _defer: undefined
+
+  defineNonDeferrablePattern: (pattern) ->
+    definition = @definePattern pattern
+    definition.deferrable = no
 
   leaveDefinition: ->
     @_scope().definition = undefined
@@ -185,6 +191,13 @@ class Context
 
   _definitionAtScope: (i) ->
     @scopes[i].definition or i > 0 and (@_definitionAtScope i - 1) or undefined
+
+  _deferrableDefinition: ->
+    @_deferrableDefinitionAtScope @scopes.length - 1
+
+  _deferrableDefinitionAtScope: (i) ->
+    (def = @scopes[i].definition) and def.deferrable and def or
+      i > 0 and (@_deferrableDefinitionAtScope i - 1) or undefined
 
   isDefining: ->
     !!@_scope().definition
@@ -229,13 +242,13 @@ class Context
 
   newLateScope: ->
     @newScope()
-    @_definition().late = yes
+    @_deferrableDefinition()?.late = yes
 
   closeScope: ->
     @scopes.pop()
 
   isInsideLateScope: ->
-    @_definition().late
+    @_deferrableDefinition()?.late
 
   isInTopScope: ->
     @_scope().topLevel
@@ -331,22 +344,11 @@ class Context
       []
 
   doDefer: (expression, dependencyName) ->
-    @_setDeferIn @_definition(), expression, dependencyName
-
-  dontDefer: ->
-    @_setDeferIn @_definition(), false
-
-  setDeferParent: (dependencyName) ->
-    if @scopes.length < 2
-      throw new Error "Deferring parent although this is top level scope"
-    @_setDeferIn @_parentScope(), dependencyName
+    @_setDeferIn @_deferrableDefinition(), expression, dependencyName
 
   _setDeferIn: (definition, expression, dependencyName) ->
     definition._defer =
-      if expression
-        (@_deferReasonOf definition) or [expression, dependencyName]
-      else
-        no
+      (@_deferReasonOf definition) or [expression, dependencyName]
 
   deferReason: ->
     @_deferReasonOf @_definition()
@@ -683,7 +685,6 @@ splatToName = (splat) ->
 
 assignCompile = (ctx, expression, translatedExpression) ->
   # if not translatedExpression # TODO: throw here?
-    #log expression
   if ctx.isAtDefinition()
     to = ctx.definitionPattern()
 
@@ -711,6 +712,7 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
 
   definedNames = ctx.definedNames()
 
+  # log "is deferriing", pattern, ctx.shouldDefer()
   # Make sure deferred names are added to scope so they are compiled within functions
   if ctx.shouldDefer()
     for {name} in definedNames
@@ -1018,17 +1020,18 @@ builtInMacros =
     compiledCases = conditional (for [pattern, result] in pairs cases
 
       ctx.newScope() # for variables defined inside pattern
-
+      ctx.defineNonDeferrablePattern pattern
       {precs, assigns} = patternCompile ctx, pattern, subject, subjectCompiled
 
       # Compile the result, given current scope
       compiledResult = termCompile ctx, result #compileImpl result, furtherHoistable
+      ctx.leaveDefinition()
       ctx.closeScope()
 
       if ctx.shouldDefer()
         continue
 
-      #log "unifying in match", resultType, result.tea
+      # log "unifying in match", result, resultType, result.tea
       unify ctx, resultType, result.tea
       varNames.push (findDeclarables precs)...
 
@@ -1156,13 +1159,14 @@ atomCompile = (ctx, atom) ->
 
 nameCompile = (ctx, atom, symbol) ->
   contextType = ctx.type symbol
+  # log "nameCompile", symbol, ctx.isInsideLateScope(), contextType, ctx.isDeclared symbol
   if exp = ctx.assignTo()
     if atom.label is 'const'
       if contextType
         type: freshInstance ctx, ctx.type symbol
         pattern: constPattern ctx, symbol
       else
-        #log "deferring in pattern for #{symbol}"
+        # log "deferring in pattern for #{symbol}"
         ctx.doDefer atom, symbol
         pattern: []
     else
@@ -1190,7 +1194,7 @@ nameCompile = (ctx, atom, symbol) ->
         translation: nameTranslate ctx, atom, symbol
       }
     else
-      #log "deferring for #{symbol}"
+      # log "deferring in rhs for #{symbol}"
       ctx.doDefer atom, symbol
       translation: 'deferred'
 
