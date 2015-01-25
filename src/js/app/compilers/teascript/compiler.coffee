@@ -38,17 +38,17 @@ astize = (tokens) ->
     else if token.symbol in rightDelims
       closed = stack.pop()
       if token.symbol isnt delims[closed[0].symbol]
-        throw "Wrong closing delimiter #{token.symbol} for opening delimiter #{closed[0].symbol}"
+        throw new Error "Wrong closing delimiter #{token.symbol} for opening delimiter #{closed[0].symbol}"
       closed.push token
       closed.end = token.end
       if not stack[stack.length - 1]
-        throw "Missing opening delimeter matching #{token.symbol}"
+        throw new Error "Missing opening delimeter matching #{token.symbol}"
       stack[stack.length - 1].push closed
     else
       stack[stack.length - 1].push token
   ast = stack[0][0]
   if not ast
-    throw "Missing closing delimeter matching #{stack[stack.length - 1][0].symbol}"
+    throw new Error "Missing closing delimeter matching #{stack[stack.length - 1][0].symbol}"
   else
     ast
 
@@ -152,7 +152,7 @@ class Context
 
   definePattern: (pattern) ->
     if @isDefining()
-      throw "already defining, forgot to leaveDefinition?"
+      throw new Error "already defining, forgot to leaveDefinition?"
     @_scope().definition =
       name: pattern?.symbol
       pattern: pattern
@@ -229,13 +229,13 @@ class Context
 
   newLateScope: ->
     @newScope()
-    @_scope().late = yes
+    @_definition().late = yes
 
   closeScope: ->
     @scopes.pop()
 
-  isInLateScope: ->
-    @_scope().late
+  isInsideLateScope: ->
+    @_definition().late
 
   isInTopScope: ->
     @_scope().topLevel
@@ -252,8 +252,11 @@ class Context
       undefined # throw "Could not find declaration for #{name}"
 
   assignType: (name, type) ->
-    if lookupInMap @_scope(), name
-      (lookupInMap @_scope(), name).type = type
+    # log "TYPE OF #{name}", printType type
+    if declaration = (lookupInMap @_scope(), name)
+      if declaration.type
+        throw new Error "assignType: #{name} already has a type"
+      declaration.type = type
     else
       throw new Error "assignType: #{name} is not declared"
 
@@ -264,10 +267,10 @@ class Context
     @_scope().deferredBindings.push binding
 
   addToDefinedNames: (binding) ->
-    @_definition().definedNames.push binding
+    @_currentDefinition()?.definedNames?.push binding
 
   definedNames: ->
-    @_definition().definedNames
+    @_currentDefinition()?.definedNames ? []
 
   deferredNames: ->
     @_definition().deferredBindings
@@ -728,13 +731,14 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
     # or use the substitution instead of type below:
     mapMap (-> {name, type}), findFree substitute ctx.substitution, type)
 
-  #log "pattern compiel", definedNames
+  # log "pattern compiel", definedNames, pattern
   for {name, type} in definedNames
     currentType = substitute ctx.substitution, type
     deps = concat mapToArray intersectRight (findFree currentType), tempVars
+    # log "deciding whether to defer type", name, currentType, deps
     if deps.length > 0
       depsNames =  deps
-      #log "adding top level lhs to deferred #{name}"
+      # log "adding top level lhs to deferred #{name}"
       ctx.addToDeferred {name, type, deps: (map (({name}) -> name), deps)}
       for dep in deps
         ctx.addToDeferred {name: dep.name, type: dep.type, deps: [name]}
@@ -785,17 +789,26 @@ resolveDeferredTypes = (ctx) ->
     # TODO: proper dependency analysis to get the smallest circular deps
     #       now we are just compiling as if they were all mutually recursive
     names = concatConcatMaps map (({name, type}) -> newMapWith name, type), ctx.deferredBindings()
+    # First get rid of instances of already resolved types
+    unresolvedNames = newMap()
     for name, types of values names
+      if canonicalType = ctx.type name
+        for type in types
+          unify ctx, type, freshInstance ctx, canonicalType
+      else
+        addToMap unresolvedNames, name, types
+
+    # Now assign the same type to all occurences of the given type and unify
+    for name, types of values unresolvedNames
       canonicalType = ctx.freshTypeVariable star
       for type in types
         #log type.constructor
-        # log "unifying", canonicalType, type
         unify ctx, canonicalType, type
         # log "done unifying one"
     # log "done unifying"
-    for name of values names
+    for name of values unresolvedNames
       # All functions must have been declared already
-      ctx.assignType name, substitute ctx.substitution, canonicalType
+      ctx.assignType name, quantifyAll substitute ctx.substitution, canonicalType
 
 compileDeferred = (ctx) ->
   compiledPairs = []
@@ -823,6 +836,7 @@ compileDeferred = (ctx) ->
   compiledPairs
 
 definitionPairCompile = (ctx, pattern, value) ->
+  # log "COMPILING", pattern
   ctx.definePattern pattern
   # log "deferrement before assign !!!", ctx.shouldDefer()
   compiled = expressionCompile ctx, value
@@ -878,8 +892,6 @@ builtInMacros =
       if ctx.isAtDefinition()
         #log "adding arity for #{ctx.definitionName()}", paramNames
         ctx.declareArity ctx.definitionName(), paramNames
-
-      # log "inside #{ctx.definitionName()}", ctx.shouldDefer(), body.tea
 
       assignCompile ctx, call,
         if ctx.shouldDefer()
@@ -943,7 +955,7 @@ builtInMacros =
         .map(validIdentifier)
       paramList = paramNames.join(', ')
       paramAssigns = blockOfLines paramNames.map (name) ->
-        "  this.#{name} = name;"
+        "  this.#{name} = #{name};"
       constrFn = """function #{identifier}(#{paramList}) {#{paramAssigns}};"""
       constrValue = if params
         """
@@ -1169,7 +1181,7 @@ nameCompile = (ctx, atom, symbol) ->
         translation: nameTranslate ctx, atom, symbol
       }
     # Inside function only defer compilation if we don't know arity
-    else if ctx.isInLateScope() and (ctx.isDeclared symbol) or contextType instanceof TempType
+    else if ctx.isInsideLateScope() and (ctx.isDeclared symbol) or contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = ctx.freshTypeVariable star
       ctx.addToDeferredNames {name: symbol, type: type}
@@ -1327,7 +1339,7 @@ isCapital = (atom) ->
   /[A-Z]/.test atom.symbol
 
 isName = (expression) ->
-  throw "Nothing passed to isName" unless expression
+  throw new Error "Nothing passed to isName" unless expression
   (isAtom expression) and /[^~"'\/].*/.test expression.symbol
 
 isAtom = (expression) ->
@@ -1524,9 +1536,7 @@ exportList = (source) ->
 
 validIdentifier = (name) ->
   [firstChar] = name
-  if firstChar is '-'
-    throw new Error "Identifier expected, but got minus #{name}"
-  else if firstChar is '/'
+  if firstChar is '/'
     throw new Error "Identifier expected, but found regex #{name}"
   else
     name
@@ -2085,7 +2095,7 @@ intersectRight = (mapA, mapB) ->
 # Type inference and checker ala Mark Jones
 
 unify = (ctx, t1, t2) ->
-  throw "invalid args to unify" unless ctx instanceof Context and t1 and t2
+  throw new Error "invalid args to unify" unless ctx instanceof Context and t1 and t2
   sub = ctx.substitution
   ctx.extendSubstitution findSubToMatch (substitute sub, t1), (substitute sub, t2)
 
@@ -2147,13 +2157,13 @@ findBound = (name, binding) ->
   (lookupInMap binding, name) or 'unbound name #{name}'
 
 freshInstance = (ctx, type) ->
-  throw "not a forall in freshInstance" unless type instanceof ForAll
+  throw new Error "not a forall in freshInstance" unless type instanceof ForAll
   freshes = map ((kind) -> ctx.freshTypeVariable kind), type.kinds
   (substitute freshes, type).type
 
 freshName = (nameIndex) ->
-  suffix = if nameIndex > 25 then Math.floor nameIndex / 25 else ''
-  String.fromCharCode 97 + nameIndex % 25
+  suffix = if nameIndex > 25 then freshName (Math.floor nameIndex / 25) - 1 else ''
+  (String.fromCharCode 97 + nameIndex % 25) + suffix
 
 # Kind (data
 #   Star
@@ -2204,7 +2214,7 @@ kind = (type) ->
   else if type instanceof TypeApp
     (kind type.op).to
   else
-    throw "Invalid type in kind"
+    throw new Error "Invalid type in kind"
 
 kindsEq = (k1, k2) ->
   k1 is k2 or
@@ -2268,7 +2278,7 @@ printType = (type) ->
     else if type is undefined
       "undefined"
     else
-      throw "Unrecognized type in printType"
+      throw new Error "Unrecognized type in printType"
 
 collectArgs = (type) ->
   if type.op?.op?.name is '->'
@@ -2329,17 +2339,17 @@ var and_ = function (x, xs) {
   };
 };
 
-var $sequenceSize = function (xs) {
+var seq_size = function (xs) {
   if (typeof xs === "undefined" || xs === null) {
     throw new Error('Pattern matching on size of undefined');
   }
   if (xs.length !== null) {
     return xs.length;
   }
-  return 1 + $sequenceSize(xs.tail);
+  return 1 + seq_size(xs.tail);
 };
 
-var $sequenceAt = function (i, xs) {
+var seq_at = function (i, xs) {
   if (typeof xs === "undefined" || xs === null) {
     throw new Error('Pattern matching required sequence got undefined');
   }
@@ -2352,14 +2362,14 @@ var $sequenceAt = function (i, xs) {
   if (i === 0) {
     return xs.head;
   }
-  return $sequenceAt(i - 1, xs.tail);
+  return seq_at(i - 1, xs.tail);
 };
 
-var $sequenceSplat = function (from, leave, xs) {
+var seq_splat = function (from, leave, xs) {
   if (xs.slice) {
     return xs.slice(from, xs.length - leave);
   }
-  return $listSlice(from, $sequenceSize(xs) - leave - from, xs);
+  return $listSlice(from, seq_size(xs) - leave - from, xs);
 };
 
 // temporary, will be replaced by typed 0-argument function
@@ -2533,7 +2543,8 @@ test = (teaSource, result) ->
     return
   try
     log (collapse toHtml compiled.ast)
-    log result is (eval compiled.compiled)
+    if result isnt (eval compiled.compiled)
+      log result
   catch e
     logError "Error in test #{teaSource}", e
 
@@ -2542,33 +2553,75 @@ tests = [
     a""", 2
   """a 2
     b 3
-    a""", 2
+    a""", 1
   """Color (data Red Blue)
     r Red
     b Blue
     r2 Red
     (= r r2)""", true
+  """positive (fn [n]
+      (match n
+        0 False
+        m True))
+    (positive 3)""", yes
   """Person (data
     Baby
     Adult [name: String])
     a (Adult "Adam")
     b Baby
-    c (Adult "Adam")
     name (fn [person]
       (match person
         (Adult name) name))
-    (= (name a) (name c))
-  """, true
+    (name a)
+  """, "Adam"
   """Person (record name: String id: Num)
     name (fn [person]
       (match person
-        (Adult name) name))
-    ((Person id: 3) "Mike")
-    """, true
+        (Person name id) name))
+    (name ((Person id: 3) "Mike"))
+    """, "Mike"
   """f (fn [x] (g x))
     g (fn [x] 2)
     (f 4)
   """, 2
+  """[x y] z
+    z [1 2]
+    y
+  """, 2
+  """snd (fn [pair]
+      (match pair
+        [x y] y))
+    (snd [1 2])
+    """, 2
+  """Person (record name: String id: Num)
+    name (fn [person]
+      (match person
+        (Person "Joe" id) 0
+        (Person name id) id))
+    (name (Person "Mike" 3))
+    """, 3
+  """{x y z} list
+     list {1 2 3}
+     z
+    """, 3
+  """tail? (fn [list]
+      (match list
+        {} False
+        xx True))
+    {x ..xs} {1}
+    (tail? xs)""", no
+  """fibonacci (fn [month] (adults month))
+    adults (fn [month]
+      (match month
+        1 0
+        n (+ (adults previous-month) (babies previous-month)))
+      previous-month (- 1 month))
+    babies (fn [month]
+      (match month
+        1 1
+        n (adults (- 1 month))))
+
+    (fibonacci 6)""", 8
 
 ]
 
@@ -2584,3 +2637,43 @@ runTests = (tests) ->
   "Finished"
 # end of tests
 
+exports.compileTopLevel = compileTopLevel
+exports.compileTopLevelAndExpression = compileTopLevelAndExpression
+exports.astizeList = astizeList
+exports.astizeExpression = astizeExpression
+exports.astizeExpressionWithWrapper = astizeExpressionWithWrapper
+exports.syntaxedExpHtml = syntaxedExpHtml
+
+# exports.compileModule = (source) ->
+#   """
+#   #{library}
+#   var exports = {};
+#   #{compileDefinitionsInModule source}
+#   exports"""
+
+exports.library = library
+
+exports.isForm = isForm
+exports.isAtom = isAtom
+
+
+exports.join = join
+exports.concatMap = concatMap
+exports.concat = concat
+exports.id = id
+exports.map = map
+exports.allMap = allMap
+exports.all = all
+exports.filter = filter
+exports.partition = partition
+exports._notEmpty = _notEmpty
+exports._is = _is
+exports.__ = __
+
+exports._operator = _operator
+exports._arguments = _arguments
+exports._terms = _terms
+exports._snd = _snd
+exports._fst = _fst
+exports._labelName = _labelName
+exports._symbol = _symbol
