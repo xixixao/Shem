@@ -9,14 +9,32 @@ exports.Worker = (sender, path) ->
     constructor: (sender) ->
       super sender
 
-    onUpdate: ->
+    prefix: (source) ->
+      @source = source
+
+    onUpdate: (execute) ->
       value = @doc.getValue()
 
       if value[0] is ':'
-        @sender.emit "ok",
-          result: value[1..]
-          type: 'command'
+        if execute
+          @sender.emit "ok",
+            result: value[1..]
+            type: 'command'
       else
-        super
+        if value.length > 0
+          sourceAndCommand = (@source or '') + value
+          try
+            # [res, warnings] = compiler.compileExp value
+            # [";" + res, warnings])
+            @sender.emit "ok",
+              type: (if execute then 'execute' else 'normal')
+              result:
+                @compiler.compileTopLevelAndExpression sourceAndCommand
+
+          catch e
+            @sender.emit "error",
+              text: e.message
+              type: 'error'
+            return
 
   new CommandWorker sender

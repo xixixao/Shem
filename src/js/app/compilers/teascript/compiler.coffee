@@ -2455,7 +2455,7 @@ compileTopLevel = (source) ->
   jsWithAstTypes ctx, ast, compiled
 
 compileTopLevelAndExpression = (source) ->
-  (topLevelAndExpression source).compiled
+  topLevelAndExpression source
 
 topLevelAndExpression = (source) ->
   ast = astize tokenize "(#{source})", -1
