@@ -683,6 +683,15 @@ splatToName = (splat) ->
 #     [x, xs...] = elems
 #     (call_ (token_ 'cons-array'), [x, (arrayToConses xs)])
 
+
+# Inside definition, we call assignCompile with its RHS
+#   whether to call it and with what expression is left to the RHS expression
+#   essentially assignable macros should call it
+# This then compiles the LHS
+# Possibly defers if RHS or LHS had to defer
+# We then unify LHS with RHS, which will populate context substitution
+#   with the right subs for type vars on the left
+# For each defined name in the LHS, we declare it
 assignCompile = (ctx, expression, translatedExpression) ->
   # if not translatedExpression # TODO: throw here?
   if ctx.isAtDefinition()
@@ -725,21 +734,11 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
   if pattern.tea
     unify ctx, matched.tea, pattern.tea
 
-  # And substitute to get correct types TODO: make sure this works for match as well
-
-  # A big map of free typevar names to lists of value names
-  tempVars = concatConcatMaps (for {name, type} in ctx.deferredNames()
-    # ctx.addToDeferred {name, type}
-    # or use the substitution instead of type below:
-    mapMap (-> {name, type}), findFree substitute ctx.substitution, type)
-
   # log "pattern compiel", definedNames, pattern
   for {name, type} in definedNames
     currentType = substitute ctx.substitution, type
-    deps = concat mapToArray intersectRight (findFree currentType), tempVars
-    # log "deciding whether to defer type", name, currentType, deps
+    deps = ctx.deferredNames()
     if deps.length > 0
-      depsNames =  deps
       # log "adding top level lhs to deferred #{name}"
       ctx.addToDeferred {name, type, deps: (map (({name}) -> name), deps)}
       for dep in deps
