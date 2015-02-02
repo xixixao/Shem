@@ -2552,21 +2552,30 @@ test = (teaSource, result) ->
     logError "Error in test #{teaSource}", e
 
 tests = [
+  'simple defs'
+  """a 2"""
+  "a", 2
+
+  'more defs'
   """a 2
-    a""", 2
-  """a 2
-    b 3
-    a""", 1
+    b 3"""
+  "a", 1
+
+  'constant data'
   """Color (data Red Blue)
     r Red
     b Blue
-    r2 Red
-    (= r r2)""", true
+    r2 Red"""
+  "(= r r2)", true
+
+  'match numbers'
   """positive (fn [n]
       (match n
         0 False
-        m True))
-    (positive 3)""", yes
+        m True))"""
+  "(positive 3)", yes
+
+  'composite data'
   """Person (data
     Baby
     Adult [name: String])
@@ -2574,45 +2583,54 @@ tests = [
     b Baby
     name (fn [person]
       (match person
-        (Adult name) name))
-    (name a)
-  """, "Adam"
+        (Adult name) name))"""
+  "(name a)", "Adam"
+
+  'records'
   """Person (record name: String id: Num)
     name (fn [person]
       (match person
-        (Person name id) name))
-    (name ((Person id: 3) "Mike"))
-    """, "Mike"
+        (Person name id) name))"""
+  """(name ((Person id: 3) "Mike"))""", "Mike"
+
+  'late bound function'
   """f (fn [x] (g x))
-    g (fn [x] 2)
-    (f 4)
-  """, 2
+    g (fn [x] 2)"""
+  "(f 4)", 2
+
+  'late bound def'
   """[x y] z
-    z [1 2]
-    y
-  """, 2
+    z [1 2]"""
+  "y", 2
+
+  'tuples'
   """snd (fn [pair]
       (match pair
-        [x y] y))
-    (snd [1 2])
-    """, 2
+        [x y] y))"""
+  "(snd [1 2])", 2
+
+  'match data'
   """Person (record name: String id: Num)
     name (fn [person]
       (match person
         (Person "Joe" id) 0
-        (Person name id) id))
-    (name (Person "Mike" 3))
-    """, 3
+        (Person name id) id))"""
+  """(name (Person "Mike" 3))""", 3
+
+  'seqs'
   """{x y z} list
-     list {1 2 3}
-     z
-    """, 3
+     list {1 2 3}"""
+  "z", 3
+
+  'match seq'
   """tail? (fn [list]
       (match list
         {} False
         xx True))
-    {x ..xs} {1}
-    (tail? xs)""", no
+    {x ..xs} {1}"""
+    "(tail? xs)", no
+
+  'fib'
   """fibonacci (fn [month] (adults month))
     adults (fn [month]
       (match month
@@ -2622,12 +2640,15 @@ tests = [
     babies (fn [month]
       (match month
         1 1
-        n (adults (- 1 month))))
-
-    (fibonacci 6)""", 8
+        n (adults (- 1 month))))"""
+    "(fibonacci 6)", 8
 
 ]
 
+testNamed = (givenName) ->
+  for [name, source, expression, result] in pairs tests when name is givenName
+    return source
+  throw new Error "Test #{givenName} not found!"
 
 logError = (message, error) ->
   log message, error.message, error.stack
@@ -2635,8 +2656,8 @@ logError = (message, error) ->
     .replace(/\n (?=\n)/g, '')
 
 runTests = (tests) ->
-  for [source, result] in pairs tests
-    test source, result
+  for [name, source, expression, result] in pairs tests
+    test source + expression, result
   "Finished"
 # end of tests
 
