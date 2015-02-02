@@ -205,6 +205,9 @@ class Context
   isAtDefinition: ->
     (definition = @_currentDefinition()) and definition.inside is 0
 
+  isAtSimpleDefinition: ->
+    @isAtDefinition() and @definitionName()
+
   # isInsideDefinition: ->
   #   (definition = @_currentDefinition()) and definition.inside isnt 0
 
@@ -683,6 +686,47 @@ splatToName = (splat) ->
 #     [x, xs...] = elems
 #     (call_ (token_ 'cons-array'), [x, (arrayToConses xs)])
 
+typeCompile = (ctx, expression) ->
+  throw new Error "invalid typeCompile args" unless ctx instanceof Context and expression
+  (if isAtom expression
+    typeConstantCompile
+  else if isTuple expression
+    typeTupleCompile
+  else if isCall expression
+    typeConstructorCompile
+  else
+    malformed expression, 'not a valid type'
+  )? ctx, expression
+
+typesCompile = (ctx, expressions) ->
+  map ((e) -> typeCompile ctx, e), expressions
+
+typeConstructorCompile = (ctx, call) ->
+  op = _operator call
+  args = _arguments call
+
+  if isAtom op
+    op.label = 'operator'
+    name = op.symbol
+    if name is 'Fn'
+      typeFn typesCompile ctx, args
+    else
+      arity = args.length
+      applyKindFn (new TypeConstr "[#{arity}]", kindFn arity), typesCompile ctx, args
+  else
+    malformed op, 'Should use a type constructor here'
+
+typeTupleCompile = (ctx, form) ->
+  form.label = 'operator'
+  elemTypes = _terms form
+  applyKindFn (tupleType elemTypes.length), typesCompile ctx, elemTypes
+
+typeConstantCompile = (ctx, atom) ->
+  name = atom.symbol
+  if /^[A-Z]/.test name
+    typeConstant name
+  else
+    new TypeVariable name, star
 
 # Inside definition, we call assignCompile with its RHS
 #   whether to call it and with what expression is left to the RHS expression
@@ -865,6 +909,15 @@ builtInMacros =
         [type, body, wheres...] = defs
       else
         [body, wheres...] = defs
+
+      # Arity - before deferring instead? put to assignCompile, because this makes the naming of functions special
+      if ctx.isAtSimpleDefinition()
+        #log "adding arity for #{ctx.definitionName()}", paramNames
+        ctx.declareArity ctx.definitionName(), paramNames
+        # Explicit typing
+        if type
+          ctx.assignType ctx.definitionName(), typeCompile ctx, type
+
       paramNames = map _symbol, params
       # pattern
       paramTypes = map (-> toForAll ctx.freshTypeVariable star), params
@@ -887,19 +940,15 @@ builtInMacros =
         (isName expression) and (_symbol expression) in paramNames
       labelUsedParams = (expression) ->
         map (syntaxNameAs '', 'param'), filterAst isUsedParam, expression
-      map labelUsedParams, join [body], wheres
+      map labelUsedParams, if body then join [body], wheres else wheres
 
-      # Arity - before deferring instead put to assignCompile, because this makes the naming of functions special
-      if ctx.isAtDefinition()
-        #log "adding arity for #{ctx.definitionName()}", paramNames
-        ctx.declareArity ctx.definitionName(), paramNames
 
       assignCompile ctx, call,
         if ctx.shouldDefer()
           'deferred'
         else
           # Typing
-          if not body.tea
+          if body and not body.tea
             #log body
             throw new Error "Body not typed"
           call.tea = typeFn (map _type, paramTypes)..., body.tea
@@ -2286,12 +2335,6 @@ printType = (type) ->
 collectArgs = (type) ->
   if type.op?.op?.name is '->'
     join [printType type.op.arg], collectArgs type.arg
-  # else if match = type.op?.op?.name?.match /^\[(\d)\]$/
-  #   arity = parseInt match[1]
-  #   for i in [0...arity]
-
-  else if type.op
-    ["(#{printType type.op} #{printType type.arg})"]
   else
     [printType type]
 
