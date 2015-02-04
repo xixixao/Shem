@@ -259,6 +259,9 @@ class Context
   isDeclared: (name) ->
     !!(@_declaration name)
 
+  isTyped: (name) ->
+    !!(@_declaration name).type
+
   _declaration: (name) ->
     @_declarationInScope @scopes.length - 1, name
 
@@ -794,11 +797,16 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
       # TODO: this is because functions might declare arity before being declared
       if not ctx.isDeclared name
         ctx.declare name
-      ctx.assignType name,
-        if ctx.isAtDefinition()
-          quantifyAll currentType
-        else
-          toForAll currentType
+      # For explicitly typed bindings, we need to check that the inferred type
+      #   corresponds to the annotated
+      if ctx.isTyped name
+        unify ctx, currentType, freshInstance ctx, ctx.type name
+      else
+        ctx.assignType name,
+          if ctx.isAtDefinition()
+            quantifyAll currentType
+          else
+            toForAll currentType
   # here I will create type schemes for all definitions
   # The problem is I don't know which are impricise, because the names are done inside the
   # pattern. I can use the context to know which types where added in the current assignment.
@@ -918,7 +926,7 @@ builtInMacros =
         ctx.declareArity ctx.definitionName(), paramNames
         # Explicit typing
         if type
-          ctx.assignType ctx.definitionName(), typeCompile ctx, type
+          ctx.assignType ctx.definitionName(), quantifyAll typeCompile ctx, type
 
       paramNames = map _symbol, params
       # pattern
