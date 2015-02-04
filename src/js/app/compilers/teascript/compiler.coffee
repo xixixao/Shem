@@ -686,6 +686,7 @@ splatToName = (splat) ->
 #     [x, xs...] = elems
 #     (call_ (token_ 'cons-array'), [x, (arrayToConses xs)])
 
+
 typeCompile = (ctx, expression) ->
   throw new Error "invalid typeCompile args" unless ctx instanceof Context and expression
   (if isAtom expression
@@ -708,18 +709,19 @@ typeConstructorCompile = (ctx, call) ->
   if isAtom op
     op.label = 'operator'
     name = op.symbol
+    compiledArgs = typesCompile ctx, args
     if name is 'Fn'
-      typeFn typesCompile ctx, args
+      typeFn compiledArgs...
     else
       arity = args.length
-      applyKindFn (new TypeConstr name, kindFn arity), typesCompile ctx, args
+      applyKindFn (new TypeConstr name, kindFn arity), compiledArgs...
   else
     malformed op, 'Should use a type constructor here'
 
 typeTupleCompile = (ctx, form) ->
   form.label = 'operator'
   elemTypes = _terms form
-  applyKindFn (tupleType elemTypes.length), typesCompile ctx, elemTypes
+  applyKindFn (tupleType elemTypes.length), (typesCompile ctx, elemTypes)...
 
 typeConstantCompile = (ctx, atom) ->
   name = atom.symbol
