@@ -712,7 +712,7 @@ typeConstructorCompile = (ctx, call) ->
       typeFn typesCompile ctx, args
     else
       arity = args.length
-      applyKindFn (new TypeConstr "[#{arity}]", kindFn arity), typesCompile ctx, args
+      applyKindFn (new TypeConstr name, kindFn arity), typesCompile ctx, args
   else
     malformed op, 'Should use a type constructor here'
 
@@ -2303,59 +2303,48 @@ quantify = (vars, type) ->
   new ForAll kinds, (substitute quantifiedVars, type)
 
 star = '*'
-arrowType = new TypeConstr '->', kindFn 2
+arrowType = new TypeConstr 'Fn', kindFn 2
 arrayType = new TypeConstr 'Array', kindFn 1
 
-
 printType = (type) ->
-  (flattenType type) or
-    if type instanceof TypeVariable
-      type.name
-    else if type instanceof QuantifiedVar
-      type.var
-    else if type instanceof TypeConstr
-      type.name
-    else if type instanceof TypeApp
-      types = collectArgs type
-      if types.length is 1
-        types[0]
-      else
-        "(Fn #{types.join ' '})"
-    else if type instanceof ForAll
-      "(∀ #{printType type.type})"
-    else if type instanceof TempType
-      "(. #{printType type.type})"
-    else if Array.isArray type
-      "\"#{listOf type}\""
-    else if type is undefined
-      "undefined"
-    else
-      throw new Error "Unrecognized type in printType"
+  if type instanceof TypeVariable
+    type.name
+  else if type instanceof QuantifiedVar
+    type.var
+  else if type instanceof TypeConstr
+    type.name
+  else if type instanceof TypeApp
+    flattenType collectArgs type
+  else if type instanceof ForAll
+    "(∀ #{printType type.type})"
+  else if type instanceof TempType
+    "(. #{printType type.type})"
+  else if Array.isArray type
+    "\"#{listOf type}\""
+  else if type is undefined
+    "undefined"
+  else
+    throw new Error "Unrecognized type in printType"
 
 collectArgs = (type) ->
-  if type.op?.op?.name is '->'
-    join [printType type.op.arg], collectArgs type.arg
-  else
-    [printType type]
-
-flattenType = (type) ->
-  if type instanceof TypeConstr and match = type.name.match /^\[(\d)\]$/
-    {
-      arity: parseInt match[1]
-      types: []
-    }
-  else if type instanceof TypeApp
-    flattenedOp = flattenType type.op
-    if flattenedOp?.arity
-      if flattenedOp.arity is flattenedOp.types.length + 1
-        "[#{(join flattenedOp.types, [printType type.arg]).join ' '}]"
-      else
-        flattenedOp.types.push printType type.arg
-        flattenedOp
+  if type instanceof TypeApp
+    op = collectArgs type.op
+    arg = collectArgs type.arg
+    if (Array.isArray op) and (Array.isArray arg) and
+        op[0] is 'Fn' and arg[0] is 'Fn'
+      join op, arg[1..]
     else
-      undefined
+      join (if Array.isArray op then op else [op]),
+        [if Array.isArray arg then flattenType arg else arg]
   else
-    undefined
+    printType type
+
+flattenType = (types) ->
+  log types
+  if types[0].match /^\[\d+\]$/
+    "[#{types[1..].join ' '}]"
+  else
+    "(#{types.join ' '})"
 
 library = """
 var $listize = function (list) {
