@@ -640,7 +640,7 @@ tupleCompile = (ctx, form) ->
   # TODO: should we support bare records?
   #   [a: 2 b: 3]
   form.tea = new Constrained (concatMap _constraints, elems),
-    applyKindFn (tupleType arity), (tea for {tea} in elems)...
+    applyKindFn (tupleType arity), (tea.type for {tea} in elems)...
 
   if ctx.assignTo()
     combinePatterns compiledElems
@@ -726,6 +726,9 @@ splatToName = (splat) ->
 #     [x, xs...] = elems
 #     (call_ (token_ 'cons-array'), [x, (arrayToConses xs)])
 
+typeConstrainedCompile = (call) ->
+  [type, constraints...] = _arguments call
+  new Constrained (typeConstraintsCompile constraints), typeCompile type
 
 typeCompile = (expression) ->
   throw new Error "invalid typeCompile args" unless expression
@@ -973,7 +976,7 @@ builtInMacros =
       malformed call, 'Missing function result'
     else
       [docs, defs] = partition isComment, defs
-      if defs.length % 2 == 0
+      if isTypeConstraint defs[0]
         [type, body, wheres...] = defs
       else
         [body, wheres...] = defs
@@ -985,7 +988,7 @@ builtInMacros =
         ctx.declareArity ctx.definitionName(), paramNames
         # Explicit typing
         if type
-          explicitType = quantifyUnbound ctx, typeCompile type
+          explicitType = quantifyUnbound ctx, typeConstrainedCompile type
           ctx.assignType ctx.definitionName(), explicitType
 
       paramTypeVars = map (-> ctx.freshTypeVariable star), params
@@ -1363,7 +1366,7 @@ constraintsFromSuperClasses = (ctx, constraint) ->
 constraintsFromInstance = (ctx, constraint) ->
   {className, type} = constraint
   for instance in (ctx.classNamed className).instances
-    substitution = match instance.type, constraint
+    substitution = matchType instance.type.type, constraint.type
     if not lookupInMap substitution, "could not unify"
       return map ((c) -> substitute substitution, c), instance.constraints
   null
@@ -1466,7 +1469,7 @@ atomCompile = (ctx, atom) ->
 
 nameCompile = (ctx, atom, symbol) ->
   contextType = ctx.type symbol
-  # log "nameCompile", symbol, ctx.isInsideLateScope(), contextType, ctx.isDeclared symbol
+  # log "nameCompile", symbol, ctx.isInsideLateScope(), (printType contextType), ctx.isDeclared symbol
   if exp = ctx.assignTo()
     if atom.label is 'const'
       if contextType
@@ -1614,6 +1617,9 @@ indentLines = (indent, lines) ->
 
 listOf = (args) ->
   args.join ', '
+
+isTypeConstraint = (expression) ->
+  (isCall expression) and (':' is _symbol _operator expression)
 
 isComment = (expression) ->
   (isCall expression) and ('#' is _symbol _operator expression)
@@ -2287,7 +2293,8 @@ lookupInMap =
 inSet = (set, name) ->
   set.values[name]
 
-isSetEmpty = (set) ->
+isSetEmpty =
+isMapEmpty = (set) ->
   set.size is 0
 
 mapSet =
@@ -2401,15 +2408,15 @@ bindVariable = (variable, type) ->
     newMapWith variable.name, type
 
 # Returns a substitution
-match = (ctx, t1, t2) ->
+matchType = (ctx, t1, t2) ->
   if t1 instanceof TypeVariable and kindsEq (kind t1), (kind t2)
     newMapWith t1.name, t2
   else if t1 instanceof TypeConstr and t2 instanceof TypeConstr and
     t1.name is t2.name
       emptySubstitution()
   else if t1 instanceof TypeApp and t2 instanceof TypeApp
-    s1 = match t1.op, t2.op
-    s2 = match t1.arg, t2.arg
+    s1 = matchType t1.op, t2.op
+    s2 = matchType t1.arg, t2.arg
     s3 = mergeSubs s1, s2
     s3 or
       newMapWith "could not unify", [(printType t1), (printType t2)]
@@ -2617,7 +2624,7 @@ printType = (type) ->
   else if type instanceof ClassContraint
     "(#{type.className} #{printType type.type})"
   else if type instanceof Constrained
-    "(: #{printType type.type} {#{(map printType, type.constraints).join ' '}})"
+    "(: #{(map printType, join [type.type], type.constraints).join ' '})"
   else if type instanceof TempType
     "(. #{printType type.type})"
   else if Array.isArray type
@@ -2794,6 +2801,7 @@ topLevelAndExpression = (source) ->
   compiledDefinitions = definitionList (ctx = new Context), pairs terms
   compiledExpression = topLevelExpression ctx, expression
   types: ctx._scope()
+  subs: filterMap ((name) -> name is 'could not unify'), ctx.substitution
   ast: ast
   compiled: library + compiledDefinitions + compiledExpression
 
@@ -2884,6 +2892,8 @@ test = (teaSource, result) ->
     return
   try
     log (collapse toHtml compiled.ast)
+    if not isMapEmpty compiled.subs
+      log compiled.subs
     if result isnt (eval compiled.compiled)
       log "Wrong result", result
   catch e
@@ -2966,7 +2976,13 @@ tests = [
         {} False
         xx True))
     {x ..xs} {1}"""
-    "(tail? xs)", no
+  "(tail? xs)", no
+
+  'typed function'
+  """f (fn [x y]
+    (: (Fn Bool String Bool))
+    x)"""
+  """(f True "a")""", yes
 
   'fib'
   """fibonacci (fn [month] (adults month))
