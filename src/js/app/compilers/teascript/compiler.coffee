@@ -389,10 +389,10 @@ class Context
       (@_deferReasonOf definition) or [expression, dependencyName]
 
   deferReason: ->
-    @_deferReasonOf @_definition()
+    @_deferReasonOf @_deferrableDefinition()
 
   shouldDefer: ->
-    !!(@_deferReasonOf @_definition())
+    !!(@_deferReasonOf @_deferrableDefinition())
 
   _deferReasonOf: (definition) ->
     definition?._defer
@@ -530,7 +530,7 @@ callConstructorPattern = (ctx, call, extraParamNames) ->
 
   # Typing operator like inside a known call
   for arg in args when isExtra arg
-    arg.tea = ctx.freshTypeVariable star
+    arg.tea = toConstrained ctx.freshTypeVariable star
 
   precsForData = operatorCompile ctx, call
 
@@ -907,16 +907,16 @@ resolveDeferredTypes = (ctx) ->
     for name, types of values names
       if canonicalType = ctx.type name
         for type in types
-          unify ctx, type, freshInstance ctx, canonicalType
+          unify ctx, type.type, (freshInstance ctx, canonicalType).type
       else
         addToMap unresolvedNames, name, types
 
     # Now assign the same type to all occurences of the given type and unify
     for name, types of values unresolvedNames
-      canonicalType = ctx.freshTypeVariable star
+      canonicalType = toConstrained ctx.freshTypeVariable star
       for type in types
         #log type.constructor
-        unify ctx, canonicalType, type
+        unify ctx, canonicalType.type, type.type
         # log "done unifying one"
     # log "done unifying"
     for name of values unresolvedNames
@@ -3004,3 +3004,44 @@ runTests = (tests) ->
     test source + " " + expression, result
   "Finished"
 # end of tests
+
+exports.compileTopLevel = compileTopLevel
+exports.compileTopLevelAndExpression = compileTopLevelAndExpression
+exports.astizeList = astizeList
+exports.astizeExpression = astizeExpression
+exports.astizeExpressionWithWrapper = astizeExpressionWithWrapper
+exports.syntaxedExpHtml = syntaxedExpHtml
+
+# exports.compileModule = (source) ->
+#   """
+#   #{library}
+#   var exports = {};
+#   #{compileDefinitionsInModule source}
+#   exports"""
+
+exports.library = library
+
+exports.isForm = isForm
+exports.isAtom = isAtom
+
+
+exports.join = join
+exports.concatMap = concatMap
+exports.concat = concat
+exports.id = id
+exports.map = map
+exports.allMap = allMap
+exports.all = all
+exports.filter = filter
+exports.partition = partition
+exports._notEmpty = _notEmpty
+exports._is = _is
+exports.__ = __
+
+exports._operator = _operator
+exports._arguments = _arguments
+exports._terms = _terms
+exports._snd = _snd
+exports._fst = _fst
+exports._labelName = _labelName
+exports._symbol = _symbol
