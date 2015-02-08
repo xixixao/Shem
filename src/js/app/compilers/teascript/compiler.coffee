@@ -377,7 +377,7 @@ class Context
 
   translationCache: ->
     if cache = @cacheScopes.pop()[0]
-      [compileAssign cache]
+      [compileVariableAssignment cache]
     else
       []
 
@@ -457,7 +457,7 @@ macroCompile = (ctx, call) ->
     expressionCompile ctx, expanded
 
 isTranslated = (result) ->
-  typeof result is 'string' or result instanceof String
+  result.js or (Array.isArray result) and result[0].js
 
 callUnknownCompile = (ctx, call) ->
   callUnknownTranslate ctx, (operatorCompile ctx, call), call
@@ -474,7 +474,7 @@ callKnownCompile = (ctx, call) ->
   if not paramNames
     # log "deferring in known call #{operator.symbol}"
     ctx.doDefer operator, operator.symbol
-    return 'deferred'
+    return deferredExpression()
   positionalParams = filter ((param) -> not (lookupInMap labeledArgs, param)), paramNames
   nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
 
@@ -523,7 +523,8 @@ callConstructorPattern = (ctx, call, extraParamNames) ->
     ctx.cacheAssignTo()
 
   compiledArgs = (for arg, i in args when not isExtra arg
-    ctx.setAssignTo "#{ctx.assignTo()}#{jsObjectAccess paramNames[i]}"
+    # ctx.setAssignTo "#{ctx.assignTo()}#{jsObjectAccess paramNames[i]}"
+    ctx.setAssignTo (jsAccess ctx.assignTo(), paramNames[i])
     elemCompiled = expressionCompile ctx, arg
     ctx.resetAssignTo()
     elemCompiled)
@@ -539,12 +540,6 @@ callConstructorPattern = (ctx, call, extraParamNames) ->
 
   combinePatterns join [precsForData], compiledArgs
 
-jsObjectAccess = (fieldName) ->
-  if (validIdentifier fieldName) is fieldName
-    ".#{fieldName}"
-  else
-    "['#{fieldName}']"
-
 callSaturatedKnownCompile = (ctx, call) ->
   operator = _operator call
   args = _arguments call
@@ -555,7 +550,8 @@ callSaturatedKnownCompile = (ctx, call) ->
 
   callTyping ctx, call
 
-  assignCompile ctx, call, "#{compiledOperator}(#{listOf compiledArgs})"
+  # "#{compiledOperator}(#{listOf compiledArgs})"
+  assignCompile ctx, call, (jsCall compiledOperator, compiledArgs)
 
 labeledToMap = (pairs) ->
   labelNaming = ([label, value]) -> [(_labelName label), value]
@@ -580,13 +576,14 @@ callUnknownTranslate = (ctx, translatedOperator, call) ->
 
 
   argList = if ctx.shouldDefer()
-    'deferred'
+    deferredExpression()
   else
     listOf termsCompile ctx, args
 
   callTyping ctx, call
-
-  assignCompile ctx, call, "_#{args.length}(#{translatedOperator}, #{argList})"
+  # "_#{args.length}(#{translatedOperator}, #{argList})"
+  assignCompile ctx, call,
+    (jsCall "_#{args.length}", (join [translatedOperator], argList))
 
 callTyping = (ctx, call) ->
   return if ctx.shouldDefer()
@@ -629,7 +626,8 @@ tupleCompile = (ctx, form) ->
   compiledElems =
     if ctx.assignTo()
       for elem, i in elems
-        ctx.setAssignTo "#{ctx.assignTo()}[#{i}]"
+        # "#{ctx.assignTo()}[#{i}]"
+        ctx.setAssignTo (jsAccess ctx.assignTo(), "#{i}")
         elemCompiled = expressionCompile ctx, elem
         ctx.resetAssignTo()
         elemCompiled
@@ -646,7 +644,8 @@ tupleCompile = (ctx, form) ->
     combinePatterns compiledElems
   else
     form.label = 'operator'
-    assignCompile ctx, form, "[#{listOf compiledElems}]"
+    # "[#{listOf compiledElems}]"
+    assignCompile ctx, form, (jsArray compiledElems)
 
 seqCompile = (ctx, form) ->
   elems = _terms form
@@ -670,9 +669,9 @@ seqCompile = (ctx, form) ->
       [lhs, rhs] =
         if isSplat elem
           elem.label = 'name'
-          [(splatToName elem), "seq_splat(#{i}, #{elems.length - i - 1}, #{sequence})"]
+          [(splatToName elem), (jsCall "seq_splat", [i, elems.length - i - 1, sequence])]
         else
-          [elem, "seq_at(#{i}, #{sequence})"]
+          [elem, (jsCall "seq_at", [i, sequence])]
       ctx.setAssignTo rhs
       lhsCompiled = expressionCompile ctx, lhs
       retrieve elem, lhs
@@ -690,7 +689,8 @@ seqCompile = (ctx, form) ->
         else
           elemType
 
-    cond = "seq_size(#{sequence}) #{if hasSplat then '>=' else '=='} #{requiredElems}"
+    cond = (jsBinary (if hasSplat then '>=' else '=='),
+      (jsCall "seq_size", [sequence]), requiredElems)
     combinePatterns join [(precs: [(cond_ cond)])], compiledArgs
   else
     # The below worked, but not for patterns
@@ -707,7 +707,7 @@ seqCompile = (ctx, form) ->
     form.label = 'operator'
     form.tea = new Constrained (concatMap _constraints, elems),
       new TypeApp arrayType, elemType
-    assignCompile ctx, form, "[#{listOf compiledElems}]"
+    assignCompile ctx, form, (jsArray compiledElems)
 
 _constraints = (expression) ->
   expression.tea.constraints
@@ -812,11 +812,11 @@ assignCompile = (ctx, expression, translatedExpression) ->
     #log "ASSIGN #{ctx.definitionName()}", ctx.shouldDefer()
     if ctx.shouldDefer()
       ctx.addDeferredDefinition ctx.deferReason().concat [to, expression]
-      return 'deferred'
+      return deferredExpression()
 
     if assigns.length is 0
       return malformed to, 'Not an assignable pattern'
-    listOfLines join ctx.translationCache(), map compileAssign, assigns
+    join ctx.translationCache(), map compileVariableAssignment, assigns
   else
     translatedExpression
 
@@ -885,19 +885,17 @@ topLevel = (ctx, form) ->
   definitionList ctx, pairs _terms form
 
 definitionList = (ctx, pairs) ->
-  compiledPairs = filter _is, (for [lhs, rhs] in pairs
+  compiledPairs = (for [lhs, rhs] in pairs
     if rhs
       definitionPairCompile ctx, lhs, rhs
     else
       malformed lhs, 'missing value in definition'
       undefined)
 
-  compiledPairs = join compiledPairs, compileDeferred ctx
   resolveDeferredTypes ctx
 
   #log "yay"
-
-  listOfLines compiledPairs
+  concat filter _is, join compiledPairs, compileDeferred ctx
 
 # This function resolves the types of mutually recursive functions
 resolveDeferredTypes = (ctx) ->
@@ -949,7 +947,7 @@ compileDeferred = (ctx) ->
       else
         ctx.doDefer expression, dependencyName
 
-  compiledPairs
+  concat compiledPairs
 
 definitionPairCompile = (ctx, pattern, value) ->
   # log "COMPILING", pattern
@@ -1018,7 +1016,7 @@ builtInMacros =
 
       assignCompile ctx, call,
         if ctx.shouldDefer()
-          'deferred'
+          deferredExpression()
         else
           # Typing
           if body and not body.tea
@@ -1030,10 +1028,14 @@ builtInMacros =
                 typeFn paramTypeVars..., body.tea.type
             else
               freshInstance ctx, explicitType
-          """λ#{paramNames.length}(function (#{listOf paramNames}) {
-            #{compiledWheres}
-            return #{compiledBody};
-          })"""
+          # """λ#{paramNames.length}(function (#{listOf paramNames}) {
+          #   #{compiledWheres}
+          #   return #{compiledBody};
+          # })"""
+          (jsCall "λ#{paramNames.length}", [
+            (jsFunction
+              params: paramNames
+              body: (join compiledWheres, [(jsReturn compiledBody)]))])
   # data
   #   listing or
   #     pair
@@ -1074,19 +1076,19 @@ builtInMacros =
     # ctx.addType dataName, typeConstant dataName
 
     # Translate
-    listOfLines (for [constr, params] in defs
+    concat (for [constr, params] in defs
       identifier = validIdentifier constr.symbol
       paramNames = (_labeled _terms params or []).map(_fst).map(_labelName)
         .map(validIdentifier)
-      paramList = paramNames.join(', ')
-      constrValue = if params
-        """
-        #{identifier}.value = λ#{paramNames.length}(function(#{paramList}){
-          return new #{identifier}(#{paramList});
-        });"""
-      else
-        "#{identifier}.value = new #{identifier}();"
-      listOfLines [(translateDict identifier, paramNames), constrValue])
+      constrValue = (jsAssignStatement "#{identifier}.value",
+        if params
+          (jsCall "λ#{paramNames.length}",
+            [(jsFunction
+              params: paramNames
+              body: [(jsReturn (jsNew identifier, paramNames))])])
+        else
+          (jsNew identifier, []))
+      (join (translateDict identifier, paramNames), [constrValue]))
 
   record: (ctx, call) ->
     args = _arguments call
@@ -1185,7 +1187,8 @@ builtInMacros =
       ##   malformed 'instance overlaps with another', instance
       ## else
       ctx.addInstance name, instance
-      """var #{name} = new #{className}(#{listOf methods});"""
+      # """var #{name} = new #{className}(#{listOf methods});"""
+      (jsVarDeclaration name, (jsNew className, methods))
     else
       'malformed'
 
@@ -1243,10 +1246,11 @@ builtInMacros =
 
       matchBranchTranslate precs, assigns, compiledResult
     ), "throw new Error('match failed to match');" #TODO: what subject?
-    assignCompile ctx, call, iife listOfLines concat (filter _is, [
+    assignCompile ctx, call, iife concat (filter _is, [
       ctx.translationCache()
       varList varNames
       compiledCases])
+
   '=': (ctx, call) ->
     [a, b] = _arguments call
     operatorCompile ctx, call
@@ -1254,7 +1258,7 @@ builtInMacros =
     compiledB = termCompile ctx, b
 
     callTyping ctx, call
-    assignCompile ctx, call, "(#{compiledA} === #{compiledB})"
+    assignCompile ctx, call, (jsBinary "===", compiledA, compiledB)
 
 
 # Creates the condition and body of a branch inside match macro
@@ -1262,31 +1266,35 @@ matchBranchTranslate = (precs, assigns, compiledResult) ->
   {conds, preassigns} = constructCond precs
   [hoistedWheres, furtherHoistable] = hoistWheres [], assigns #hoistWheres hoistableWheres, assigns
 
-  [conds, indentLines '  ',
-    concat [
-      (map compileAssign, (join preassigns, assigns))
-      # hoistedWheres.map(compileDef)
-      ["return #{compiledResult};"]]]
+  [conds, concat [
+    (map compileVariableAssignment, (join preassigns, assigns))
+    # hoistedWheres.map(compileDef)
+    [(jsReturn compiledResult)]]]
 
 iife = (body) ->
-  """(function(){
-      #{body}}())"""
+  # """(function(){
+  #     #{body}}())"""
+  (jsCall (jsFunction
+    params: []
+    body: body), [])
 
 varList = (varNames) ->
-  if varNames.length > 0 then "var #{listOf varNames};" else null
+  # "var #{listOf varNames};"
+  if varNames.length > 0 then (jsVarDeclarations varNames) else null
 
 conditional = (condCasePairs, elseCase) ->
   if condCasePairs.length is 1
     [[cond, branch]] = condCasePairs
     if cond is 'true'
       return branch
-  ((for [cond, branch], i in condCasePairs
-    control = if i is 0 then 'if' else ' else if'
-    """#{control} (#{cond}) {
-        #{branch}
-      }""").join '') + """ else {
-        #{elseCase}
-      }"""
+  (jsConditional condCasePairs, elseCase)
+  # ((for [cond, branch], i in condCasePairs
+  #   control = if i is 0 then 'if' else ' else if'
+  #   """#{control} (#{cond}) {
+  #       #{branch}
+  #     }""").join '') + """ else {
+  #       #{elseCase}
+  #     }"""
 
 paramTuple = (call, expression) ->
   if not expression or not isTuple expression
@@ -1413,14 +1421,18 @@ isWellformed = (expression) ->
     yes
 
 translateDict = (dictName, fieldNames) ->
-  paramAssigns = blockOfLines fieldNames.map (name) ->
-    "  this.#{name} = #{name};"
-  constrFn = """function #{dictName}(#{listOf fieldNames}) {#{paramAssigns}};"""
-  accessors = listOfLines fieldNames.map (name) ->
-    """#{dictName}.#{name} = function #{name}(dict) {
-        return dict.#{name};
-      };"""
-  listOfLines [constrFn, accessors]
+  paramAssigns = fieldNames.map (name) ->
+    (jsAssignStatement (jsAccess "this", name), name)
+  constrFn = (jsFunction
+    name: dictName
+    params: fieldNames
+    body: paramAssigns)
+  accessors = fieldNames.map (name) ->
+    (jsAssignStatement (jsAccess dictName, name), (jsFunction
+      name: name
+      params: ["dict"]
+      body: [(jsReturn (jsAccess "dict", name))]))
+  join [constrFn], accessors
 
 requireName = (ctx, message) ->
   if ctx.isAtDefinition()
@@ -1504,17 +1516,17 @@ nameCompile = (ctx, atom, symbol) ->
         translation: nameTranslate ctx, atom, symbol
       }
     else
-      # log "deferring in rhs for #{symbol}"
+      log "deferring in rhs for #{symbol}", ctx.scopes
       ctx.doDefer atom, symbol
-      translation: 'deferred'
+      translation: deferredExpression()
 
 constPattern = (ctx, symbol) ->
   exp = ctx.assignTo()
   precs: [(cond_ switch symbol
-      when 'True' then "#{exp}"
-      when 'False' then "!#{exp}"
+      when 'True' then exp
+      when 'False' then (jsUnary "!", exp)
       else
-        "#{exp} instanceof #{symbol}")]
+        (jsBinary "instanceof", exp, (validIdentifier symbol)))]
 
 nameTranslate = (ctx, atom, symbol) ->
   if atom.label is 'const'
@@ -1522,12 +1534,12 @@ nameTranslate = (ctx, atom, symbol) ->
       when 'True' then 'true'
       when 'False' then 'false'
       else
-        "#{validIdentifier symbol}.value"
+        (jsAccess (validIdentifier symbol), "value")
   else
     validIdentifier symbol
 
 numericalCompile = (ctx, symbol) ->
-  translation = if symbol[0] is '~' then "(-#{symbol})" else symbol
+  translation = if symbol[0] is '~' then (jsUnary "-", symbol) else symbol
   type: toConstrained typeConstant 'Num'
   translation: translation
   pattern: literalPattern ctx, translation
@@ -1537,11 +1549,15 @@ regexCompile = (ctx, symbol) ->
   translation: symbol
   pattern:
     if ctx.assignTo()
-      precs: [cond_ "#{ctx.assignTo()}.string" + " === #{symbol}.string"]
+      precs: [cond_ (jsBinary "===",
+        (jsAccess ctx.assignTo(), "string"), "#{symbol}.string")]
 
 literalPattern = (ctx, translation) ->
   if ctx.assignTo()
-    precs: [cond_ "#{ctx.assignTo()}" + " === #{translation}"]
+    precs: [cond_  (jsBinary "===", ctx.assignTo(), translation)]
+
+deferredExpression = ->
+  {js: 'deferred'}
 
 # type expressions syntax
 # or
@@ -1717,6 +1733,137 @@ filterAst = (test, expression) ->
       concat (filterAst test, term for term in _terms expression)
     else
       []
+
+translateStatementsToJs = (jsAstList) ->
+  listOfLines translateToJs jsAstList
+
+translateToJs = (jsAst) ->
+  if Array.isArray jsAst
+    for node in jsAst
+      translateToJs node
+  else if jsAst.js
+    args = {}
+    for name, node of jsAst when name isnt 'js'
+      args[name] = node and translateToJs node
+    jsAst.js args
+  else
+    jsAst
+
+jsAccess = (lhs, name) ->
+  {js: jsAccessTranslate, lhs, name}
+
+jsAccessTranslate = ({lhs, name}) ->
+  if /^\d/.test name
+    "#{lhs}[#{name}]"
+  else if (validIdentifier name) isnt name
+    "#{lhs}['#{name}']"
+  else
+    "#{lhs}.#{name}"
+
+
+jsArray = (elems) ->
+  {js: jsArrayTranslate, elems}
+
+jsArrayTranslate = ({elems}) ->
+  "[#{listOf elems}]"
+
+
+jsAssign = (lhs, rhs) ->
+  {js: jsAssignTranslate, lhs, rhs}
+
+jsAssignTranslate = ({lhs, rhs}) ->
+  "(#{lhs} = #{rhs})"
+
+
+jsAssignStatement = (lhs, rhs) ->
+  {js: jsAssignStatementTranslate, lhs, rhs}
+
+jsAssignStatementTranslate = ({lhs, rhs}) ->
+  "#{lhs} = #{rhs};"
+
+
+jsBinary = (op, lhs, rhs) ->
+  {js: jsBinaryTranslate, op, lhs, rhs}
+
+jsBinaryTranslate = ({op, lhs, rhs}) ->
+  jsBinaryMultiTranslate {op, args: [lhs, rhs]}
+
+
+jsBinaryMulti = (op, args) ->
+  {js: jsBinaryMultiTranslate, op, args}
+
+jsBinaryMultiTranslate = ({op, args}) ->
+  """(#{args.join " #{op} "})"""
+
+
+jsCall = (fun, args) ->
+  {js: jsCallTranslate, fun, args}
+
+jsCallTranslate = ({fun, args}) ->
+  "#{fun}(#{listOf args})"
+
+
+jsConditional = (condCasePairs, elseCase) ->
+  {js: jsConditionalTranslate, condCasePairs, elseCase}
+
+jsConditionalTranslate = ({condCasePairs, elseCase}) ->
+  ((for [cond, branch], i in condCasePairs
+    control = if i is 0 then 'if' else ' else if'
+    """#{control} (#{cond}) {
+        #{listOfLines branch}
+      }""").join '') + """ else {
+        #{elseCase}
+      }"""
+
+
+jsExprList = (elems) ->
+  {js: jsExprListTranslate, elems}
+
+jsExprListTranslate = ({elems}) ->
+  "(#{listOf elems})"
+
+
+jsFunction = ({name, params, body}) ->
+  {js: jsFunctionTranslate, name, params, body}
+
+jsFunctionTranslate = ({name, params, body}) ->
+  "function #{name or ''}(#{listOf params}){#{blockOfLines body}}"
+
+
+jsNew = (classFun, args) ->
+  {js: jsNewTranslate, classFun, args}
+
+jsNewTranslate = ({classFun, args}) ->
+  "new #{classFun}(#{listOf args})"
+
+
+jsReturn = (arg) ->
+  {js: jsReturnTranslate, arg}
+
+jsReturnTranslate = ({arg}) ->
+  "return #{arg};"
+
+
+jsUnary = (op, arg) ->
+  {js: jsUnaryTranslate, op, arg}
+
+jsUnaryTranslate = ({op, arg}) ->
+  "#{op}#{arg}"
+
+
+jsVarDeclaration = (name, rhs) ->
+  {js: jsVarDeclarationTranslate, name, rhs}
+
+jsVarDeclarationTranslate = ({name, rhs}) ->
+  "var #{name} = #{rhs};"
+
+
+jsVarDeclarations = (names) ->
+  {js: jsVarDeclarationsTranslate, names}
+
+jsVarDeclarationsTranslate = ({names}) ->
+  "var #{listOf names};"
+
 
 theme =
   keyword: 'red'
@@ -2003,13 +2150,13 @@ validIdentifier = (name) ->
 #       {conds, preassigns} = constructCond precs
 #       [hoistedWheres, furtherHoistable] = hoistWheres hoistableWheres, assigns
 #       """#{control} (#{conds}) {
-#           #{preassigns.concat(assigns).map(compileAssign).join '\n  '}
+#           #{preassigns.concat(assigns).map(compileVariableAssignment).join '\n  '}
 #           #{hoistedWheres.map(compileDef).join '\n  '}
 #           return #{compileImpl result, furtherHoistable};
 #         }"""
 #       )
 #     mainCache ?= []
-#     mainCache = mainCache.map ({cache}) -> compileAssign cache
+#     mainCache = mainCache.map ({cache}) -> compileVariableAssignment cache
 #     varDecls = if varNames.length > 0 then ["var #{varNames.join ', '};"] else []
 #     content = mainCache.concat(varDecls, compiledCases.join '').join '\n'
 #     """(function(){
@@ -2047,8 +2194,9 @@ hoistWheres = (hoistable, assigns) ->
 toJsString = (symbol) ->
   "'#{symbol}'"
 
-compileAssign = ([to, from]) ->
-  "var #{to} = #{from};"
+compileVariableAssignment = ([to, from]) ->
+  # "var #{to} = #{from};"
+  (jsVarDeclaration to, from)
 
 # Takes precs and constructs the correct condition
 # if precs empty, returns true
@@ -2064,7 +2212,8 @@ constructCond = (precs) ->
     if cond
       cond
     else
-      "(#{cache[0]} = #{cache[1]})"
+      # "(#{cache[0]} = #{cache[1]})"
+      (jsAssign cache[0], cache[1])
 
   # Each case is a (possibly empty) list of caching followed by a condition
   pushCurrentCase = ->
@@ -2072,7 +2221,8 @@ constructCond = (precs) ->
     cases.push if condParts.length is 1
       condParts[0]
     else
-      "(#{listOf condParts})"
+      # "(#{listOf condParts})"
+      (jsExprList condParts)
     singleCase = []
 
   for prec, i in precs
@@ -2090,7 +2240,7 @@ constructCond = (precs) ->
     []
   else
     map _cache, singleCase
-  conds: cases.join " && "
+  conds: (jsBinaryMulti "&&", cases)# cases.join " && "
   preassigns: preassigns
 
 # end of Match
@@ -2798,8 +2948,8 @@ compileTopLevelAndExpression = (source) ->
 topLevelAndExpression = (source) ->
   ast = astize tokenize "(#{source})", -1
   [terms..., expression] = _terms ast
-  compiledDefinitions = definitionList (ctx = new Context), pairs terms
-  compiledExpression = topLevelExpression ctx, expression
+  compiledDefinitions = translateStatementsToJs definitionList (ctx = new Context), pairs terms
+  compiledExpression = translateToJs topLevelExpression ctx, expression
   types: ctx._scope()
   subs: filterMap ((name) -> name is 'could not unify'), ctx.substitution
   ast: ast
@@ -2884,11 +3034,11 @@ __ = (fna, fnb) ->
 # end of Utils
 
 # Unit tests
-test = (teaSource, result) ->
+test = (name, teaSource, result) ->
   try
     compiled = (topLevelAndExpression teaSource)
   catch e
-    logError "Failed to compile test #{teaSource}", e
+    logError "Failed to compile test |#{name}|\n#{teaSource}\n", e
     return
   try
     log (collapse toHtml compiled.ast)
@@ -2897,7 +3047,7 @@ test = (teaSource, result) ->
     if result isnt (eval compiled.compiled)
       log "Wrong result", result
   catch e
-    logError "Error in test #{teaSource}", e
+    logError "Error in test |#{name}|\n#{teaSource}\n", e
 
 tests = [
   'simple defs'
@@ -3017,7 +3167,7 @@ debug = (fun) ->
 
 runTests = (tests) ->
   for [name, source, expression, result] in tuplize 4, tests
-    test source + " " + expression, result
+    test name, source + " " + expression, result
   "Finished"
 # end of tests
 
