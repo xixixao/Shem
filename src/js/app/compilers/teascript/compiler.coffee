@@ -892,10 +892,11 @@ definitionList = (ctx, pairs) ->
       malformed lhs, 'missing value in definition'
       undefined)
 
+  compiledPairs = join compiledPairs, compileDeferred ctx
   resolveDeferredTypes ctx
 
   #log "yay"
-  concat filter _is, join compiledPairs, compileDeferred ctx
+  concat filter _is, compiledPairs
 
 # This function resolves the types of mutually recursive functions
 resolveDeferredTypes = (ctx) ->
@@ -1516,7 +1517,7 @@ nameCompile = (ctx, atom, symbol) ->
         translation: nameTranslate ctx, atom, symbol
       }
     else
-      log "deferring in rhs for #{symbol}", ctx.scopes
+      # log "deferring in rhs for #{symbol}"
       ctx.doDefer atom, symbol
       translation: deferredExpression()
 
