@@ -578,7 +578,7 @@ callUnknownTranslate = (ctx, translatedOperator, call) ->
   argList = if ctx.shouldDefer()
     deferredExpression()
   else
-    listOf termsCompile ctx, args
+    termsCompile ctx, args
 
   callTyping ctx, call
   # "_#{args.length}(#{translatedOperator}, #{argList})"
@@ -1030,10 +1030,14 @@ builtInMacros =
           #   #{compiledWheres}
           #   return #{compiledBody};
           # })"""
-          (jsCall "λ#{paramNames.length}", [
-            (jsFunction
-              params: paramNames
-              body: (join compiledWheres, [(jsReturn compiledBody)]))])
+          (irFunction
+            type: call.tea
+            params: paramNames
+            body: (join compiledWheres, [(jsReturn compiledBody)]))
+          # (jsCall "λ#{paramNames.length}", [
+          #   (jsFunction
+          #     params: paramNames
+          #     body: (join compiledWheres, [(jsReturn compiledBody)]))])
   # data
   #   listing or
   #     pair
@@ -1633,20 +1637,6 @@ fn_ = (params, body) ->
 token_ = (string) ->
   (tokenize string)[0]
 
-blockOfLines = (lines) ->
-  if lines.length is 0
-    ''
-  else
-    '\n' + (listOfLines lines) + '\n'
-
-listOfLines = (lines) ->
-  lines.join '\n'
-
-indentLines = (indent, lines) ->
-  blockOfLines map ((line) -> indent + line), (filter _notEmpty, lines)
-
-listOf = (args) ->
-  args.join ', '
 
 isTypeConstraint = (expression) ->
   (isCall expression) and (':' is _symbol _operator expression)
@@ -1878,6 +1868,20 @@ jsVarDeclarations = (names) ->
 jsVarDeclarationsTranslate = ({names}) ->
   "var #{listOf names};"
 
+blockOfLines = (lines) ->
+  if lines.length is 0
+    ''
+  else
+    '\n' + (listOfLines lines) + '\n'
+
+listOfLines = (lines) ->
+  lines.join '\n'
+
+indentLines = (indent, lines) ->
+  blockOfLines map ((line) -> indent + line), (filter _notEmpty, lines)
+
+listOf = (args) ->
+  args.join ', '
 
 theme =
   keyword: 'red'
