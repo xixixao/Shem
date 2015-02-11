@@ -263,7 +263,7 @@ class Context
 
   allBoundTypeVariables: ->
     concatSets (for scope in @scopes
-      scope.boundTypeVariables)
+      scope.boundTypeVariables)...
 
   isClassDefined: (name) ->
     !!@classNamed name
@@ -529,11 +529,11 @@ callConstructorPattern = (ctx, call, extraParamNames) ->
     ctx.resetAssignTo()
     elemCompiled)
 
+  precsForData = operatorCompile ctx, call
+
   # Typing operator like inside a known call
   for arg in args when isExtra arg
     arg.tea = toConstrained ctx.freshTypeVariable star
-
-  precsForData = operatorCompile ctx, call
 
   # Gets the general type as if the extra arguments were supplied
   callTyping ctx, call
@@ -757,7 +757,7 @@ typeConstructorCompile = (call) ->
       typeFn compiledArgs...
     else
       arity = args.length
-      applyKindFn (new TypeConstr name, kindFn arity), compiledArgs...
+      applyKindFn (atomicType name, kindFn arity), compiledArgs...
   else
     malformed op, 'Should use a type constructor here'
 
@@ -782,16 +782,8 @@ typeTupleCompile = (form) ->
   applyKindFn (tupleType elemTypes.length), (typesCompile elemTypes)...
 
 typeConstantCompile = (atom) ->
-  name = atom.symbol
   atom.label = 'typename'
-  if /^[A-Z]/.test name
-    typeConstant name
-  else
-    new TypeVariable name, star
-
-typeConstantsCompile = (expressions) ->
-  map typeConstantCompile, expressions
-
+  atomicType atom.symbol, star
 
 # Inside definition, we call assignCompile with its RHS
 #   whether to call it and with what expression is left to the RHS expression
@@ -861,11 +853,16 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
       # For explicitly typed bindings, we need to check that the inferred type
       #   corresponds to the annotated
       if ctx.isTyped name
+        # TODO: check class constraints
         unify ctx, currentType.type, (freshInstance ctx, ctx.type name).type
       else
+        [deferredConstraints, retainedConstraints] = deferConstraints ctx,
+          ctx.allBoundTypeVariables(),
+          (findFree currentType),
+          (substituteList ctx.substitution, matched.tea.constraints)
         ctx.assignType name,
           if ctx.isAtDefinition()
-            quantifyAll currentType
+            quantifyAll (addConstraints currentType, retainedConstraints)
           else
             toForAll currentType
   # here I will create type schemes for all definitions
@@ -1145,6 +1142,8 @@ builtInMacros =
         malformed 'class already defined', ctx.definitionPattern()
       else
         ctx.addClass name, superClasses, declarations
+        declareMethods ctx, name, paramNames, declarations
+
         translateDict name, keysOfMap declarations
     else
       'malformed'
@@ -1306,8 +1305,22 @@ paramTuple = (call, expression) ->
     map (syntaxNewName 'Parameter name expected'), params
   params
 
+declareMethods = (ctx, className, paramNames, methodDeclarations) ->
+  # TODO: all occurences of a param should have the same kind and all methods
+  #       should have at least one occurence of some param
+  #   freeInMethods = mapMap ((d) -> findFree d.type.type), methodDeclarations
+
+  for name, {arity, type} of values methodDeclarations
+    vars = findFree type.type
+    # TODO: support multi-param classes
+    [param] = paramNames
+    paramVar = new TypeVariable param, (lookupInMap vars, param)
+    constraint = new ClassContraint className, paramVar
+    type = quantifyUnbound ctx, addConstraints type.type, [constraint]
+    ctx.declare name, {arity, type}
+
 quantifyUnbound = (ctx, type) ->
-  vars = subtractSets (arrayToSet findFree type), ctx.allBoundTypeVariables()
+  vars = subtractSets (findFree type), ctx.allBoundTypeVariables()
   quantify vars, type
 
 # Takes a set of fixed type variables, a set of type variables which
@@ -2610,7 +2623,7 @@ substitute = (substitution, type) ->
     type
 
 substituteList = (substitution, list) ->
-  map ((t) -> substitute substitution t), list
+  map ((t) -> substitute substitution, t), list
 
 findFree = (type) ->
   if type instanceof TypeVariable
@@ -2619,6 +2632,8 @@ findFree = (type) ->
     concatMaps (findFree type.op), (findFree type.arg)
   else if type instanceof Constrained
     concatMaps (findFree (map findFree, type.constraints)), (findFree type.type)
+  else if type instanceof ClassContraint
+    findFree type.type
   else
     newMap()
 
@@ -2679,6 +2694,13 @@ typeEq = (a, b) ->
 
 typeConstant = (name) ->
   new TypeConstr name, star
+
+# Either a type variable or type constructor of some kind
+atomicType = (name, kind) ->
+  if /^[A-Z]/.test name
+    new TypeConstr name, kind
+  else
+    new TypeVariable name, kind
 
 tupleType = (arity) ->
   new TypeConstr "[#{arity}]", kindFn arity
@@ -2741,11 +2763,15 @@ class Constrained
 class ClassContraint
   constructor: (@className, @type) ->
 
-toForAll = (type) ->
-  new ForAll [], type
+
+addConstraints = ({constraints, type}, addedConstraints) ->
+  new Constrained (join constraints, addedConstraints), type
 
 toConstrained = (type) ->
   new Constrained [], type
+
+toForAll = (type) ->
+  new ForAll [], type
 
 quantifyAll = (type) ->
   quantify (findFree type), type
