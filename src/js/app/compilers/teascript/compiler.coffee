@@ -1662,8 +1662,8 @@ fn_ = (params, body) ->
 token_ = (string) ->
   (tokenize string)[0]
 
-translateIr = (ctx, ast) ->
-  walkIr ast, (ast) ->
+translateIr = (ctx, irAst) ->
+  walkIr irAst, (ast) ->
     if ast.ir
       ast.ir ctx, ast
     else
@@ -3106,7 +3106,7 @@ topLevelAndExpression = (source) ->
   [terms..., expression] = _terms ast
   ctx = new Context
   compiledDefinitions = compileDefinitionList ctx, terms
-  compiledExpression = translateToJs translateIr ctx, topLevelExpression ctx, expression
+  compiledExpression = compileExpression ctx, expression
   types: ctx._scope()
   subs: filterMap ((name) -> name is 'could not unify'), ctx.substitution
   ast: ast
@@ -3120,6 +3120,15 @@ compileDefinitionList = (ctx, terms) ->
   ir = definitionList ctx, pairs terms
   jsIr = translateIr ctx, ir
   translateStatementsToJs jsIr
+
+compileDefinitions = (source) ->
+  ast = astize tokenize "(#{source})", -1
+  compileDefinitionList (new Context), _terms ast
+
+compileExpression = (ctx, expression) ->
+  expressionIr = topLevelExpression ctx, expression
+  expressionJsIr = translateIr ctx, expressionIr
+  compiledExpression = translateToJs expressionJsIr
 
 astizeList = (source) ->
   parentize astize tokenize "(#{source})", -1
@@ -3196,11 +3205,11 @@ __ = (fna, fnb) ->
 # end of Utils
 
 # Unit tests
-test = (name, teaSource, result) ->
+test = (testName, teaSource, result) ->
   try
     compiled = (topLevelAndExpression teaSource)
   catch e
-    logError "Failed to compile test |#{name}|\n#{teaSource}\n", e
+    logError "Failed to compile test |#{testName}|\n#{teaSource}\n", e
     return
   try
     log (collapse toHtml compiled.ast)
@@ -3209,7 +3218,7 @@ test = (name, teaSource, result) ->
     if result isnt (eval compiled.compiled)
       log "Wrong result", result
   catch e
-    logError "Error in test |#{name}|\n#{teaSource}\n", e
+    logError "Error in test |#{testName}|\n#{teaSource}\n", e
 
 tests = [
   'simple defs'
@@ -3311,17 +3320,31 @@ tests = [
 
   'classes'
   """Show (class [a]
-       show (fn [x] (: (Fn a String))))
+      show (fn [x] (: (Fn a String))))
 
     show-string (instance (Show String)
-       show (fn [x] x))
+      show (fn [x] x))
 
     aliased-show (fn [something]
-       (show something))
+      (show something))
 
     showed-simply (show "Hello")
     showed-via-alias (aliased-show "Hello")"""
   "(= showed-simply showed-via-alias)", yes
+
+  'multiple methods'
+  """Util (class [a]
+      show (fn [x] (: (Fn a String)))
+      read (fn [x] (: (Fn String a))))
+
+    util-string (instance (Util String)
+       show (fn [x] x)
+       read (fn [x] x))
+
+    test (fn [string]
+      (: (Fn String String))
+      (read (show string)))"""
+  """(test "Hello")""", "Hello"
 
 ]
 
