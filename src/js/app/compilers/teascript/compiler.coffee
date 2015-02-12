@@ -146,6 +146,7 @@ class Context
     topScope = @_augmentScope builtInContext()
     topScope.topLevel = yes
     @scopes = [topScope]
+    @classParams = newMap()
 
   macros: ->
     @_macros
@@ -279,8 +280,12 @@ class Context
       if classDeclaration = lookupInMap scope.classes, name
         return classDeclaration
 
-  addInstance: (name, instance) ->
-    (@classNamed instance.type.type).instances.push instance
+  addInstance: (name, type) ->
+    (@classNamed type.type.className).instances.push {name, type}
+
+  isMethod: (name, type) ->
+    any (for {className} in type.constraints
+      lookupInMap (@classNamed className).declarations, name)
 
   isDeclared: (name) ->
     !!(@_declaration name)
@@ -403,6 +408,11 @@ class Context
   deferred: ->
     @_scope().deferred
 
+  addClassParams: (params) ->
+    @classParams = concatMaps @classParams, params
+
+  classParamNameFor: (typeVarName) ->
+    lookupInMap @classParams, typeVarName
 
 expressionCompile = (ctx, expression) ->
   throw new Error "invalid expressionCompile args" unless ctx instanceof Context and expression
@@ -457,7 +467,10 @@ macroCompile = (ctx, call) ->
     expressionCompile ctx, expanded
 
 isTranslated = (result) ->
-  result.js or (Array.isArray result) and result[0].js
+  (isSimpleTranslated result) or (Array.isArray result) and (isSimpleTranslated result[0])
+
+isSimpleTranslated = (result) ->
+  result.js or result.ir
 
 callUnknownCompile = (ctx, call) ->
   callUnknownTranslate ctx, (operatorCompile ctx, call), call
@@ -551,7 +564,7 @@ callSaturatedKnownCompile = (ctx, call) ->
   callTyping ctx, call
 
   # "#{compiledOperator}(#{listOf compiledArgs})"
-  assignCompile ctx, call, (jsCall compiledOperator, compiledArgs)
+  assignCompile ctx, call, (irCall call.tea, compiledOperator, compiledArgs)
 
 labeledToMap = (pairs) ->
   labelNaming = ([label, value]) -> [(_labelName label), value]
@@ -799,7 +812,8 @@ assignCompile = (ctx, expression, translatedExpression) ->
     to = ctx.definitionPattern()
 
     ctx.setGroupTranslation()
-    {precs, assigns} = patternCompile ctx, to, expression, translatedExpression
+    {precs, assigns} = patternCompile ctx, to, expression,
+      (irDefinition expression.tea, translatedExpression)
 
     #log "ASSIGN #{ctx.definitionName()}", ctx.shouldDefer()
     if ctx.shouldDefer()
@@ -1031,11 +1045,13 @@ builtInMacros =
           #   return #{compiledBody};
           # })"""
           (irFunction
+            name: (ctx.definitionName() if ctx.isAtSimpleDefinition())
             type: call.tea
             params: paramNames
             body: (join compiledWheres, [(jsReturn compiledBody)]))
           # (jsCall "λ#{paramNames.length}", [
           #   (jsFunction
+          #     name: (ctx.definitionName() if ctx.isAtSimpleDefinition())
           #     params: paramNames
           #     body: (join compiledWheres, [(jsReturn compiledBody)]))])
   # data
@@ -1167,18 +1183,23 @@ builtInMacros =
 
     constraints = constraintsFromSeq ctx, constraintSeq
 
+    # TODO: I should check that methods correspond to the class declaration
+
     ctx.newScope()
-    ctx.bindTypeVariables keysOfMap findFree instanceType.type
-    compiledWheres = definitionList ctx, pairs wheres
-    ## declarations = ctx.currentDeclarations()
+    # TODO: I need to unify the type of each method with their declared types
+    #       from the type class
+    # ctx.bindTypeVariables keysOfMap findFree instanceType.type
+    methodsDeclarations = definitionList ctx, pairs wheres
+    declarations = ctx.currentDeclarations()
     ctx.closeScope()
+
+    methods = map (({rhs}) -> rhs), methodsDeclarations
 
     # TODO: this is hard,
     # there are some special cases like:
     # class Show a where
     #   show :: a -> String
     #   ho :: a -> String
-    methods = []##methodsFromDefinitions compiledWheres
 
     className = instanceType.className
     # TODO: defer for class declaration if not defined
@@ -1192,7 +1213,7 @@ builtInMacros =
       ## else
       ctx.addInstance name, instance
       # """var #{name} = new #{className}(#{listOf methods});"""
-      (jsVarDeclaration name, (jsNew className, methods))
+      (jsVarDeclaration (validIdentifier name), (jsNew className, methods))
     else
       'malformed'
 
@@ -1333,6 +1354,7 @@ quantifyUnbound = (ctx, type) ->
 deferConstraints = (ctx, fixedVars, quantifiedVars, constraints) ->
   reducedConstraints = reduceConstraints ctx, constraints
   isFixed = (constraint) ->
+    # log fixedVars, constraint, (findFree constraint)
     isSubset fixedVars, (findFree constraint)
   [deferred, retained] = partition isFixed, reducedConstraints
   # TODO: handle ambiguity when reducedConstraints include variables not in
@@ -1392,9 +1414,9 @@ constraintsFromSuperClasses = (ctx, constraint) ->
 constraintsFromInstance = (ctx, constraint) ->
   {className, type} = constraint
   for instance in (ctx.classNamed className).instances
-    substitution = matchType instance.type.type, constraint.type
+    substitution = matchType instance.type.type.type, constraint.type
     if not lookupInMap substitution, "could not unify"
-      return map ((c) -> substitute substitution, c), instance.constraints
+      return map ((c) -> substitute substitution, c), instance.type.constraints
   null
 
 _names = (list) ->
@@ -1520,9 +1542,10 @@ nameCompile = (ctx, atom, symbol) ->
   else
     # Name typed, use a fresh instance
     if contextType and contextType not instanceof TempType
+      type = freshInstance ctx, contextType
       {
-        type: freshInstance ctx, contextType
-        translation: nameTranslate ctx, atom, symbol
+        type: type
+        translation: nameTranslate ctx, atom, symbol, type
       }
     # Inside function only defer compilation if we don't know arity
     else if ctx.isInsideLateScope() and (ctx.isDeclared symbol) or contextType instanceof TempType
@@ -1531,7 +1554,7 @@ nameCompile = (ctx, atom, symbol) ->
       ctx.addToDeferredNames {name: symbol, type: type}
       {
         type: type
-        translation: nameTranslate ctx, atom, symbol
+        translation: nameTranslate ctx, atom, symbol, type
       }
     else
       # log "deferring in rhs for #{symbol}"
@@ -1546,13 +1569,15 @@ constPattern = (ctx, symbol) ->
       else
         (jsBinary "instanceof", exp, (validIdentifier symbol)))]
 
-nameTranslate = (ctx, atom, symbol) ->
+nameTranslate = (ctx, atom, symbol, type) ->
   if atom.label is 'const'
     switch symbol
       when 'True' then 'true'
       when 'False' then 'false'
       else
         (jsAccess (validIdentifier symbol), "value")
+  else if ctx.isMethod symbol, type
+    (irMethod type, symbol)
   else
     validIdentifier symbol
 
@@ -1637,6 +1662,100 @@ fn_ = (params, body) ->
 token_ = (string) ->
   (tokenize string)[0]
 
+translateIr = (ctx, ast) ->
+  walkIr ast, (ast) ->
+    if ast.ir
+      ast.ir ctx, ast
+    else
+      walked = {}
+      for name, node of ast when name isnt 'js'
+        walked[name] = node and translateIr ctx, node
+      walked.js = ast.js
+      walked
+
+irDefinition = (type, expression) ->
+  {ir: irDefinitionTranslate, type, expression}
+
+irDefinitionTranslate = (ctx, {type, expression}) ->
+  finalType = substitute ctx.substitution, type
+  # deferConstraints ctx, ctx.boundTypeVariables(), (findFree finalType)
+  reducedConstraints = reduceConstraints ctx, finalType.constraints
+  # TODO: what about the class dictionaries order?
+  counter = {}
+  classParams = newMap()
+  for {className, type} in reducedConstraints
+    addToMap classParams, type.name,
+      "_#{className}_#{counter[className] ?= 0; ++counter[className]}"
+  ctx.addClassParams classParams
+  classParamNames = mapToArray classParams
+  if _notEmpty classParamNames
+    if expression.ir is irFunctionTranslate
+      (irFunctionTranslate ctx,
+        name: expression.name
+        params: join classParamNames, expression.params
+        body: expression.body)
+    else
+      (jsFunction
+        params: classParamNames
+        body: [(jsReturn translateIr ctx, expression)])
+  else
+    translateIr ctx, expression
+
+irCall = (type, op, args) ->
+  {ir: irCallTranslate, type, op, args}
+
+irCallTranslate = (ctx, {type, op, args}) ->
+  finalType = substitute ctx.substitution, type
+  classParams =
+    if op.ir is irMethodTranslate
+      []
+    else
+      for constraint in finalType.constraints
+        if constraint.type instanceof TypeVariable
+          ctx.classParamNameFor constraint.type.name
+        else if _notEmpty constraintsFromInstance ctx, constraint
+          throw new Error "not implemented yet, add other recursively"
+        else
+          instanceDictFor ctx, constraint
+  (jsCall (translateIr ctx, op), (join classParams, (translateIr ctx, args)))
+
+irMethod = (type, name) ->
+  {ir: irMethodTranslate, type, name}
+
+irMethodTranslate = (ctx, {type, name}) ->
+  finalType = substitute ctx.substitution, type
+  resolvedMethod = (for constraint in finalType.constraints
+    if constraint.type instanceof TypeVariable
+      (jsCall (jsAccess constraint.className, name),
+        [ctx.classParamNameFor constraint.type.name])
+    else if _notEmpty constraintsFromInstance ctx, constraint
+      throw new Error "not implemented yet, add other recursively"
+    else
+      (jsAccess (instanceDictFor ctx, constraint), name))
+  if resolvedMethod.length > 1
+    throw new Error "expected one constraint on a method"
+  else if resolvedMethod.length is 1
+    resolvedMethod[0]
+  else
+    method
+
+instanceDictFor = (ctx, constraint) ->
+  {className, type} = constraint
+  for {name, type} in (ctx.classNamed className).instances
+    # TODO: support lookup of composite types, by traversing left depth-first
+    if type.name is type.name
+      return validIdentifier name
+  throw new Error "no instance for #{printType constraint}"
+
+irFunction = ({name, params, body}) ->
+  {ir: irFunctionTranslate, name, params, body}
+
+irFunctionTranslate = (ctx, {name, params, body}) ->
+  (jsCall "λ#{params.length}", [
+    (jsFunction
+      name: (validIdentifier name if name)
+      params: params
+      body: translateIr ctx, body)])
 
 isTypeConstraint = (expression) ->
   (isCall expression) and (':' is _symbol _operator expression)
@@ -1742,16 +1861,21 @@ translateStatementsToJs = (jsAstList) ->
   listOfLines translateToJs jsAstList
 
 translateToJs = (jsAst) ->
-  if Array.isArray jsAst
-    for node in jsAst
-      translateToJs node
-  else if jsAst.js
+  walkIr jsAst, (ast) ->
     args = {}
-    for name, node of jsAst when name isnt 'js'
+    for name, node of ast when name isnt 'js'
       args[name] = node and translateToJs node
-    jsAst.js args
+    ast.js args
+
+walkIr = (ast, cb) ->
+  if Array.isArray ast
+    for node in ast
+      walkIr node, cb
+  else if ast.ir or ast.js
+    cb ast
   else
-    jsAst
+    ast
+
 
 jsAccess = (lhs, name) ->
   {js: jsAccessTranslate, lhs, name}
@@ -1828,6 +1952,7 @@ jsExprListTranslate = ({elems}) ->
 
 
 jsFunction = ({name, params, body}) ->
+  throw new Error "body of jsFunction must be a list" if not Array.isArray body
   {js: jsFunctionTranslate, name, params, body}
 
 jsFunctionTranslate = ({name, params, body}) ->
@@ -2576,7 +2701,7 @@ bindVariable = (variable, type) ->
     newMapWith variable.name, type
 
 # Returns a substitution
-matchType = (ctx, t1, t2) ->
+matchType = (t1, t2) ->
   if t1 instanceof TypeVariable and kindsEq (kind t1), (kind t2)
     newMapWith t1.name, t2
   else if t1 instanceof TypeConstr and t2 instanceof TypeConstr and
@@ -2979,8 +3104,9 @@ compileTopLevelAndExpression = (source) ->
 topLevelAndExpression = (source) ->
   ast = astize tokenize "(#{source})", -1
   [terms..., expression] = _terms ast
-  compiledDefinitions = translateStatementsToJs definitionList (ctx = new Context), pairs terms
-  compiledExpression = translateToJs topLevelExpression ctx, expression
+  ctx = new Context
+  compiledDefinitions = compileDefinitionList ctx, terms
+  compiledExpression = translateToJs translateIr ctx, topLevelExpression ctx, expression
   types: ctx._scope()
   subs: filterMap ((name) -> name is 'could not unify'), ctx.substitution
   ast: ast
@@ -2989,6 +3115,11 @@ topLevelAndExpression = (source) ->
 jsWithAstTypes = (ctx, ast, js) ->
   types = values mapMap _type, ctx._scope()
   {js, ast, types}
+
+compileDefinitionList = (ctx, terms) ->
+  ir = definitionList ctx, pairs terms
+  jsIr = translateIr ctx, ir
+  translateStatementsToJs jsIr
 
 astizeList = (source) ->
   parentize astize tokenize "(#{source})", -1
@@ -3177,6 +3308,20 @@ tests = [
         1 1
         n (adults (- 1 month))))"""
     "(fibonacci 6)", 8
+
+  'classes'
+  """Show (class [a]
+       show (fn [x] (: (Fn a String))))
+
+    show-string (instance (Show String)
+       show (fn [x] x))
+
+    aliased-show (fn [something]
+       (show something))
+
+    showed-simply (show "Hello")
+    showed-via-alias (aliased-show "Hello")"""
+  "(= showed-simply showed-via-alias)", yes
 
 ]
 
