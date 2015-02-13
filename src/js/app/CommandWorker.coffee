@@ -28,10 +28,12 @@ exports.Worker = (sender, path) ->
             # [";" + res, warnings])
             @sender.emit "ok",
               type: (if execute then 'execute' else 'normal')
+              commandSource: value
               result:
                 @compiler.compileTopLevelAndExpression sourceAndCommand
 
           catch e
+            console.log e.stack
             @sender.emit "error",
               text: e.message
               type: 'error'
