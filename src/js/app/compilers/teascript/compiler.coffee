@@ -416,18 +416,19 @@ class Context
 
 expressionCompile = (ctx, expression) ->
   throw new Error "invalid expressionCompile args" unless ctx instanceof Context and expression
-  (if isAtom expression
-    atomCompile
-  else if isTuple expression
-    tupleCompile
-  else if isSeq expression
-    seqCompile
-  else if isCall expression
-    callCompile
-  else
-    # log "Not handled", expression
+  compileFn =
+    if isAtom expression
+      atomCompile
+    else if isTuple expression
+      tupleCompile
+    else if isSeq expression
+      seqCompile
+    else if isCall expression
+      callCompile
+  if not compileFn
     malformed expression, 'not a valid expression'
-  )? ctx, expression
+  else
+    compileFn ctx, expression
 
 # -- This was used to use compiled results from some parent macro while
 #    compiling as something else
@@ -459,9 +460,7 @@ macroCompile = (ctx, call) ->
   op = _operator call
   op.label = 'keyword'
   expanded = ctx.macros()[op.symbol] ctx, call
-  if not isWellformed expanded
-    'malformed'
-  else if isTranslated expanded
+  if isTranslated expanded
     expanded
   else
     expressionCompile ctx, expanded
@@ -481,7 +480,7 @@ callKnownCompile = (ctx, call) ->
   labeledArgs = labeledToMap args
 
   if tagFreeLabels args
-    return malformed 'labels without values inside call', call
+    return malformed call, 'labels without values inside call'
 
   paramNames = ctx.arity operator.symbol
   if not paramNames
@@ -676,7 +675,7 @@ seqCompile = (ctx, form) ->
         requiredElems++
 
     if hasSplat and requiredElems is 0
-      return malformed 'Matching with splat requires at least one element name', form
+      return malformed form, 'Matching with splat requires at least one element name'
 
     compiledArgs = (for elem, i in elems
       [lhs, rhs] =
@@ -782,9 +781,9 @@ typeConstraintCompile = (expression) ->
       op.label = 'operator'
       new ClassContraint op.symbol, typeCompile args[0] # TODO: support multiparameter type classes
     else
-      malformed 'Class name required in a constraint', expression
+      malformed expression, 'Class name required in a constraint'
   else
-    malformed 'Class constraint expected', expression
+    malformed expression, 'Class constraint expected'
 
 typeConstraintsCompile = (expressions) ->
   map typeConstraintCompile, expressions
@@ -844,6 +843,7 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
         ctx.declare name
     #log "exiting pattern early", pattern, "for", ctx.shouldDefer()
     return {}
+
 
   # Properly bind types according to the pattern
   if pattern.tea
@@ -1025,6 +1025,8 @@ builtInMacros =
         map (syntaxNameAs '', 'param'), filterAst isUsedParam, expression
       map labelUsedParams, if body then join [body], wheres else wheres
 
+      if body and not isWellformed body
+        return 'malformed'
 
       assignCompile ctx, call,
         if ctx.shouldDefer()
@@ -1032,7 +1034,6 @@ builtInMacros =
         else
           # Typing
           if body and not body.tea
-            #log body
             throw new Error "Body not typed"
           call.tea =
             if body
@@ -1049,11 +1050,12 @@ builtInMacros =
             type: call.tea
             params: paramNames
             body: (join compiledWheres, [(jsReturn compiledBody)]))
-          # (jsCall "λ#{paramNames.length}", [
-          #   (jsFunction
-          #     name: (ctx.definitionName() if ctx.isAtSimpleDefinition())
-          #     params: paramNames
-          #     body: (join compiledWheres, [(jsReturn compiledBody)]))])
+            # (jsCall "λ#{paramNames.length}", [
+            #   (jsFunction
+            #     name: (ctx.definitionName() if ctx.isAtSimpleDefinition())
+            #     params: paramNames
+            #     body: (join compiledWheres, [(jsReturn compiledBody)]))])
+
   # data
   #   listing or
   #     pair
@@ -1173,7 +1175,7 @@ builtInMacros =
 
     [instanceConstraint, defs...] = _arguments call
     if not isCall call
-      return malformed 'Instance requires a single class constraint', call
+      return malformed call, 'Instance requires a single class constraint'
     else
       instanceType = typeConstraintCompile instanceConstraint
     if defs.length % 2 == 0
@@ -1242,9 +1244,9 @@ builtInMacros =
     [subject, cases...] = _arguments call
     varNames = []
     if not subject
-      return malformed 'match `subject` missing', call
+      return malformed call, 'match `subject` missing'
     if cases.length % 2 != 0
-      return malformed 'match missing result for last pattern', call
+      return malformed call, 'match missing result for last pattern'
     subjectCompiled = termCompile ctx, subject
 
     # To make sure all results have the same type
@@ -1284,6 +1286,7 @@ builtInMacros =
 
     callTyping ctx, call
     assignCompile ctx, call, (jsBinary "===", compiledA, compiledB)
+
 
 
 # Creates the condition and body of a branch inside match macro
@@ -1448,7 +1451,7 @@ cond_ = (x) ->
 malformed = (expression, message) ->
   # TODO support multiple malformations
   expression.malformed = message
-  message
+  (jsMalformed message)
 
 isWellformed = (expression) ->
   if expression.malformed
@@ -1485,7 +1488,7 @@ constraintsFromSeq = (ctx, seq) ->
   if seq
     constraints = _terms seq
     if (not isSeq seq)
-      malformed 'Constraints must be specified in a list', seq
+      malformed seq, 'Constraints must be specified in a list'
     else
       constrainTypes = filter ((t) -> t instanceof ClassContraint),
         typeConstraintsCompile ctx, constraints
@@ -1676,6 +1679,8 @@ translateIr = (ctx, irAst) ->
 irDefinition = (type, expression) ->
   {ir: irDefinitionTranslate, type, expression}
 
+# TODO: This must always wrap a function, because if the expression
+#       is not a function then it can't need type class dictionaries
 irDefinitionTranslate = (ctx, {type, expression}) ->
   finalType = substitute ctx.substitution, type
   # deferConstraints ctx, ctx.boundTypeVariables(), (findFree finalType)
@@ -1740,10 +1745,9 @@ irMethodTranslate = (ctx, {type, name}) ->
     method
 
 instanceDictFor = (ctx, constraint) ->
-  {className, type} = constraint
-  for {name, type} in (ctx.classNamed className).instances
+  for {name, type} in (ctx.classNamed constraint.className).instances
     # TODO: support lookup of composite types, by traversing left depth-first
-    if type.name is type.name
+    if type.type.type.name is constraint.type.name
       return validIdentifier name
   throw new Error "no instance for #{printType constraint}"
 
@@ -1958,6 +1962,12 @@ jsFunction = ({name, params, body}) ->
 jsFunctionTranslate = ({name, params, body}) ->
   "function #{name or ''}(#{listOf params}){#{blockOfLines body}}"
 
+
+jsMalformed = (message) ->
+  {js: jsMalformedTranslate, message: message}
+
+jsMalformedTranslate = ({message}) ->
+  message
 
 jsNew = (classFun, args) ->
   {js: jsNewTranslate, classFun, args}
@@ -3094,9 +3104,8 @@ syntaxedExpHtml = (string) ->
   collapse toHtml astize tokenize string
 
 compileTopLevel = (source) ->
-  ast = astize tokenize "(#{source})", -1
-  compiled = topLevel (ctx = new Context), ast
-  jsWithAstTypes ctx, ast, compiled
+  {js, ast, ctx} = compileToJs topLevel, "(#{source})", -1
+  {js, ast, types: typeEnumaration ctx}
 
 compileTopLevelAndExpression = (source) ->
   topLevelAndExpression source
@@ -3104,31 +3113,32 @@ compileTopLevelAndExpression = (source) ->
 topLevelAndExpression = (source) ->
   ast = astize tokenize "(#{source})", -1
   [terms..., expression] = _terms ast
-  ctx = new Context
-  compiledDefinitions = compileDefinitionList ctx, terms
-  compiledExpression = compileExpression ctx, expression
+  {ctx} = compiledDefinitions = compileAstToJs definitionList, pairs terms
+  compiledExpression = compileCtxAstToJs topLevelExpression, ctx, expression
   types: ctx._scope()
   subs: filterMap ((name) -> name is 'could not unify'), ctx.substitution
   ast: ast
-  compiled: library + compiledDefinitions + compiledExpression
+  compiled: library + compiledDefinitions.js + compiledExpression.js
 
-jsWithAstTypes = (ctx, ast, js) ->
-  types = values mapMap _type, ctx._scope()
-  {js, ast, types}
+typeEnumaration = (ctx) ->
+  values mapMap _type, ctx._scope()
 
-compileDefinitionList = (ctx, terms) ->
-  ir = definitionList ctx, pairs terms
+compileToJs = (compileFn, source, offset = 0) ->
+  ast = astize tokenize source, offset
+  compileAstToJs compileFn, ast
+
+compileAstToJs = (compileFn, ast) ->
+  ctx = new Context
+  compileCtxAstToJs compileFn, ctx, ast
+
+compileCtxAstToJs = (compileFn, ctx, ast) ->
+  ir = compileFn ctx, ast
   jsIr = translateIr ctx, ir
-  translateStatementsToJs jsIr
-
-compileDefinitions = (source) ->
-  ast = astize tokenize "(#{source})", -1
-  compileDefinitionList (new Context), _terms ast
-
-compileExpression = (ctx, expression) ->
-  expressionIr = topLevelExpression ctx, expression
-  expressionJsIr = translateIr ctx, expressionIr
-  compiledExpression = translateToJs expressionJsIr
+  js = (if Array.isArray jsIr
+      translateStatementsToJs
+    else
+      translateToJs) jsIr
+  {ctx, ast, js}
 
 astizeList = (source) ->
   parentize astize tokenize "(#{source})", -1
@@ -3345,6 +3355,20 @@ tests = [
       (: (Fn String String))
       (read (show string)))"""
   """(test "Hello")""", "Hello"
+
+  'multiple instances'
+  """Show (class [a]
+  show (fn [x] (: (Fn a String))))
+
+  show-string (instance (Show String)
+    show (fn [x] x))
+
+  show-bool (instance (Show Bool)
+    show (fn [x]
+      (match x
+        True "True"
+        False "False")))"""
+  "(show False)", "False"
 
 ]
 
