@@ -37,12 +37,12 @@ astize = (tokens) ->
       stack.push form
     else if token.symbol in rightDelims
       closed = stack.pop()
+      if not stack[stack.length - 1]
+        throw new Error "Missing opening delimeter matching #{token.symbol}"
       if token.symbol isnt delims[closed[0].symbol]
         throw new Error "Wrong closing delimiter #{token.symbol} for opening delimiter #{closed[0].symbol}"
       closed.push token
       closed.end = token.end
-      if not stack[stack.length - 1]
-        throw new Error "Missing opening delimeter matching #{token.symbol}"
       stack[stack.length - 1].push closed
     else
       stack[stack.length - 1].push token
@@ -786,7 +786,8 @@ typeConstraintCompile = (expression) ->
     malformed expression, 'Class constraint expected'
 
 typeConstraintsCompile = (expressions) ->
-  map typeConstraintCompile, expressions
+  filter ((t) -> t instanceof ClassContraint),
+    (map typeConstraintCompile, expressions)
 
 typeTupleCompile = (form) ->
   form.label = 'operator'
@@ -906,7 +907,7 @@ definitionList = (ctx, pairs) ->
   compiledPairs = join compiledPairs, compileDeferred ctx
   resolveDeferredTypes ctx
 
-  #log "yay"
+  # log "yay"
   concat filter _is, compiledPairs
 
 # This function resolves the types of mutually recursive functions
@@ -974,9 +975,8 @@ definitionPairCompile = (ctx, pattern, value) ->
   else
     compiled
 
-builtInMacros =
-
-  fn: (ctx, call) ->
+ms = {}
+ms.fn = (ctx, call) ->
     # For now expect the curried constructor call
     args = _arguments call
     [paramList, defs...] = args
@@ -1063,7 +1063,7 @@ builtInMacros =
   #       record
   #         type
   #     constant-name
-  data: (ctx, call) ->
+ms.data = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare new algebraic data'
     defs = pairsLeft isAtom, _arguments call
     # Syntax
@@ -1110,7 +1110,7 @@ builtInMacros =
           (jsNew identifier, []))
       (join (translateDict identifier, paramNames), [constrValue]))
 
-  record: (ctx, call) ->
+ms.record = (ctx, call) ->
     args = _arguments call
     hasName = requireName ctx, 'Name required to declare new record'
     for [name, type] in _labeled args
@@ -1137,18 +1137,22 @@ builtInMacros =
   #   ctx.setIsType false
 
   # Adds a class to the scope or defers if superclass doesn't exist
-  class: (ctx, call) ->
+ms.class = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new class'
     [paramList, defs...] = _arguments call
     params = paramTuple ctx, paramList
     paramNames = _names params
     [docs, defs] = partition isComment, defs
-    if defs.length % 2 == 0
-      wheres = defs
-    else
-      [constraintSeq, wheres...] = defs
 
-    superClasses = map (({className}) -> className), constraintsFromSeq ctx, constraintSeq
+    [constraintSeq, wheres...] = defs
+    if not isSeq constraintSeq
+      wheres = defs
+      constraints = []
+    else
+      constraints = typeConstraintsCompile _terms constraintSeq
+
+    superClasses = map (({className}) -> className), constraints
+
     # TODO: defer if not all declared to prevent cycles in classes
     #   allDeclared = (ctx.isClass c for c in superClasses)
 
@@ -1170,20 +1174,20 @@ builtInMacros =
     else
       'malformed'
 
-  instance: (ctx, call) ->
+ms.instance = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new instance'
 
     [instanceConstraint, defs...] = _arguments call
-    if not isCall call
-      return malformed call, 'Instance requires a single class constraint'
+    if not isCall instanceConstraint
+      return malformed call, 'Instance requires a class constraint'
     else
       instanceType = typeConstraintCompile instanceConstraint
-    if defs.length % 2 == 0
+    [constraintSeq, wheres...] = defs
+    if not isSeq constraintSeq
       wheres = defs
+      constraints = []
     else
-      [constraintSeq, wheres...] = defs
-
-    constraints = constraintsFromSeq ctx, constraintSeq
+      constraints = typeConstraintsCompile _terms constraintSeq
 
     # TODO: I should check that methods correspond to the class declaration
 
@@ -1191,17 +1195,14 @@ builtInMacros =
     # TODO: I need to unify the type of each method with their declared types
     #       from the type class
     # ctx.bindTypeVariables keysOfMap findFree instanceType.type
+    # TODO: I need to run them as explicitly typed and not only I need to add
+    #       the binded variables I also have to add their constraints
     methodsDeclarations = definitionList ctx, pairs wheres
     declarations = ctx.currentDeclarations()
     ctx.closeScope()
 
     methods = map (({rhs}) -> rhs), methodsDeclarations
-
-    # TODO: this is hard,
-    # there are some special cases like:
-    # class Show a where
-    #   show :: a -> String
-    #   ho :: a -> String
+    log methods
 
     className = instanceType.className
     # TODO: defer for class declaration if not defined
@@ -1240,7 +1241,7 @@ builtInMacros =
   #     pair
   #       pattern
   #       result
-  match: (ctx, call) ->
+ms.match = (ctx, call) ->
     [subject, cases...] = _arguments call
     varNames = []
     if not subject
@@ -1278,7 +1279,7 @@ builtInMacros =
       varList varNames
       compiledCases])
 
-  '=': (ctx, call) ->
+ms['='] = (ctx, call) ->
     [a, b] = _arguments call
     operatorCompile ctx, call
     compiledA = termCompile ctx, a
@@ -1287,6 +1288,7 @@ builtInMacros =
     callTyping ctx, call
     assignCompile ctx, call, (jsBinary "===", compiledA, compiledB)
 
+builtInMacros = ms
 
 
 # Creates the condition and body of a branch inside match macro
@@ -1483,16 +1485,6 @@ requireName = (ctx, message) ->
   else
     malformed call, message
     false
-
-constraintsFromSeq = (ctx, seq) ->
-  if seq
-    constraints = _terms seq
-    if (not isSeq seq)
-      malformed seq, 'Constraints must be specified in a list'
-    else
-      constrainTypes = filter ((t) -> t instanceof ClassContraint),
-        typeConstraintsCompile ctx, constraints
-  constrainTypes or []
 
 atomCompile = (ctx, atom) ->
   {symbol, label} = atom
@@ -1715,13 +1707,7 @@ irCallTranslate = (ctx, {type, op, args}) ->
     if op.ir is irMethodTranslate
       []
     else
-      for constraint in finalType.constraints
-        if constraint.type instanceof TypeVariable
-          ctx.classParamNameFor constraint.type.name
-        else if _notEmpty constraintsFromInstance ctx, constraint
-          throw new Error "not implemented yet, add other recursively"
-        else
-          instanceDictFor ctx, constraint
+      dictsForConstraint ctx, finalType.constraints
   (jsCall (translateIr ctx, op), (join classParams, (translateIr ctx, args)))
 
 irMethod = (type, name) ->
@@ -1729,20 +1715,28 @@ irMethod = (type, name) ->
 
 irMethodTranslate = (ctx, {type, name}) ->
   finalType = substitute ctx.substitution, type
-  resolvedMethod = (for constraint in finalType.constraints
-    if constraint.type instanceof TypeVariable
-      (jsCall (jsAccess constraint.className, name),
-        [ctx.classParamNameFor constraint.type.name])
-    else if _notEmpty constraintsFromInstance ctx, constraint
-      throw new Error "not implemented yet, add other recursively"
-    else
-      (jsAccess (instanceDictFor ctx, constraint), name))
+  resolvedMethod =
+    for dict in dictsForConstraint ctx, finalType.constraints
+      (jsAccess dict, name)
   if resolvedMethod.length > 1
     throw new Error "expected one constraint on a method"
   else if resolvedMethod.length is 1
     resolvedMethod[0]
   else
     method
+
+dictsForConstraint = (ctx, constraints) ->
+  for constraint in constraints
+    dictForConstraint ctx, constraint
+
+dictForConstraint = (ctx, constraint) ->
+  if constraint.type instanceof TypeVariable
+    ctx.classParamNameFor constraint.type.name
+  else if _notEmpty (constraints = constraintsFromInstance ctx, constraint)
+    (jsCall (instanceDictFor ctx, constraint),
+      (dictsForConstraint ctx, constraints))
+  else
+    (instanceDictFor ctx, constraint)
 
 instanceDictFor = (ctx, constraint) ->
   for {name, type} in (ctx.classNamed constraint.className).instances
@@ -3357,18 +3351,34 @@ tests = [
   """(test "Hello")""", "Hello"
 
   'multiple instances'
-  """Show (class [a]
-  show (fn [x] (: (Fn a String))))
+  """
+    Show (class [a]
+      show (fn [x] (: (Fn a String))))
 
-  show-string (instance (Show String)
-    show (fn [x] x))
+    show-string (instance (Show String)
+      show (fn [x] x))
 
-  show-bool (instance (Show Bool)
-    show (fn [x]
-      (match x
-        True "True"
-        False "False")))"""
+    show-bool (instance (Show Bool)
+      show (fn [x]
+        (match x
+          True "True"
+          False "False")))"""
   "(show False)", "False"
+
+  'instance constraints'
+  """
+    Show (class [a]
+      show (fn [x] (: (Fn a String))))
+
+    show-string (instance (Show String)
+      show (fn [x] x))
+
+    show-snd (instance (Show [a b])
+      {(Show a) (Show b)}
+      show (fn [x]
+        (match x
+          [fst snd] (show snd))))"""
+  """(show ["Adam" "Michal"])""", "Michal"
 
 ]
 
