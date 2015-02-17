@@ -209,6 +209,9 @@ class Context
   isAtSimpleDefinition: ->
     @isAtDefinition() and @definitionName()
 
+  isAtDeferrableDefinition: ->
+    @isAtDefinition() and @_currentDefinition().deferrable
+
   # isInsideDefinition: ->
   #   (definition = @_currentDefinition()) and definition.inside isnt 0
 
@@ -269,9 +272,10 @@ class Context
   isClassDefined: (name) ->
     !!@classNamed name
 
-  addClass: (name, superClasses, declarations) ->
+  addClass: (name, classConstraint, superClasses, declarations) ->
     addToMap @_scope().classes, name,
       supers: superClasses
+      constraint: classConstraint
       instances: []
       declarations: declarations
 
@@ -649,8 +653,7 @@ tupleCompile = (ctx, form) ->
   #   map [0: "hello" 1:] {"world", "le mond", "svete"}
   # TODO: should we support bare records?
   #   [a: 2 b: 3]
-  form.tea = new Constrained (concatMap _constraints, elems),
-    applyKindFn (tupleType arity), (tea.type for {tea} in elems)...
+  form.tea = tupleOfTypes (tea for {tea} in elems)
 
   if ctx.assignTo()
     combinePatterns compiledElems
@@ -717,12 +720,9 @@ seqCompile = (ctx, form) ->
       unify ctx, elemType, elem.tea.type
 
     form.label = 'operator'
-    form.tea = new Constrained (concatMap _constraints, elems),
+    form.tea = new Constrained (concatMap _constraints, (tea for {tea} in elems)),
       new TypeApp arrayType, elemType
     assignCompile ctx, form, (jsArray compiledElems)
-
-_constraints = (expression) ->
-  expression.tea.constraints
 
 isSplat = (expression) ->
   (isAtom expression) and (_symbol expression)[...2] is '..'
@@ -876,7 +876,7 @@ patternCompile = (ctx, pattern, matched, translatedMatched) ->
           (findFree currentType),
           (substituteList ctx.substitution, matched.tea.constraints)
         ctx.assignType name,
-          if ctx.isAtDefinition()
+          if ctx.isAtDeferrableDefinition()
             quantifyAll (addConstraints currentType, retainedConstraints)
           else
             toForAll currentType
@@ -976,7 +976,7 @@ definitionPairCompile = (ctx, pattern, value) ->
     compiled
 
 ms = {}
-ms.fn = (ctx, call) ->
+ms.fn = ms_fn = (ctx, call) ->
     # For now expect the curried constructor call
     args = _arguments call
     [paramList, defs...] = args
@@ -1063,7 +1063,7 @@ ms.fn = (ctx, call) ->
   #       record
   #         type
   #     constant-name
-ms.data = (ctx, call) ->
+ms.data = ms_data = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare new algebraic data'
     defs = pairsLeft isAtom, _arguments call
     # Syntax
@@ -1110,7 +1110,7 @@ ms.data = (ctx, call) ->
           (jsNew identifier, []))
       (join (translateDict identifier, paramNames), [constrValue]))
 
-ms.record = (ctx, call) ->
+ms.record = ms_record = (ctx, call) ->
     args = _arguments call
     hasName = requireName ctx, 'Name required to declare new record'
     for [name, type] in _labeled args
@@ -1137,7 +1137,7 @@ ms.record = (ctx, call) ->
   #   ctx.setIsType false
 
   # Adds a class to the scope or defers if superclass doesn't exist
-ms.class = (ctx, call) ->
+ms.class = ms_class = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new class'
     [paramList, defs...] = _arguments call
     params = paramTuple ctx, paramList
@@ -1156,25 +1156,54 @@ ms.class = (ctx, call) ->
     # TODO: defer if not all declared to prevent cycles in classes
     #   allDeclared = (ctx.isClass c for c in superClasses)
 
+    methodDefinitions = pairs wheres
     ctx.newScope()
     ctx.bindTypeVariables paramNames
-    definitionList ctx, pairs wheres
+    definitionList ctx, methodDefinitions
     declarations = ctx.currentDeclarations()
     ctx.closeScope()
+
+    for [name, def] in methodDefinitions
+      (lookupInMap declarations, name)?.def = def
 
     if hasName
       name = ctx.definitionName()
       if ctx.isClassDefined name
         malformed 'class already defined', ctx.definitionPattern()
       else
-        ctx.addClass name, superClasses, declarations
-        declareMethods ctx, name, paramNames, declarations
+        classConstraint = findClassType name, paramNames, declarations
+        ctx.addClass name, classConstraint, superClasses, declarations
+        declareMethods ctx, classConstraint, declarations
 
         translateDict name, keysOfMap declarations
     else
       'malformed'
 
-ms.instance = (ctx, call) ->
+findClassType = (className, paramNames, methods) ->
+  # TODO: support multi-param classes
+  [param] = paramNames
+  kind = undefined
+  constraint = undefined
+  for name, {arity, type, def} of values methods
+    vars = findFree type.type
+    foundKind = lookupInMap vars, param
+    if not foundKind
+      # TODO: attach error to the type expression
+      malformed def, 'Method must include class parameter in its type'
+    if kind and not kindsEq foundKind, kind
+      # TODO: attach error to the type expression instead
+      # TODO: better error message
+      malformed def, 'All methods must use the class paramater of the same kind'
+    kind or= foundKind
+    constraint or= new ClassContraint className, (new TypeVariable param, kind)
+  constraint
+
+declareMethods = (ctx, classConstraint, methodDeclarations) ->
+  for name, {arity, type} of values methodDeclarations
+    type = quantifyUnbound ctx, addConstraints type.type, [classConstraint]
+    ctx.declare name, {arity, type}
+
+ms.instance = ms_instance = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new instance'
 
     [instanceConstraint, defs...] = _arguments call
@@ -1189,36 +1218,78 @@ ms.instance = (ctx, call) ->
     else
       constraints = typeConstraintsCompile _terms constraintSeq
 
+    # TODO: defer if class does not exist
+    className = instanceType.className
+
     # TODO: I should check that methods correspond to the class declaration
 
-    ctx.newScope()
-    # TODO: I need to unify the type of each method with their declared types
-    #       from the type class
-    # ctx.bindTypeVariables keysOfMap findFree instanceType.type
-    # TODO: I need to run them as explicitly typed and not only I need to add
-    #       the binded variables I also have to add their constraints
-    methodsDeclarations = definitionList ctx, pairs wheres
-    declarations = ctx.currentDeclarations()
-    ctx.closeScope()
-
-    methods = map (({rhs}) -> rhs), methodsDeclarations
-    log methods
-
-    className = instanceType.className
-    # TODO: defer for class declaration if not defined
-    ## if not ctx.isClassDefined className    ...
-
     if hasName
-      name = ctx.definitionName()
+      instanceName = ctx.definitionName()
+
+      ctx.newScope()
+      # TODO: I need to unify the type of each method with their declared types
+      #       from the type class
+      # ctx.bindTypeVariables keysOfMap findFree instanceType.type
+      # TODO: I need to run them as explicitly typed and not only I need to add
+      #       the binded variables I also have to add their constraints
+      freshConstrains = assignMethodTypes ctx, instanceName,
+        (ctx.classNamed className), instanceType, constraints
+      definitions = pairs wheres
+      methodsDeclarations = definitionList ctx,
+        (prefixWithInstanceName definitions, instanceName)
+      declarations = ctx.currentDeclarations()
+      ctx.closeScope()
+
+      methods = map (({rhs}) -> rhs), methodsDeclarations
+      # log "methods", methods
+      methodTypes = (rhs.tea for [lhs, rhs] in definitions)
+
+      # TODO: defer for class declaration if not defined
+      ## if not ctx.isClassDefined className    ...
+
       instance = (new Constrained constraints, instanceType)
       ## if overlaps ctx, instance
       ##   malformed 'instance overlaps with another', instance
       ## else
-      ctx.addInstance name, instance
-      # """var #{name} = new #{className}(#{listOf methods});"""
-      (jsVarDeclaration (validIdentifier name), (jsNew className, methods))
+      ctx.addInstance instanceName, instance
+      # """var #{instanceName} = new #{className}(#{listOf methods});"""
+      (jsVarDeclaration (validIdentifier instanceName),
+        (irDefinition (new Constrained freshConstrains, (tupleOfTypes methodTypes).type),
+          (jsNew className, methods)))
     else
       'malformed'
+
+# Makes sure methods are typed explicitly and returns the instance constraint
+# with renamed type variables to avoid clashes
+assignMethodTypes = (ctx, instanceName, classDeclaration, instanceType, instanceConstraints) ->
+  # First we must freshen the instance type, to avoid name clashes of type vars
+  freshInstanceType = freshInstance ctx,
+    (quantifyUnbound ctx,
+      (new Constrained instanceConstraints, instanceType.type))
+
+  # log "mguing", classDeclaration.constraint.type, freshInstanceType.type
+  sub = mostGeneralUnifier classDeclaration.constraint.type, freshInstanceType.type
+  # log sub
+
+  ctx.bindTypeVariables setToArray (findFree freshInstanceType)
+  for name, {arity, type} of values classDeclaration.declarations
+    freshType = freshInstance ctx, type
+    instanceSpecificType = substitute sub, freshType
+    quantifiedType = quantifyUnbound ctx, instanceSpecificType
+    prefixedName = instancePrefix instanceName, name
+    ctx.declareArity prefixedName, arity
+    ctx.assignType prefixedName, quantifiedType
+  freshInstanceType.constraints
+
+prefixWithInstanceName = (definitionPairs, instanceName) ->
+  for [lhs, rhs] in definitionPairs
+    if (syntaxNewName lhs, 'Method name required') is true
+      [(token_ instancePrefix instanceName, lhs.symbol), rhs]
+    else
+      [lhs, rhs]
+
+instancePrefix = (instanceName, methodName) ->
+  "#{instanceName}_#{methodName}"
 
   # TODO:
   # For now support the simplest function macros, just compiling down to source
@@ -1241,9 +1312,8 @@ ms.instance = (ctx, call) ->
   #     pair
   #       pattern
   #       result
-ms.match = (ctx, call) ->
+ms.match = ms_match = (ctx, call) ->
     [subject, cases...] = _arguments call
-    varNames = []
     if not subject
       return malformed call, 'match `subject` missing'
     if cases.length % 2 != 0
@@ -1251,9 +1321,11 @@ ms.match = (ctx, call) ->
     subjectCompiled = termCompile ctx, subject
 
     # To make sure all results have the same type
-    call.tea = toConstrained (resultType = ctx.freshTypeVariable star)
+    resultType = ctx.freshTypeVariable star
 
     ctx.setGroupTranslation()
+    varNames = []
+    constraints = []
     compiledCases = conditional (for [pattern, result] in pairs cases
 
       ctx.newScope() # for variables defined inside pattern
@@ -1268,18 +1340,21 @@ ms.match = (ctx, call) ->
       if ctx.shouldDefer()
         continue
 
+      # TODO: we need to check that
       # log "unifying in match", result, resultType, result.tea
       unify ctx, resultType, result.tea.type
+      constraints.push result.tea.constraints...
       varNames.push (findDeclarables precs)...
 
       matchBranchTranslate precs, assigns, compiledResult
     ), "throw new Error('match failed to match');" #TODO: what subject?
+    call.tea = new Constrained constraints, resultType
     assignCompile ctx, call, iife concat (filter _is, [
       ctx.translationCache()
       varList varNames
       compiledCases])
 
-ms['='] = (ctx, call) ->
+ms['='] = ms_eq = (ctx, call) ->
     [a, b] = _arguments call
     operatorCompile ctx, call
     compiledA = termCompile ctx, a
@@ -1334,20 +1409,6 @@ paramTuple = (call, expression) ->
     params = _terms expression
     map (syntaxNewName 'Parameter name expected'), params
   params
-
-declareMethods = (ctx, className, paramNames, methodDeclarations) ->
-  # TODO: all occurences of a param should have the same kind and all methods
-  #       should have at least one occurence of some param
-  #   freeInMethods = mapMap ((d) -> findFree d.type.type), methodDeclarations
-
-  for name, {arity, type} of values methodDeclarations
-    vars = findFree type.type
-    # TODO: support multi-param classes
-    [param] = paramNames
-    paramVar = new TypeVariable param, (lookupInMap vars, param)
-    constraint = new ClassContraint className, paramVar
-    type = quantifyUnbound ctx, addConstraints type.type, [constraint]
-    ctx.declare name, {arity, type}
 
 quantifyUnbound = (ctx, type) ->
   vars = subtractSets (findFree type), ctx.allBoundTypeVariables()
@@ -1673,14 +1734,14 @@ irDefinition = (type, expression) ->
 
 # TODO: This must always wrap a function, because if the expression
 #       is not a function then it can't need type class dictionaries
+#       ^.___ not necessarily, we could have a tuple of functions or similar
 irDefinitionTranslate = (ctx, {type, expression}) ->
   finalType = substitute ctx.substitution, type
-  # deferConstraints ctx, ctx.boundTypeVariables(), (findFree finalType)
   reducedConstraints = reduceConstraints ctx, finalType.constraints
   # TODO: what about the class dictionaries order?
   counter = {}
   classParams = newMap()
-  for {className, type} in reducedConstraints
+  for {className, type} in reducedConstraints when not isAlreadyParametrized ctx, type
     addToMap classParams, type.name,
       "_#{className}_#{counter[className] ?= 0; ++counter[className]}"
   ctx.addClassParams classParams
@@ -1737,6 +1798,9 @@ dictForConstraint = (ctx, constraint) ->
       (dictsForConstraint ctx, constraints))
   else
     (instanceDictFor ctx, constraint)
+
+isAlreadyParametrized = (ctx, type) ->
+  !!ctx.classParamNameFor type.name
 
 instanceDictFor = (ctx, constraint) ->
   for {name, type} in (ctx.classNamed constraint.className).instances
@@ -2735,7 +2799,7 @@ mergeSubs = (s1, s2) ->
 emptySubstitution = ->
   newMap()
 
-# Unlike in Jones, we simply use substitue for both variables and quantifieds
+# Unlike in Jones, we simply use substitute for both variables and quantifieds
 # - variables are strings, wheres quantifieds are ints
 substitute = (substitution, type) ->
   if type instanceof TypeVariable and substitution.values
@@ -2837,6 +2901,13 @@ atomicType = (name, kind) ->
 
 tupleType = (arity) ->
   new TypeConstr "[#{arity}]", kindFn arity
+
+tupleOfTypes = (types) ->
+  new Constrained (concatMap _constraints, types),
+    (applyKindFn (tupleType types.length), (map _type, types)...)
+
+_constraints = (type) ->
+  type.constraints
 
 kindFn = (arity) ->
   if arity is 1
