@@ -1528,14 +1528,14 @@ isWellformed = (expression) ->
 
 translateDict = (dictName, fieldNames) ->
   paramAssigns = fieldNames.map (name) ->
-    (jsAssignStatement (jsAccess "this", name), name)
+    (jsAssignStatement (jsAccess "this", name), (validIdentifier name))
   constrFn = (jsFunction
     name: dictName
-    params: fieldNames
+    params: (map validIdentifier, fieldNames)
     body: paramAssigns)
   accessors = fieldNames.map (name) ->
     (jsAssignStatement (jsAccess dictName, name), (jsFunction
-      name: name
+      name: (validIdentifier name)
       params: ["dict"]
       body: [(jsReturn (jsAccess "dict", name))]))
   join [constrFn], accessors
@@ -2178,6 +2178,9 @@ validIdentifier = (name) ->
       .replace(/\-/g, '__')
       .replace(/\*/g, 'times_')
       .replace(/\//g, 'over_')
+      .replace(/\=/g, 'eq_')
+      .replace(/\</g, 'lt_')
+      .replace(/\>/g, 'gt_')
       # .replace(/\√/g, 'sqrt_')
       .replace(/\./g, 'dot_')
       .replace(/\&/g, 'and_')
@@ -3450,6 +3453,23 @@ tests = [
         (match x
           [fst snd] (show snd))))"""
   """(show ["Adam" "Michal"])""", "Michal"
+
+  # TODO: will need more work
+  # 'superclasses'
+  # """
+  #   Eq (class [a]
+  #     = (fn [x y] (: (Fn a a Bool))))
+
+  #   Ord (class [a]
+  #     {(Eq a)}
+  #     <= (fn [x y] (: (Fn a a Bool))))
+
+  #   eq-string (instance (Eq String)
+  #     = (fn [x y] False))
+
+  #   ord-string (instance (Ord String)
+  #     <= (fn [x y] (= x y)))"""
+  # """(<= "Michal" "Adam")""", no
 
 ]
 

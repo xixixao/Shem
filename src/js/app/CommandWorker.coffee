@@ -19,6 +19,7 @@ exports.Worker = (sender, path) ->
         if execute
           @sender.emit "ok",
             result: value[1..]
+            commandSource : value
             type: 'command'
       else
         if value.length > 0
