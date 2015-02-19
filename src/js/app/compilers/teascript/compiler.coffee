@@ -228,7 +228,9 @@ class Context
     @_assignTos.push compiled
 
   assignTo: ->
-    @_assignTos[@_assignTos.length - 1]
+    rhs = @_assignTos[@_assignTos.length - 1]
+    cacheName = @_translationCache()?[0]
+    if rhs then cacheName or rhs
 
   resetAssignTo: ->
     @_assignTos.pop()
@@ -378,7 +380,7 @@ class Context
       # Replace assign to with cache name
       cacheName = @newJsVariable()
       cache = [cacheName, @assignTo()]
-      @_assignTos[@_assignTos.length - 1] = cacheName
+      # @_assignTos[@_assignTos.length - 1] = cacheName #instead change assignTo
       @cacheScopes[@cacheScopes.length - 1][0] = cache
 
   _translationCache: ->
@@ -828,7 +830,7 @@ assignCompile = (ctx, expression, translatedExpression) ->
 
 patternCompile = (ctx, pattern, matched, translatedMatched) ->
 
-  ctx.setAssignTo translatedMatched
+  ctx.setAssignTo ctx._translationCache() or translatedMatched
   # caching can occur while compiling the pattern
   # precs are {cond}s and {cache}s, sorted in order they need to be executed
   {precs, assigns} = expressionCompile ctx, pattern
@@ -1175,7 +1177,7 @@ ms.class = ms_class = (ctx, call) ->
         ctx.addClass name, classConstraint, superClasses, declarations
         declareMethods ctx, classConstraint, declarations
 
-        translateDict name, keysOfMap declarations
+        translateDict name, (keysOfMap declarations), superClasses
     else
       'malformed'
 
@@ -1202,6 +1204,7 @@ declareMethods = (ctx, classConstraint, methodDeclarations) ->
   for name, {arity, type} of values methodDeclarations
     type = quantifyUnbound ctx, addConstraints type.type, [classConstraint]
     ctx.declare name, {arity, type}
+  return
 
 ms.instance = ms_instance = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new instance'
@@ -1220,24 +1223,20 @@ ms.instance = ms_instance = (ctx, call) ->
 
     # TODO: defer if class does not exist
     className = instanceType.className
+    classDefinition = ctx.classNamed className
 
-    # TODO: I should check that methods correspond to the class declaration
+    # TODO: defer if super class instances don't exist yet
+    superClassInstances = findSuperClassInstances ctx, instanceType.type, classDefinition
 
     if hasName
       instanceName = ctx.definitionName()
 
       ctx.newScope()
-      # TODO: I need to unify the type of each method with their declared types
-      #       from the type class
-      # ctx.bindTypeVariables keysOfMap findFree instanceType.type
-      # TODO: I need to run them as explicitly typed and not only I need to add
-      #       the binded variables I also have to add their constraints
       freshConstrains = assignMethodTypes ctx, instanceName,
-        (ctx.classNamed className), instanceType, constraints
+        classDefinition, instanceType, constraints
       definitions = pairs wheres
       methodsDeclarations = definitionList ctx,
         (prefixWithInstanceName definitions, instanceName)
-      declarations = ctx.currentDeclarations()
       ctx.closeScope()
 
       methods = map (({rhs}) -> rhs), methodsDeclarations
@@ -1252,10 +1251,11 @@ ms.instance = ms_instance = (ctx, call) ->
       ##   malformed 'instance overlaps with another', instance
       ## else
       ctx.addInstance instanceName, instance
+
       # """var #{instanceName} = new #{className}(#{listOf methods});"""
       (jsVarDeclaration (validIdentifier instanceName),
         (irDefinition (new Constrained freshConstrains, (tupleOfTypes methodTypes).type),
-          (jsNew className, methods)))
+          (jsNew className, (join superClassInstances, methods))))
     else
       'malformed'
 
@@ -1290,6 +1290,13 @@ prefixWithInstanceName = (definitionPairs, instanceName) ->
 
 instancePrefix = (instanceName, methodName) ->
   "#{instanceName}_#{methodName}"
+
+findSuperClassInstances = (ctx, instanceType, classDefinition) ->
+  toConstraint = (superName) ->
+    new ClassContraint superName, instanceType
+  superConstraints = map toConstraint, classDefinition.supers
+  instanceDictFor ctx, constraint for constraint in superConstraints
+
 
   # TODO:
   # For now support the simplest function macros, just compiling down to source
@@ -1354,14 +1361,14 @@ ms.match = ms_match = (ctx, call) ->
       varList varNames
       compiledCases])
 
-ms['='] = ms_eq = (ctx, call) ->
-    [a, b] = _arguments call
-    operatorCompile ctx, call
-    compiledA = termCompile ctx, a
-    compiledB = termCompile ctx, b
+# ms['='] = ms_eq = (ctx, call) ->
+#     [a, b] = _arguments call
+#     operatorCompile ctx, call
+#     compiledA = termCompile ctx, a
+#     compiledB = termCompile ctx, b
 
-    callTyping ctx, call
-    assignCompile ctx, call, (jsBinary "===", compiledA, compiledB)
+#     callTyping ctx, call
+#     assignCompile ctx, call, (jsBinary "===", compiledA, compiledB)
 
 builtInMacros = ms
 
@@ -1526,12 +1533,13 @@ isWellformed = (expression) ->
           return no
     yes
 
-translateDict = (dictName, fieldNames) ->
-  paramAssigns = fieldNames.map (name) ->
+translateDict = (dictName, fieldNames, additionalFields = []) ->
+  allFieldNames = (join additionalFields, fieldNames)
+  paramAssigns = allFieldNames.map (name) ->
     (jsAssignStatement (jsAccess "this", name), (validIdentifier name))
   constrFn = (jsFunction
     name: dictName
-    params: (map validIdentifier, fieldNames)
+    params: (map validIdentifier, allFieldNames)
     body: paramAssigns)
   accessors = fieldNames.map (name) ->
     (jsAssignStatement (jsAccess dictName, name), (jsFunction
@@ -2561,30 +2569,31 @@ builtInContext = ->
 
     # TODO match
 
-    'if', '(Fn Bool a a a)'
+    # 'if', '(Fn Bool a a a)'
     # TODO JS interop
 
-    'sqrt', '(Fn Num Num)'
-    'not', '(Fn Bool Bool)'
+    # 'sqrt', '(Fn Num Num)'
+    # 'not', '(Fn Bool Bool)'
 
-    '^', binaryMathOpType
+    # '^', binaryMathOpType
 
-    '~', '(Fn Num Num)'
+    # '~', '(Fn Num Num)'
 
-    '+', binaryMathOpType
-    '*', binaryMathOpType
-    '=', comparatorOpType
-    '!=', comparatorOpType
-    'and', '(Fn Bool Bool Bool)'
-    'or', '(Fn Bool Bool Bool)'
+    # '+', binaryMathOpType
+    # '*', binaryMathOpType
+    # '=', comparatorOpType
+    # '!=', comparatorOpType
+    # 'and', '(Fn Bool Bool Bool)'
+    # 'or', '(Fn Bool Bool Bool)'
 
-    '-', binaryMathOpType
-    '/', binaryMathOpType
-    'rem', binaryMathOpType
-    '<', comparatorOpType
-    '>', comparatorOpType
-    '<=', comparatorOpType
-    '>=', comparatorOpType),
+    # '-', binaryMathOpType
+    # '/', binaryMathOpType
+    # 'rem', binaryMathOpType
+    # '<', comparatorOpType
+    # '>', comparatorOpType
+    # '<=', comparatorOpType
+    # '>=', comparatorOpType
+    ),
     newMapWith 'empty-array', (type: (parseUnConstrainedType '(Fn (Array a))'), arity: [])
       'cons-array', (type: (parseUnConstrainedType '(Fn a (Array a) (Array a))'), arity: ['what', 'onto'])
 
@@ -3455,23 +3464,47 @@ tests = [
   """(show ["Adam" "Michal"])""", "Michal"
 
   # TODO: will need more work
-  # 'superclasses'
-  # """
-  #   Eq (class [a]
-  #     = (fn [x y] (: (Fn a a Bool))))
+  'superclasses'
+  """
+    Eq (class [a]
+      = (fn [x y] (: (Fn a a Bool))))
 
-  #   Ord (class [a]
-  #     {(Eq a)}
-  #     <= (fn [x y] (: (Fn a a Bool))))
+    Ord (class [a]
+      {(Eq a)}
+      <= (fn [x y] (: (Fn a a Bool))))
 
-  #   eq-string (instance (Eq String)
-  #     = (fn [x y] False))
+    eq-bool (instance (Eq Bool)
+      = (fn [x y]
+        (match [x y]
+          [True True] True
+          [False False] False)))
 
-  #   ord-string (instance (Ord String)
-  #     <= (fn [x y] (= x y)))"""
-  # """(<= "Michal" "Adam")""", no
+    ord-bool (instance (Ord Bool)
+      <= (fn [x y]
+        (match [x y]
+          [True any] True
+          [w z] (= w z))))
 
+    """
+  """(<= "Michal" "Adam")""", no
+
+  # TODO: support matching with the same name
+  #       to implement this we need the iife to take as arguments all variables
+  #       with the same names, since JavaScript shadows it too strongly and
+  #       replaces the value with undefined
+  # test "test", "f (fn [x] (match x x x)) (f 2)", 2
+  # so:
+  #function f(x) {
+  # return (function (x){
+  #   var x = x;
+  #   return x;
+  # })(x);
+  #}
+  # This is necessary because we might be reusing the name for something else
+  # Or we can just mangle the name like PureScript does it
 ]
+
+
 
 testNamed = (givenName) ->
   for [name, source, expression, result] in tuplize 4, tests when name is givenName
