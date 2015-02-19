@@ -224,16 +224,34 @@ class Context
   resetIsOperator: ->
     @_isOperator.pop()
 
+  # Assignment translation works as follows:
+  #   1. parent sets assign to
+  #   2. patterns look at the assign to value
+  #   3. patterns can request caching of the rhs, which will replace the value
+  #      with cache name and remember the cache
+  #   4. parent resets assign to and obtains the translation cache, if it
+  #      expects there could be one
   setAssignTo: (compiled) ->
-    @_assignTos.push compiled
+    @_assignTos.push value: compiled
 
   assignTo: ->
-    rhs = @_assignTos[@_assignTos.length - 1]
-    cacheName = @_translationCache()?[0]
-    if rhs then cacheName or rhs
+    @_assignTos[@_assignTos.length - 1]?.value
+
+  cacheAssignTo: ->
+    assignTo = @_assignTos[@_assignTos.length - 1]
+    if assignTo?.value and not assignTo.cache
+      # Replace assignTo with cache name
+      cacheName = @newJsVariable()
+      cache = [cacheName, @assignTo()]
+      @_assignTos[@_assignTos.length - 1] =
+        value: cacheName
+        cache: cache
 
   resetAssignTo: ->
-    @_assignTos.pop()
+    if cache = @_assignTos.pop().cache
+      [compileVariableAssignment cache]
+    else
+      []
 
   _scope: ->
     @scopes[@scopes.length - 1]
@@ -371,26 +389,6 @@ class Context
 
   newJsVariable: ->
     "i#{@variableIndex++}"
-
-  setGroupTranslation: ->
-    @cacheScopes.push []
-
-  cacheAssignTo: ->
-    if @assignTo() and not @_translationCache()
-      # Replace assign to with cache name
-      cacheName = @newJsVariable()
-      cache = [cacheName, @assignTo()]
-      # @_assignTos[@_assignTos.length - 1] = cacheName #instead change assignTo
-      @cacheScopes[@cacheScopes.length - 1][0] = cache
-
-  _translationCache: ->
-    @cacheScopes[@cacheScopes.length - 1][0]
-
-  translationCache: ->
-    if cache = @cacheScopes.pop()[0]
-      [compileVariableAssignment cache]
-    else
-      []
 
   doDefer: (expression, dependencyName) ->
     @_setDeferIn @_deferrableDefinition(), expression, dependencyName
@@ -813,9 +811,9 @@ assignCompile = (ctx, expression, translatedExpression) ->
   if ctx.isAtDefinition()
     to = ctx.definitionPattern()
 
-    ctx.setGroupTranslation()
-    {precs, assigns} = patternCompile ctx, to, expression,
-      (irDefinition expression.tea, translatedExpression)
+    ctx.setAssignTo (irDefinition expression.tea, translatedExpression)
+    {precs, assigns} = patternCompile ctx, to, expression
+    translationCache = ctx.resetAssignTo()
 
     #log "ASSIGN #{ctx.definitionName()}", ctx.shouldDefer()
     if ctx.shouldDefer()
@@ -824,17 +822,15 @@ assignCompile = (ctx, expression, translatedExpression) ->
 
     if assigns.length is 0
       return malformed to, 'Not an assignable pattern'
-    join ctx.translationCache(), map compileVariableAssignment, assigns
+    join translationCache, map compileVariableAssignment, assigns
   else
     translatedExpression
 
-patternCompile = (ctx, pattern, matched, translatedMatched) ->
+patternCompile = (ctx, pattern, matched) ->
 
-  ctx.setAssignTo ctx._translationCache() or translatedMatched
   # caching can occur while compiling the pattern
   # precs are {cond}s and {cache}s, sorted in order they need to be executed
   {precs, assigns} = expressionCompile ctx, pattern
-  ctx.resetAssignTo()
 
   definedNames = ctx.definedNames()
 
@@ -1330,17 +1326,20 @@ ms.match = ms_match = (ctx, call) ->
     # To make sure all results have the same type
     resultType = ctx.freshTypeVariable star
 
-    ctx.setGroupTranslation()
+    # ctx.setGroupTranslation()
+    ctx.setAssignTo subjectCompiled
     varNames = []
     constraints = []
     compiledCases = conditional (for [pattern, result] in pairs cases
 
       ctx.newScope() # for variables defined inside pattern
       ctx.defineNonDeferrablePattern pattern
-      {precs, assigns} = patternCompile ctx, pattern, subject, subjectCompiled
+      {precs, assigns} = patternCompile ctx, pattern, subject
 
       # Compile the result, given current scope
+      ctx.setAssignTo undefined
       compiledResult = termCompile ctx, result #compileImpl result, furtherHoistable
+      ctx.resetAssignTo()
       ctx.leaveDefinition()
       ctx.closeScope()
 
@@ -1355,20 +1354,21 @@ ms.match = ms_match = (ctx, call) ->
 
       matchBranchTranslate precs, assigns, compiledResult
     ), "throw new Error('match failed to match');" #TODO: what subject?
+    translationCache = ctx.resetAssignTo()
     call.tea = new Constrained constraints, resultType
     assignCompile ctx, call, iife concat (filter _is, [
-      ctx.translationCache()
+      translationCache
       varList varNames
       compiledCases])
 
-# ms['='] = ms_eq = (ctx, call) ->
-#     [a, b] = _arguments call
-#     operatorCompile ctx, call
-#     compiledA = termCompile ctx, a
-#     compiledB = termCompile ctx, b
+ms['=='] = ms_eq = (ctx, call) ->
+    [a, b] = _arguments call
+    operatorCompile ctx, call
+    compiledA = termCompile ctx, a
+    compiledB = termCompile ctx, b
 
-#     callTyping ctx, call
-#     assignCompile ctx, call, (jsBinary "===", compiledA, compiledB)
+    callTyping ctx, call
+    assignCompile ctx, call, (jsBinary "===", compiledA, compiledB)
 
 builtInMacros = ms
 
@@ -2581,7 +2581,7 @@ builtInContext = ->
 
     # '+', binaryMathOpType
     # '*', binaryMathOpType
-    # '=', comparatorOpType
+    '==', comparatorOpType
     # '!=', comparatorOpType
     # 'and', '(Fn Bool Bool Bool)'
     # 'or', '(Fn Bool Bool Bool)'
@@ -3302,8 +3302,8 @@ test = (testName, teaSource, result) ->
     log (collapse toHtml compiled.ast)
     if not isMapEmpty compiled.subs
       log compiled.subs
-    if result isnt (eval compiled.compiled)
-      log "Wrong result", result
+    if result isnt (got = eval compiled.compiled)
+      log "'#{testName}' expected", result, "got", got
   catch e
     logError "Error in test |#{testName}|\n#{teaSource}\n", e
 
@@ -3322,7 +3322,7 @@ tests = [
     r Red
     b Blue
     r2 Red"""
-  "(= r r2)", true
+  "(== r r2)", true
 
   'match numbers'
   """positive (fn [n]
@@ -3364,6 +3364,8 @@ tests = [
       (match pair
         [x y] y))"""
   "(snd [1 2])", 2
+
+  # TODO: add test for matching on tuples with multiple branches
 
   'match data'
   """Person (record name: String id: Num)
@@ -3417,7 +3419,7 @@ tests = [
 
     showed-simply (show "Hello")
     showed-via-alias (aliased-show "Hello")"""
-  "(= showed-simply showed-via-alias)", yes
+  "(== showed-simply showed-via-alias)", yes
 
   'multiple methods'
   """Util (class [a]
