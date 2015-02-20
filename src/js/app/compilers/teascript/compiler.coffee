@@ -415,8 +415,12 @@ class Context
   addClassParams: (params) ->
     @classParams = concatMaps @classParams, params
 
-  classParamNameFor: (typeVarName) ->
-    lookupInMap @classParams, typeVarName
+  classParamNameFor: (constraint) ->
+    typeMap = @classParamsForType constraint
+    if typeMap then lookupInMap typeMap, constraint.className
+
+  classParamsForType: (constraint) ->
+    lookupInMap @classParams, constraint.type.name
 
 expressionCompile = (ctx, expression) ->
   throw new Error "invalid expressionCompile args" unless ctx instanceof Context and expression
@@ -567,7 +571,7 @@ callSaturatedKnownCompile = (ctx, call) ->
   callTyping ctx, call
 
   # "#{compiledOperator}(#{listOf compiledArgs})"
-  assignCompile ctx, call, (irCall call.tea, compiledOperator, compiledArgs)
+  assignCompile ctx, call, (irCall operator.tea, compiledOperator, compiledArgs)
 
 labeledToMap = (pairs) ->
   labelNaming = ([label, value]) -> [(_labelName label), value]
@@ -1063,13 +1067,20 @@ ms.fn = ms_fn = (ctx, call) ->
   #     constant-name
 ms.data = ms_data = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare new algebraic data'
-    defs = pairsLeft isAtom, _arguments call
+    args = _arguments call
+    if isTuple args[0]
+      [typeParamTuple, args...] = args
+      typeParams = _terms typeParamTuple
+    typeParams ?= []
+    defs = pairsLeft isAtom, args
     # Syntax
     [names, typeArgLists] = unzip defs
     map (syntaxNewName 'Type constructor name required'), names
+    fieldTypes = []
     for typeArgs in typeArgLists
       if isRecord typeArgs
         for type in _snd unzip _labeled _terms typeArgs
+          fieldTypes.push type
           syntaxType type
       else
         typeArgs.label = 'malformed'
@@ -1079,19 +1090,19 @@ ms.data = ms_data = (ctx, call) ->
     dataName = ctx.definitionName()
 
     # Types, Arity
+    dataType = findDataType fieldTypes, typeParams, dataName
     for [constr, params] in defs
-      constrType = desiplifyType if params
-        join (_labeled _terms params).map(_snd).map(_symbol), [dataName]
+      constrType = if params
+        typeFn (join (_labeled _terms params).map(_snd).map(typeCompile), [dataType])...
       else
-        dataName
-      # TODO support polymorphic data
-      #log "Adding constructor #{constr.symbol}"
+        dataType
+      # log "Adding constructor #{constr.symbol}", constrType
       ctx.declare constr.symbol,
-        type: toForAll toConstrained constrType
+        type: quantifyUnbound ctx, toConstrained constrType
         arity: ((_labeled _terms params).map(_fst).map(_labelName) if params)
       constr.tea = constrType
     # We don't add binding to kind constructors, but maybe we need to
-    # ctx.addType dataName, typeConstant dataName
+    # ctx.addType dataName, dataType
 
     # Translate
     concat (for [constr, params] in defs
@@ -1107,6 +1118,30 @@ ms.data = ms_data = (ctx, call) ->
         else
           (jsNew identifier, []))
       (join (translateDict identifier, paramNames), [constrValue]))
+
+findDataType = (types, typeParams, dataName) ->
+  varNames = map _symbol, typeParams
+  varNameSet = arrayToSet varNames
+  kinds = newMap()
+  for type in types
+    for name, kind of values findFree typeCompile type
+      if not inSet varNameSet, name
+        malformed type, "Type variable #{name} not declared"
+      else
+        if foundKind = lookupInMap kinds, name
+          if not kindsEq foundKind, kind
+            malformed type, "Type variable #{name} must have the same kind"
+        else
+          addToMap kinds, name, kind
+
+  for typeParam in typeParams
+    if not lookupInMap kinds, (_symbol typeParam)
+      malformed typeParam, 'Data type parameter not used'
+
+  dataKind = kindFnOfArgs (map ((name) -> lookupInMap kinds, name), varNames)...
+  typeVars = mapToArrayVia ((name, kind) -> new TypeVariable name, kind), kinds
+  applyKindFn (new TypeConstr dataName, dataKind), typeVars...
+
 
 ms.record = ms_record = (ctx, call) ->
     args = _arguments call
@@ -1279,7 +1314,7 @@ assignMethodTypes = (ctx, instanceName, classDeclaration, instanceType, instance
 
 prefixWithInstanceName = (definitionPairs, instanceName) ->
   for [lhs, rhs] in definitionPairs
-    if (syntaxNewName lhs, 'Method name required') is true
+    if (syntaxNewName 'Method name required', lhs) is true
       [(token_ instancePrefix instanceName, lhs.symbol), rhs]
     else
       [lhs, rhs]
@@ -1426,6 +1461,7 @@ quantifyUnbound = (ctx, type) ->
 # returns deferred and retained constraints
 deferConstraints = (ctx, fixedVars, quantifiedVars, constraints) ->
   reducedConstraints = reduceConstraints ctx, constraints
+  throw new Error "could not reduce constraints in deferConstraints" unless reducedConstraints
   isFixed = (constraint) ->
     # log fixedVars, constraint, (findFree constraint)
     isSubset fixedVars, (findFree constraint)
@@ -1457,6 +1493,8 @@ normalizeConstraint = (ctx, constraint) ->
     if instanceContraints
       normalizeConstraints ctx, instanceContraints
     else
+      # TODO: propogate this as standard error
+      throw new Error "no instance found to satisfy #{printType constraint}"
       null
 
 simplifyConstraints = (ctx, constraints) ->
@@ -1482,7 +1520,7 @@ entail = (ctx, constraints, constraint) ->
 constraintsFromSuperClasses = (ctx, constraint) ->
   {className, type} = constraint
   join [constraint], concat (for s in (ctx.classNamed className).supers
-    bySuper ctx, new ClassContraint s, type)
+    constraintsFromSuperClasses ctx, new ClassContraint s, type)
 
 constraintsFromInstance = (ctx, constraint) ->
   {className, type} = constraint
@@ -1749,11 +1787,15 @@ irDefinitionTranslate = (ctx, {type, expression}) ->
   # TODO: what about the class dictionaries order?
   counter = {}
   classParams = newMap()
-  for {className, type} in reducedConstraints when not isAlreadyParametrized ctx, type
-    addToMap classParams, type.name,
+  for constraint in reducedConstraints when not isAlreadyParametrized ctx, constraint
+    {className, type} = constraint
+    typeMap = lookupInMap classParams, type.name
+    if not typeMap
+      addToMap classParams, type.name, (typeMap = newMap())
+    addToMap typeMap, className,
       "_#{className}_#{counter[className] ?= 0; ++counter[className]}"
   ctx.addClassParams classParams
-  classParamNames = mapToArray classParams
+  classParamNames = concatMap mapToArray, (mapToArray classParams)
   if _notEmpty classParamNames
     if expression.ir is irFunctionTranslate
       (irFunctionTranslate ctx,
@@ -1772,6 +1814,7 @@ irCall = (type, op, args) ->
 
 irCallTranslate = (ctx, {type, op, args}) ->
   finalType = substitute ctx.substitution, type
+  # log op, (printType type), printType finalType
   classParams =
     if op.ir is irMethodTranslate
       []
@@ -1784,6 +1827,7 @@ irMethod = (type, name) ->
 
 irMethodTranslate = (ctx, {type, name}) ->
   finalType = substitute ctx.substitution, type
+  # log "irmethod", name, finalType.constraints
   resolvedMethod =
     for dict in dictsForConstraint ctx, finalType.constraints
       (jsAccess dict, name)
@@ -1800,15 +1844,37 @@ dictsForConstraint = (ctx, constraints) ->
 
 dictForConstraint = (ctx, constraint) ->
   if constraint.type instanceof TypeVariable
-    ctx.classParamNameFor constraint.type.name
-  else if _notEmpty (constraints = constraintsFromInstance ctx, constraint)
+    (ctx.classParamNameFor constraint) or findSubClassParam ctx, constraint
+  else if _notEmpty (constraints = (constraintsFromInstance ctx, constraint) or [])
     (jsCall (instanceDictFor ctx, constraint),
       (dictsForConstraint ctx, constraints))
   else
     (instanceDictFor ctx, constraint)
 
-isAlreadyParametrized = (ctx, type) ->
-  !!ctx.classParamNameFor type.name
+findSubClassParam = (ctx, constraint) ->
+  toClassName = (c) -> c.className
+  for className, dict of values ctx.classParamsForType constraint
+    if chain = findSuperClassChain ctx, className, constraint.className
+      return accessList dict, chain
+  throw new Error "Couldn't find dict for #{printType constraint}"
+
+findSuperClassChain = (ctx, className, targetClassName) ->
+  for s in (ctx.classNamed className).supers
+    if s is targetClassName
+      return [s]
+    else if chain = findSuperClassChain ctx, s, targetClassName
+      return join [s], chain
+  undefined
+
+accessList = (what, list) ->
+  [first, rest...] = list
+  if first
+    accessList (jsAccess what, first), rest
+  else
+    what
+
+isAlreadyParametrized = (ctx, constraint) ->
+  !!ctx.classParamNameFor constraint
 
 instanceDictFor = (ctx, constraint) ->
   for {name, type} in (ctx.classNamed constraint.className).instances
@@ -2186,6 +2252,7 @@ validIdentifier = (name) ->
       .replace(/\-/g, '__')
       .replace(/\*/g, 'times_')
       .replace(/\//g, 'over_')
+      .replace(/\!/g, 'not_')
       .replace(/\=/g, 'eq_')
       .replace(/\</g, 'lt_')
       .replace(/\>/g, 'gt_')
@@ -2655,6 +2722,9 @@ setToArray = (set) ->
 mapToArray = (map) ->
   val for key, val of map.values
 
+mapToArrayVia = (fn, map) ->
+  (fn key, val) for key, val of map.values
+
 cloneSet =
 cloneMap = (set) ->
   clone = newSet()
@@ -2922,10 +2992,17 @@ _constraints = (type) ->
   type.constraints
 
 kindFn = (arity) ->
-  if arity is 1
-    new KindFn star, star
+  if arity is 0
+    star
   else
     new KindFn star, kindFn arity - 1
+
+# Return type is always a star, type classes don't use this function
+kindFnOfArgs = (arg, args...) ->
+  if not arg
+    star
+  else
+    new KindFn arg, kindFnOfArgs args...
 
 typeFn = (from, to, args...) ->
   if args.length is 0
@@ -2937,7 +3014,9 @@ typeFn = (from, to, args...) ->
     typeFn from, (typeFn to, args...)
 
 applyKindFn = (fn, arg, args...) ->
-  if args.length is 0
+  if not arg
+    fn
+  else if args.length is 0
     new TypeApp fn, arg
   else
     applyKindFn (applyKindFn fn, arg), args...
@@ -3465,7 +3544,25 @@ tests = [
           [fst snd] (show snd))))"""
   """(show ["Adam" "Michal"])""", "Michal"
 
-  # TODO: will need more work
+  'multiple constraints'
+  """
+    Show (class [a]
+      show (fn [x] (: (Fn a String))))
+
+    Hide (class [a]
+      hide (fn [x] (: (Fn a String))))
+
+    show-string (instance (Show String)
+      show (fn [x] x))
+
+    hide-string (instance (Hide String)
+      hide (fn [x] x))
+
+    f (fn [x]
+      (== (show x) (hide x)))
+  """
+  """(f "Hello")""", yes
+
   'superclasses'
   """
     Eq (class [a]
@@ -3479,7 +3576,8 @@ tests = [
       = (fn [x y]
         (match [x y]
           [True True] True
-          [False False] False)))
+          [False False] True
+          [w z] False)))
 
     ord-bool (instance (Ord Bool)
       <= (fn [x y]
@@ -3487,8 +3585,44 @@ tests = [
           [True any] True
           [w z] (= w z))))
 
+    test (fn [x]
+      (== (<= x x) (= x x)))
     """
-  """(<= "Michal" "Adam")""", no
+  """(test False)""", yes
+
+  'function with constrained result'
+  """
+    Eq (class [a]
+      = (fn [x y] (: (Fn a a Bool))))
+
+    != (fn [x y]
+      (not (= x y)))
+
+    not (fn [x]
+      (match x
+        False True
+        True False))
+
+    eq-bool (instance (Eq Bool)
+      = (fn [x y]
+        (match [x y]
+          [True True] True
+          [False False] True
+          [w z] False)))
+  """
+  "(!= False True)", yes
+
+  'polymorphic data'
+  """
+    Maybe (data [a]
+      None
+      Just [value: a])
+
+    from-just (fn [maybe]
+      (match maybe
+        (Just x) x))
+  """
+  "(from-just (Just 42))", 42
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
