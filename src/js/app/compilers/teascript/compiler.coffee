@@ -864,7 +864,7 @@ patternCompile = (ctx, pattern, matched) ->
 
   # Properly bind types according to the pattern
   if pattern.tea
-    # log pattern, matched, matched.tea, pattern.tea
+    # log "pattern", matched.tea, pattern.tea
     unify ctx, matched.tea.type, pattern.tea.type
 
   # log "pattern compiel", definedNames, pattern
@@ -1452,7 +1452,7 @@ simpleMacro = (macroFn) ->
 for jsMethod in ['binary', 'ternary', 'unary']
   do (jsMethod) ->
     ms["Js.#{jsMethod}"] = (ctx, call) ->
-      call.tea = "JS"
+      call.tea = toConstrained typeConstant "JS"
       (jsCall "js#{jsMethod[0].toUpperCase()}#{jsMethod[1...]}", (termsCompile ctx, _arguments call))
 
 ms['=='] = ms_eq = (ctx, call) ->
@@ -1563,7 +1563,7 @@ normalizeConstraint = (ctx, constraint) ->
       normalizeConstraints ctx, instanceContraints
     else
       # TODO: propogate this as standard error
-      throw new Error "no instance found to satisfy #{printType constraint}"
+      throw new Error "no instance found to satisfy #{safePrintType constraint}"
       null
 
 simplifyConstraints = (ctx, constraints) ->
@@ -1925,7 +1925,7 @@ findSubClassParam = (ctx, constraint) ->
   for className, dict of values ctx.classParamsForType constraint
     if chain = findSuperClassChain ctx, className, constraint.className
       return accessList dict, chain
-  throw new Error "Couldn't find dict for #{printType constraint}"
+  throw new Error "Couldn't find dict for #{safePrintType constraint}"
 
 findSuperClassChain = (ctx, className, targetClassName) ->
   for s in (ctx.classNamed className).supers
@@ -1950,7 +1950,7 @@ instanceDictFor = (ctx, constraint) ->
     # TODO: support lookup of composite types, by traversing left depth-first
     if type.type.type.name is constraint.type.name
       return validIdentifier name
-  throw new Error "no instance for #{printType constraint}"
+  throw new Error "no instance for #{safePrintType constraint}"
 
 irFunction = ({name, params, body}) ->
   {ir: irFunctionTranslate, name, params, body}
@@ -2921,7 +2921,7 @@ mostGeneralUnifier = (t1, t2) ->
     s2 = mostGeneralUnifier (substitute s1, t1.arg), (substitute s1, t2.arg)
     joinSubs s1, s2
   else
-    newMapWith "could not unify", [(printType t1), (printType t2)]
+    newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
 
 bindVariable = (variable, type) ->
   if type instanceof TypeVariable and variable.name is type.name
@@ -3008,7 +3008,7 @@ freshInstance = (ctx, type) ->
   (substitute freshes, type).type
 
 freshName = (nameIndex) ->
-  suffix = if nameIndex > 25 then freshName (Math.floor nameIndex / 25) - 1 else ''
+  suffix = if nameIndex >= 25 then freshName (Math.floor nameIndex / 25) - 1 else ''
   (String.fromCharCode 97 + nameIndex % 25) + suffix
 
 # Normalized constraint has a type which has type variable at its head
@@ -3164,6 +3164,12 @@ quantify = (vars, type) ->
 star = '*'
 arrowType = new TypeConstr 'Fn', kindFn 2
 arrayType = new TypeConstr 'Array', kindFn 1
+
+safePrintType = (type) ->
+  try
+    return printType type
+  catch e
+    return type.toString()
 
 printType = (type) ->
   if type instanceof TypeVariable
@@ -3797,8 +3803,6 @@ tests = [
   # This is necessary because we might be reusing the name for something else
   # Or we can just mangle the name like PureScript does it
 ]
-
-
 
 testNamed = (givenName) ->
   for [name, source, expression, result] in tuplize 4, tests when name is givenName
