@@ -459,7 +459,7 @@ callCompile = (ctx, call) ->
   operator = _operator call
   operatorName = _symbol operator
   if isName operator
-    (if operatorName of ctx.macros()
+    (if operatorName of ctx.macros() and not ctx.arity operatorName
       macroCompile
     else if (ctx.isDeclared operatorName) and not ctx.arity operatorName
       callUnknownCompile
@@ -491,6 +491,7 @@ isSimpleTranslated = (result) ->
 callUnknownCompile = (ctx, call) ->
   callUnknownTranslate ctx, (operatorCompile ctx, call), call
 
+# Also supports functional macros - macros with defined arity
 callKnownCompile = (ctx, call) ->
   operator = _operator call
   args = _labeled _arguments call
@@ -538,7 +539,11 @@ callKnownCompile = (ctx, call) ->
         retrieve call, lambda
         compiled
       else
-        compiled = callSaturatedKnownCompile ctx, sortedCall
+        compiled =
+          if operator.symbol of ctx.macros()
+            macroCompile ctx, sortedCall
+          else
+            callSaturatedKnownCompile ctx, sortedCall
         retrieve call, sortedCall
         compiled
 
@@ -3726,6 +3731,14 @@ tests = [
     if (macro [what then else]
       (: (Fn Bool a a a))
       (Js.ternary what then else))
+  """
+  "(if False 1 2)", 2
+
+  'currying functional macros'
+  """
+    * (macro [x y]
+      (: (Fn Num Num Num))
+      (Js.binary "*" x y))
   """
   "(if False 1 2)", 2
 
