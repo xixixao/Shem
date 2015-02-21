@@ -3576,19 +3576,6 @@ tests = [
     x)"""
   """(f True "a")""", yes
 
-  'fib'
-  """fibonacci (fn [month] (adults month))
-    adults (fn [month]
-      (match month
-        1 0
-        n (+ (adults previous-month) (babies previous-month)))
-      previous-month (- 1 month))
-    babies (fn [month]
-      (match month
-        1 1
-        n (adults (- 1 month))))"""
-    "(fibonacci 6)", 8
-
   'classes'
   """Show (class [a]
       show (fn [x] (: (Fn a String))))
@@ -3786,6 +3773,28 @@ tests = [
   """
   "(show 3)", '3'
 
+  'fib'
+  """fibonacci (fn [month] (adults month))
+
+    adults (fn [month]
+      (match month
+        1 0
+        n (+ (adults previous-month) (babies previous-month)))
+      previous-month (- 1 month))
+
+    babies (fn [month]
+      (match month
+        1 1
+        n (adults (- 1 month))))
+
+    + (macro [x y]
+      (: (Fn Num Num Num))
+      (Js.binary "+" x y))
+
+    - (macro [x y]
+      (: (Fn Num Num Num))
+      (Js.binary "-" y x))"""
+    "(fibonacci 7)", 8
 
 
   # TODO: support matching with the same name
