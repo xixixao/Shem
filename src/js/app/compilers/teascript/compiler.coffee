@@ -64,7 +64,7 @@ constantLabeling = (atom) ->
     ['string', /^"/.test symbol]
     ['char', /^\\/.test symbol]
     ['regex', /^\/[^ \/]/.test symbol]
-    ['const', /^[A-Z][^\s]*$/.test symbol] # TODO: instead label based on context
+    ['const', /^[A-Z][^\s\.]*$/.test symbol] # TODO: instead label based on context
     ['paren', symbol in ['(', ')']]
     ['bracket', symbol in ['[', ']']]
     ['brace', symbol in ['{', '}']]
@@ -1106,23 +1106,33 @@ ms.data = ms_data = (ctx, call) ->
     # Types, Arity
     dataType = findDataType fieldTypes, typeParams, dataName
     for [constr, params] in defs
+      paramTypes = (_labeled _terms params or []).map(_snd).map(typeCompile)
       constrType = if params
-        typeFn (join (_labeled _terms params).map(_snd).map(typeCompile), [dataType])...
+        typeFn (join paramTypes, [dataType])...
       else
         dataType
+      paramLabels = (_labeled _terms params or []).map(_fst).map(_labelName)
       # log "Adding constructor #{constr.symbol}", constrType
       ctx.declare constr.symbol,
         type: quantifyUnbound ctx, toConstrained constrType
-        arity: ((_labeled _terms params).map(_fst).map(_labelName) if params)
+        arity: (paramLabels if params)
       constr.tea = constrType
+
+      # Declare getters
+      for label, i in paramLabels
+        ctx.declare "#{constr.symbol}.#{label}",
+          arity: ["#{constr.symbol[0].toLowerCase()}#{constr.symbol[1...]}"]
+          type: quantifyUnbound ctx, toConstrained typeFn dataType, paramTypes[i]
     # We don't add binding to kind constructors, but maybe we need to
     # ctx.addType dataName, dataType
+
 
     # Translate
     concat (for [constr, params] in defs
       identifier = validIdentifier constr.symbol
-      paramNames = (_labeled _terms params or []).map(_fst).map(_labelName)
-        .map(validIdentifier)
+      paramLabels = (_labeled _terms params or []).map(_fst).map(_labelName)
+      paramNames = paramLabels.map(validIdentifier)
+
       constrValue = (jsAssignStatement "#{identifier}._value",
         if params
           (jsCall "λ#{paramNames.length}",
@@ -1987,7 +1997,7 @@ isCapital = (atom) ->
 
 isName = (expression) ->
   throw new Error "Nothing passed to isName" unless expression
-  (isAtom expression) and expression.symbol is '~' or /[^~"'\/].*/.test expression.symbol
+  (isAtom expression) and (expression.symbol is '~' or /[^~"'\/].*/.test expression.symbol)
 
 isAtom = (expression) ->
   not (Array.isArray expression)
@@ -2316,6 +2326,8 @@ validIdentifier = (name) ->
   else
     (if inSet reservedInJs, name
       "#{name}_"
+    else if name is '.'
+      "dot_"
     else
       name)
       .replace(/\+/g, 'plus_')
@@ -2328,7 +2340,7 @@ validIdentifier = (name) ->
       .replace(/\>/g, 'gt_')
       .replace(/\~/g, 'neg_')
       # .replace(/\√/g, 'sqrt_')
-      .replace(/\./g, 'dot_')
+      # .replace(/\./g, 'dot_')
       .replace(/\&/g, 'and_')
       .replace(/\?/g, 'p_')
       .replace(/^const$/, 'const_')
@@ -3739,8 +3751,20 @@ tests = [
     * (macro [x y]
       (: (Fn Num Num Num))
       (Js.binary "*" x y))
+
+    f (* 2)
   """
-  "(if False 1 2)", 2
+  "(f 3)", 6
+
+  'getters'
+  """
+    Person (record
+      first: String last: String)
+
+    jack (Person "Jack" "Jack")
+  """
+  "(== (Person.first jack) (Person.last jack))", yes
+
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
