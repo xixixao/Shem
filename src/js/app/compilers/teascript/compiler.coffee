@@ -59,7 +59,7 @@ delims = '(': ')', '[': ']', '{': '}'
 constantLabeling = (atom) ->
   {symbol} = atom
   labelMapping atom,
-    ['numerical', /^-?\d+/.test symbol]
+    ['numerical', /^~?\d+/.test symbol]
     ['label', isLabel atom]
     ['string', /^"/.test symbol]
     ['char', /^\\/.test symbol]
@@ -69,6 +69,12 @@ constantLabeling = (atom) ->
     ['bracket', symbol in ['[', ']']]
     ['brace', symbol in ['{', '}']]
     ['whitespace', /^\s+$/.test symbol]
+
+labelMapping = (word, rules...) ->
+  for [label, cond] in rules when cond
+    word.label = label
+    return word
+  word
 
 isCollectionDelim = (atom) ->
   atom.label in ['bracket', 'brace']
@@ -150,6 +156,9 @@ class Context
 
   macros: ->
     @_macros
+
+  addMacro: (name, macro) ->
+    @_macros[name] = macro
 
   definePattern: (pattern) ->
     if @isDefining()
@@ -461,7 +470,7 @@ callCompile = (ctx, call) ->
     if isTranslated expandedOp
       callUnknownTranslate ctx, expandedOp, call
     else
-      expressionCompile replicate call,
+      expressionCompile ctx, replicate call,
         (call_ (join [expandedOp], (_arguments call)))
 
 macroCompile = (ctx, call) ->
@@ -1109,7 +1118,7 @@ ms.data = ms_data = (ctx, call) ->
       identifier = validIdentifier constr.symbol
       paramNames = (_labeled _terms params or []).map(_fst).map(_labelName)
         .map(validIdentifier)
-      constrValue = (jsAssignStatement "#{identifier}.value",
+      constrValue = (jsAssignStatement "#{identifier}._value",
         if params
           (jsCall "λ#{paramNames.length}",
             [(jsFunction
@@ -1396,6 +1405,41 @@ ms.match = ms_match = (ctx, call) ->
       varList varNames
       compiledCases])
 
+ms.macro = ms_macro = (ctx, call) ->
+  hasName = requireName ctx, 'Name required to declare a new instance'
+  [paramTuple, type, rest...] = _arguments call
+
+  if hasName
+    macroName = ctx.definitionName()
+    if ctx.macros()[macroName]
+      malformed call, "Macro with this name already defined"
+
+    # Register type
+    ctx.declare macroName,
+      arity: (map _symbol, _terms paramTuple)
+      type: quantifyUnbound ctx, typeConstrainedCompile type
+
+    #macroFn = transform call
+    compiledMacro = translateToJs translateIr ctx,
+      (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], rest))
+    # log compiledMacro
+    ctx.addMacro macroName, simpleMacro eval compiledMacro
+
+    jsNoop()
+
+simpleMacro = (macroFn) ->
+  (ctx, call) ->
+    operatorCompile ctx, call
+    args = termsCompile ctx, (_arguments call)[0..macroFn.length]
+    callTyping ctx, call
+    assignCompile ctx, call, macroFn args...
+
+for jsMethod in ['binary', 'ternary', 'unary']
+  do (jsMethod) ->
+    ms["Js.#{jsMethod}"] = (ctx, call) ->
+      call.tea = "JS"
+      (jsCall "js#{jsMethod[0].toUpperCase()}#{jsMethod[1...]}", (termsCompile ctx, _arguments call))
+
 ms['=='] = ms_eq = (ctx, call) ->
     [a, b] = _arguments call
     operatorCompile ctx, call
@@ -1404,6 +1448,16 @@ ms['=='] = ms_eq = (ctx, call) ->
 
     callTyping ctx, call
     assignCompile ctx, call, (jsBinary "===", compiledA, compiledB)
+
+# Before assign the correct type to plus
+# ms['+'] = ms_plus = (ctx, call) ->
+#     [open, op, x, y] = call
+#     operatorCompile ctx, call
+#     compiled_x = termCompile ctx, x
+#     compiled_b = termCompile ctx, y
+
+#     callTyping ctx, call
+#     assignCompile ctx, call, (jsBinary "+", compiled_x, compiled_b)
 
 builtInMacros = ms
 
@@ -1677,14 +1731,14 @@ nameTranslate = (ctx, atom, symbol, type) ->
       when 'True' then 'true'
       when 'False' then 'false'
       else
-        (jsAccess (validIdentifier symbol), "value")
+        (jsAccess (validIdentifier symbol), "_value")
   else if ctx.isMethod symbol, type
     (irMethod type, symbol)
   else
     validIdentifier symbol
 
 numericalCompile = (ctx, symbol) ->
-  translation = if symbol[0] is '~' then (jsUnary "-", symbol) else symbol
+  translation = if symbol[0] is '~' then (jsUnary "-", symbol[1...]) else symbol
   type: toConstrained typeConstant 'Num'
   translation: translation
   pattern: literalPattern ctx, translation
@@ -1890,7 +1944,7 @@ irFunctionTranslate = (ctx, {name, params, body}) ->
   (jsCall "λ#{params.length}", [
     (jsFunction
       name: (validIdentifier name if name)
-      params: params
+      params: map validIdentifier, params
       body: translateIr ctx, body)])
 
 isTypeConstraint = (expression) ->
@@ -1928,7 +1982,7 @@ isCapital = (atom) ->
 
 isName = (expression) ->
   throw new Error "Nothing passed to isName" unless expression
-  (isAtom expression) and /[^~"'\/].*/.test expression.symbol
+  (isAtom expression) and expression.symbol is '~' or /[^~"'\/].*/.test expression.symbol
 
 isAtom = (expression) ->
   not (Array.isArray expression)
@@ -2108,11 +2162,25 @@ jsNewTranslate = ({classFun, args}) ->
   "new #{classFun}(#{listOf args})"
 
 
+jsNoop = ->
+  {js: jsNoopTranslate}
+
+jsNoopTranslate = ->
+  ""
+
+
 jsReturn = (arg) ->
   {js: jsReturnTranslate, arg}
 
 jsReturnTranslate = ({arg}) ->
   "return #{arg};"
+
+
+jsTernary = (cond, thenExp, elseExp) ->
+  {js: jsTernaryTranslate, cond, thenExp, elseExp}
+
+jsTernaryTranslate = ({cond, thenExp, elseExp}) ->
+  "#{cond} ? #{thenExp} : #{elseExp}"
 
 
 jsUnary = (op, arg) ->
@@ -2168,12 +2236,6 @@ theme =
 
 colorize = (color, string) ->
   "<span style=\"color: #{color}\">#{string}</span>"
-
-labelMapping = (word, rules...) ->
-  for [label, cond] in rules when cond
-    word.label = label
-    return word
-  word
 
 # TODO: support require
 # Ideally shouldnt have to, just doing it to get around the def checking
@@ -2247,7 +2309,10 @@ validIdentifier = (name) ->
   if firstChar is '/'
     throw new Error "Identifier expected, but found regex #{name}"
   else
-    name
+    (if inSet reservedInJs, name
+      "#{name}_"
+    else
+      name)
       .replace(/\+/g, 'plus_')
       .replace(/\-/g, '__')
       .replace(/\*/g, 'times_')
@@ -2256,6 +2321,7 @@ validIdentifier = (name) ->
       .replace(/\=/g, 'eq_')
       .replace(/\</g, 'lt_')
       .replace(/\>/g, 'gt_')
+      .replace(/\~/g, 'neg_')
       # .replace(/\√/g, 'sqrt_')
       .replace(/\./g, 'dot_')
       .replace(/\&/g, 'and_')
@@ -3254,6 +3320,20 @@ var from__nullable = function (jsValue) {
 ;
 """
 
+
+# Add library to compile for running macros
+eval library
+
+# JS Reserved words
+
+reservedInJs = newSetWith ("abstract arguments boolean break byte case catch char class " +
+  "const continue debugger default delete do double else enum eval export " +
+  "extends final finally float for function goto if implements import in " +
+  "instanceof int interface let long native new null package private protected " +
+  "public return short static super switch synchronized this throw throws transient " +
+  "try typeof var void volatile while with yield").split(' ')...
+
+
 # API
 
 syntaxedExpHtml = (string) ->
@@ -3623,6 +3703,31 @@ tests = [
         (Just x) x))
   """
   "(from-just (Just 42))", 42
+
+  'js unary op'
+  """
+    ~ (macro [x]
+      (: (Fn Num Num))
+      (Js.unary "-" x))
+    x ~42
+  """
+  "(~ x)", 42
+
+  'js binary op'
+  """
+    + (macro [x y]
+      (: (Fn Num Num Num))
+      (Js.binary "+" x y))
+  """
+  "(+ 1 2)", 3
+
+  'js cond'
+  """
+    if (macro [what then else]
+      (: (Fn Bool a a a))
+      (Js.ternary what then else))
+  """
+  "(if False 1 2)", 2
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
