@@ -8,7 +8,7 @@ tokenize = (input, initPos = 0) ->
       | \n # newline
       | [#{controls}] # delims
       | /([^\\x20]|\\/)([^/]|\\/)*?/ # regex
-      | "[^"]*?" # strings
+      | "(?:[^"\\]|\\.)*" # strings
       | \\[^\x20] # char
       | [^#{controls}"'\s]+ # normal tokens
       )///
@@ -3764,6 +3764,22 @@ tests = [
     jack (Person "Jack" "Jack")
   """
   "(== (Person.first jack) (Person.last jack))", yes
+
+  'macros in instances'
+  """
+    Show (class [a]
+      show (fn [x] (: (Fn a String))))
+
+    num-to-string (macro [n]
+      (: (Fn Num String))
+      (Js.binary "+" n "\\"\\""))
+
+    show-num (instance (Show Num)
+      show (fn [x]
+        (num-to-string x)))
+  """
+  "(show 3)", '3'
+
 
 
   # TODO: support matching with the same name
