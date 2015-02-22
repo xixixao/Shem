@@ -760,15 +760,22 @@ hashmapCompile = (ctx, form) ->
     keys = (map (__ string_, _labelName), labels)
     assignCompile ctx, form, (irMap keys, compiledItems)
 
-uniformCollectionCompile = (ctx, form, items, collectionType) ->
+
+uniformCollectionCompile = (ctx, form, items, collectionType, moreConstraints = []) ->
+  {constraints, itemType, compiled} = uniformCollectionItemsCompile ctx, items
+  form.label = 'operator' if not isCall form
+  form.tea = new Constrained (join moreConstraints, constraints),
+      new TypeApp collectionType, itemType
+  compiled
+
+uniformCollectionItemsCompile = (ctx, items) ->
   itemType = ctx.freshTypeVariable star
   compiledItems = termsCompile ctx, items
   for item in items
     unify ctx, itemType, item.tea.type
-  form.label = 'operator' if not isCall form
-  form.tea = new Constrained (concatMap _constraints, (tea for {tea} in items)),
-    new TypeApp collectionType, itemType
-  compiledItems
+  constraints: (concatMap _constraints, (tea for {tea} in items))
+  itemType: itemType
+  compiled: compiledItems
 
 # arrayToConses = (elems) ->
 #   if elems.length is 0
@@ -1497,6 +1504,21 @@ ms.Set = ms_Set = (ctx, call) ->
     items = _arguments call
     compiledItems = uniformCollectionCompile ctx, call, items, hashsetType
     assignCompile ctx, call, (irSet compiledItems)
+
+ms.Map = ms_Map = (ctx, call) ->
+  if hashset = ctx.assignTo()
+    # TODO:
+    throw new Error "matching on sets not supported yet"
+  else
+    args = _arguments call
+    if args.length % 2 != 0
+      malformed args[args.length - 1], 'Missing value for key'
+    [labels, items] = unzip pairs args
+    compiledLabels = uniformCollectionItemsCompile ctx, labels
+    keyType = applyKindFn hashmapType, compiledLabels.itemType
+    compiledItems = uniformCollectionCompile ctx, call, items, keyType,
+      compiledLabels.constraints
+    assignCompile ctx, call, (irMap compiledLabels.compiled, compiledItems)
 
 # Before assign the correct type to plus
 # ms['+'] = ms_plus = (ctx, call) ->
@@ -3971,6 +3993,17 @@ tests = [
       (Js.call (Js.access in "has") {what}))
   """
   """(elem? "a" data)""", yes
+
+  'create Map'
+  """
+    data (Map 3 "a" 5 "b")
+
+    at (macro [key in]
+      (: (Fn k (Map k i) i))
+      (Js.call (Js.access in "get") {key}))
+  """
+  """(at 5 data)""", 'b'
+
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
