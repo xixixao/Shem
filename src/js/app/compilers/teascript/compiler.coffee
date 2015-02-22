@@ -720,7 +720,7 @@ seqCompile = (ctx, form) ->
     elemType = ctx.freshTypeVariable star
     # TODO use (Seq c e) instead of (Array e)
     form.tea = new Constrained (concatMap _constraints, elems),
-      new TypeApp arrayType, elemType
+      new TypeApp listType, elemType
 
     for elem in elems
       unify ctx, elem.tea.type,
@@ -739,8 +739,8 @@ seqCompile = (ctx, form) ->
     # expressionCompile ctx, arrayToConses elems
     # result =>         "[#{listOf map _compiled, elems}]"
 
-    compiledItems = uniformCollectionCompile ctx, form, elems, arrayType
-    assignCompile ctx, form, (jsArray compiledItems)
+    compiledItems = uniformCollectionCompile ctx, form, elems, listType
+    assignCompile ctx, form, (irList compiledItems)
 
 isSplat = (expression) ->
   (isAtom expression) and (_symbol expression)[...2] is '..'
@@ -1474,7 +1474,11 @@ for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call']
   do (jsMethod) ->
     ms["Js.#{jsMethod}"] = (ctx, call) ->
       call.tea = toConstrained typeConstant "JS"
-      (jsCall "js#{jsMethod[0].toUpperCase()}#{jsMethod[1...]}", (termsCompile ctx, _arguments call))
+      terms = _arguments call
+      compatibles = (for term, i in terms
+        compiled = termCompile ctx, term
+        (irJsCompatible term.tea, compiled))
+      (jsCall "js#{jsMethod[0].toUpperCase()}#{jsMethod[1...]}", compatibles)
 
 ms['=='] = ms_eq = (ctx, call) ->
     [a, b] = _arguments call
@@ -1624,8 +1628,8 @@ constraintsFromSuperClasses = (ctx, constraint) ->
 constraintsFromInstance = (ctx, constraint) ->
   {className, type} = constraint
   for instance in (ctx.classNamed className).instances
-    substitution = matchType instance.type.type.type, constraint.type
-    if not lookupInMap substitution, "could not unify"
+    substitution = toMatchTypes instance.type.type.type, constraint.type
+    if substitution
       return map ((c) -> substitute substitution, c), instance.type.constraints
   null
 
@@ -1996,6 +2000,14 @@ irFunctionTranslate = (ctx, {name, params, body}) ->
       body: translateIr ctx, body)])
 
 
+irList = (items) ->
+  {ir: irListTranslate, items}
+
+irListTranslate = (ctx, {items}) ->
+  (jsCall "Immutable.List.of", items)
+
+
+
 irMap = (keys, elems) ->
   {ir: irMapTranslate, keys, elems}
 
@@ -2008,6 +2020,25 @@ irSet = (items) ->
 
 irSetTranslate = (ctx, {items}) ->
   (jsCall "Immutable.Set", items)
+
+
+irJsCompatible = (type, expression) ->
+  {ir: irJsCompatibleTranslate, type, expression}
+
+irJsCompatibleTranslate = (ctx, {type, expression}) ->
+  finalType = substitute ctx.substitution, type
+  translated = translateIr ctx, expression
+  if isCustomCollectionType finalType
+    (jsCall (jsAccess translated, 'toJS'), [])
+  else
+    translated
+
+isCustomCollectionType = ({type}) ->
+  helpContext = new Context
+  newVar = -> helpContext.freshTypeVariable star
+  (toMatchTypes (applyKindFn listType, newVar()), type) or
+    (toMatchTypes (applyKindFn hashmapType, newVar(), newVar()), type) or
+    (toMatchTypes (applyKindFn hashsetType, newVar()), type)
 
 
 isTypeConstraint = (expression) ->
@@ -2989,6 +3020,15 @@ bindVariable = (variable, type) ->
   else
     newMapWith variable.name, type
 
+# Maybe substitution if the types match
+# t1 can be more general than t2
+toMatchTypes = (t1, t2) ->
+  substitution = matchType t1, t2
+  if not lookupInMap substitution, "could not unify"
+    substitution
+  else
+    null
+
 # Returns a substitution
 matchType = (t1, t2) ->
   if t1 instanceof TypeVariable and kindsEq (kind t1), (kind t2)
@@ -3219,7 +3259,7 @@ quantify = (vars, type) ->
 
 star = '*'
 arrowType = new TypeConstr 'Fn', kindFn 2
-arrayType = new TypeConstr 'Array', kindFn 1
+listType = new TypeConstr 'List', kindFn 1
 hashmapType = new TypeConstr 'Map', kindFn 2
 hashsetType = new TypeConstr 'Set', kindFn 1
 stringType = typeConstant 'String'
@@ -3314,6 +3354,12 @@ var seq_size = function (xs) {
 var seq_at = function (i, xs) {
   if (typeof xs === "undefined" || xs === null) {
     throw new Error('Pattern matching required sequence got undefined');
+  }
+  if (Immutable.List.isList(xs)) {
+    if (i >= xs.size) {
+      throw new Error('Pattern matching required a list of size at least ' + (i + 1));
+    }
+    return xs.get(i);
   }
   if (xs.length !== null) {
     if (i >= xs.length) {
@@ -3617,10 +3663,13 @@ tests = [
 
   'composite data'
   """Person (data
-    Baby
-    Adult [name: String])
+      Baby
+      Adult [name: String])
+
     a (Adult "Adam")
+
     b Baby
+
     name (fn [person]
       (match person
         (Adult name) name))"""
@@ -3628,6 +3677,7 @@ tests = [
 
   'records'
   """Person (record name: String id: Num)
+
     name (fn [person]
       (match person
         (Person name id) name))"""
@@ -3956,7 +4006,7 @@ debug = (fun) ->
 
 runTests = (tests) ->
   for [name, source, expression, result] in tuplize 4, tests
-    test name, source + " " + expression, result
+    test name, source + "\n" + expression, result
   "Finished"
 # end of tests
 
