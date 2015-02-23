@@ -139,7 +139,7 @@ mapSyntax = (fn, string) ->
 
 class Context
   constructor: ->
-    @_macros = builtInMacros
+    @_macros = builtInMacros()
     @expand = {}
     @definitions = []
     @_isOperator = []
@@ -150,6 +150,7 @@ class Context
     @cacheScopes = [[]]
     @_assignTos = []
     topScope = @_augmentScope builtInContext()
+    topScope.typeNames = builtInTypeNames()
     topScope.topLevel = yes
     @scopes = [topScope]
     @classParams = newMap()
@@ -276,6 +277,7 @@ class Context
     scope.deferredBindings = []
     scope.boundTypeVariables = newSet()
     scope.classes = newMap()
+    scope.typeNames = newMap()
     scope
 
   newLateScope: ->
@@ -290,6 +292,14 @@ class Context
 
   isInTopScope: ->
     @_scope().topLevel
+
+  addTypeName: ({name, kind}) ->
+    addToMap @_scope().typeNames, name, kind
+
+  kindOfTypeName: (name) ->
+    for scope in (reverse @scopes)
+      if kind = lookupInMap scope.typeNames, name
+        return kind
 
   bindTypeVariables: (vars) ->
     addAllToSet @_scope().boundTypeVariables, vars
@@ -784,11 +794,11 @@ uniformCollectionItemsCompile = (ctx, items) ->
 #     [x, xs...] = elems
 #     (call_ (token_ 'cons-array'), [x, (arrayToConses xs)])
 
-typeConstrainedCompile = (call) ->
+typeConstrainedCompile = (ctx, call) ->
   [type, constraints...] = _arguments call
-  new Constrained (typeConstraintsCompile constraints), typeCompile type
+  new Constrained (typeConstraintsCompile ctx, constraints), (typeCompile ctx, type)
 
-typeCompile = (expression) ->
+typeCompile = (ctx, expression) ->
   throw new Error "invalid typeCompile args" unless expression
   (if isAtom expression
     typeConstantCompile
@@ -798,19 +808,19 @@ typeCompile = (expression) ->
     typeConstructorCompile
   else
     malformed expression, 'not a valid type'
-  )? expression
+  )? ctx, expression
 
-typesCompile = (expressions) ->
-  map typeCompile, expressions
+typesCompile = (ctx, expressions) ->
+  typeCompile ctx, e for e in expressions
 
-typeConstructorCompile = (call) ->
+typeConstructorCompile = (ctx, call) ->
   op = _operator call
   args = _arguments call
 
   if isAtom op
     op.label = 'operator'
     name = op.symbol
-    compiledArgs = typesCompile args
+    compiledArgs = typesCompile ctx, args
     if name is 'Fn'
       typeFn compiledArgs...
     else
@@ -819,30 +829,36 @@ typeConstructorCompile = (call) ->
   else
     malformed op, 'Should use a type constructor here'
 
-typeConstraintCompile = (expression) ->
+typeConstraintCompile = (ctx, expression) ->
   op = _operator expression
   args = _arguments expression
   if isCall expression
     if isAtom op
       op.label = 'operator'
-      new ClassContraint op.symbol, typeCompile args[0] # TODO: support multiparameter type classes
+      new ClassContraint op.symbol, (typeCompile ctx, args[0]) # TODO: support multiparameter type classes
     else
       malformed expression, 'Class name required in a constraint'
   else
     malformed expression, 'Class constraint expected'
 
-typeConstraintsCompile = (expressions) ->
+typeConstraintsCompile = (ctx, expressions) ->
   filter ((t) -> t instanceof ClassContraint),
-    (map typeConstraintCompile, expressions)
+    (typeConstraintCompile ctx, e for e in expressions)
 
-typeTupleCompile = (form) ->
+typeTupleCompile = (ctx, form) ->
   form.label = 'operator'
   elemTypes = _terms form
-  applyKindFn (tupleType elemTypes.length), (typesCompile elemTypes)...
+  applyKindFn (tupleType elemTypes.length), (typesCompile ctx, elemTypes)...
 
-typeConstantCompile = (atom) ->
+typeConstantCompile = (ctx, atom) ->
   atom.label = 'typename'
-  atomicType atom.symbol, star
+  kind =
+    if isCapital atom
+      ctx.kindOfTypeName atom.symbol
+    else
+      star
+  throw new Error "type name #{atom.symbol} was not defined" unless kind
+  atomicType atom.symbol, kind
 
 # Inside definition, we call assignCompile with its RHS
 #   whether to call it and with what expression is left to the RHS expression
@@ -1030,7 +1046,7 @@ ms.fn = ms_fn = (ctx, call) ->
       malformed call, 'Missing function result'
     else
       [docs, defs] = partition isComment, defs
-      if isTypeConstraint defs[0]
+      if isTypeAnnotation defs[0]
         [type, body, wheres...] = defs
       else
         [body, wheres...] = defs
@@ -1042,7 +1058,7 @@ ms.fn = ms_fn = (ctx, call) ->
         ctx.declareArity ctx.definitionName(), paramNames
         # Explicit typing
         if type
-          explicitType = quantifyUnbound ctx, typeConstrainedCompile type
+          explicitType = quantifyUnbound ctx, typeConstrainedCompile ctx, type
           ctx.assignType ctx.definitionName(), explicitType
 
       paramTypeVars = map (-> ctx.freshTypeVariable star), params
@@ -1132,9 +1148,9 @@ ms.data = ms_data = (ctx, call) ->
     dataName = ctx.definitionName()
 
     # Types, Arity
-    dataType = findDataType fieldTypes, typeParams, dataName
+    dataType = findDataType ctx, fieldTypes, typeParams, dataName
     for [constr, params] in defs
-      paramTypes = (_labeled _terms params or []).map(_snd).map(typeCompile)
+      paramTypes = typesCompile ctx, (map _snd, (_labeled _terms params or []))
       constrType = if params
         typeFn (join paramTypes, [dataType])...
       else
@@ -1151,9 +1167,9 @@ ms.data = ms_data = (ctx, call) ->
         ctx.declare "#{constr.symbol}.#{label}",
           arity: ["#{constr.symbol[0].toLowerCase()}#{constr.symbol[1...]}"]
           type: quantifyUnbound ctx, toConstrained typeFn dataType, paramTypes[i]
-    # We don't add binding to kind constructors, but maybe we need to
-    # ctx.addType dataName, dataType
 
+    # We don't add binding to kind constructors, but maybe we need to
+    ctx.addTypeName dataType
 
     # Translate
     concat (for [constr, params] in defs
@@ -1171,12 +1187,12 @@ ms.data = ms_data = (ctx, call) ->
           (jsNew identifier, []))
       (join (translateDict identifier, paramNames), [constrValue]))
 
-findDataType = (types, typeParams, dataName) ->
+findDataType = (ctx, types, typeParams, dataName) ->
   varNames = map _symbol, typeParams
   varNameSet = arrayToSet varNames
   kinds = newMap()
   for type in types
-    for name, kind of values findFree typeCompile type
+    for name, kind of values findFree typeCompile ctx, type
       if not inSet varNameSet, name
         malformed type, "Type variable #{name} not declared"
       else
@@ -1234,7 +1250,7 @@ ms.class = ms_class = (ctx, call) ->
       wheres = defs
       constraints = []
     else
-      constraints = typeConstraintsCompile _terms constraintSeq
+      constraints = typeConstraintsCompile ctx, _terms constraintSeq
 
     superClasses = map (({className}) -> className), constraints
 
@@ -1285,7 +1301,8 @@ findClassType = (className, paramNames, methods) ->
 
 declareMethods = (ctx, classConstraint, methodDeclarations) ->
   for name, {arity, type} of values methodDeclarations
-    type = quantifyUnbound ctx, addConstraints type.type, [classConstraint]
+    type = quantifyUnbound ctx,
+      (addConstraints (freshInstance ctx, type), [classConstraint])
     ctx.declare name, {arity, type}
   return
 
@@ -1296,13 +1313,13 @@ ms.instance = ms_instance = (ctx, call) ->
     if not isCall instanceConstraint
       return malformed call, 'Instance requires a class constraint'
     else
-      instanceType = typeConstraintCompile instanceConstraint
+      instanceType = typeConstraintCompile ctx, instanceConstraint
     [constraintSeq, wheres...] = defs
     if not isSeq constraintSeq
       wheres = defs
       constraints = []
     else
-      constraints = typeConstraintsCompile _terms constraintSeq
+      constraints = typeConstraintsCompile ctx, _terms constraintSeq
 
     # TODO: defer if class does not exist
     className = instanceType.className
@@ -1455,12 +1472,14 @@ ms.macro = ms_macro = (ctx, call) ->
   if hasName
     macroName = ctx.definitionName()
     if ctx.macros()[macroName]
-      malformed call, "Macro with this name already defined"
+      return malformed call, "Macro with this name already defined"
+    if not isTypeAnnotation type
+      return malformed call, "Type annotation required"
 
     # Register type
     ctx.declare macroName,
       arity: (map _symbol, _terms paramTuple)
-      type: quantifyUnbound ctx, typeConstrainedCompile type
+      type: quantifyUnbound ctx, typeConstrainedCompile ctx, type
 
     #macroFn = transform call
     compiledMacro = translateToJs translateIr ctx,
@@ -1530,7 +1549,11 @@ ms.Map = ms_Map = (ctx, call) ->
 #     callTyping ctx, call
 #     assignCompile ctx, call, (jsBinary "+", compiled_x, compiled_b)
 
-builtInMacros = ms
+builtInMacros = ->
+  copy = {}
+  for key, val of ms
+    copy[key] = val
+  copy
 
 
 # Creates the condition and body of a branch inside match macro
@@ -2063,7 +2086,7 @@ isCustomCollectionType = ({type}) ->
     (toMatchTypes (applyKindFn hashsetType, newVar()), type)
 
 
-isTypeConstraint = (expression) ->
+isTypeAnnotation = (expression) ->
   (isCall expression) and (':' is _symbol _operator expression)
 
 isComment = (expression) ->
@@ -2819,42 +2842,58 @@ expandBuiltings invertedBinaryOpMapping, (to) ->
 binaryMathOpType = '(Fn Num Num Num)'
 comparatorOpType = '(Fn a a Bool)'
 
+builtInTypeNames = ->
+  arrayToMap map (({name, kind}) -> [name, kind]), [
+    arrowType
+    listType
+    hashmapType
+    hashsetType
+    stringType
+    boolType
+    numType
+  ]
+
 builtInContext = ->
-  concatMaps (mapMap desiplifyTypeAndArity, newMapWith 'True', 'Bool',
-    'False', 'Bool'
-    '&', '(Fn a b b)' # TODO: replace with actual type
-    'show-list', '(Fn a b)' # TODO: replace with actual type
-    'from-nullable', '(Fn a b)' # TODO: replace with actual type JS -> Maybe a
+  newMapWith 'True', (type: (quantifyAll toConstrained boolType), arity: []),
+      'False', (type: (quantifyAll toConstrained boolType), arity: [])
+      '==', (
+        type: (quantifyAll toConstrained (typeFn (atomicType 'a', star), (atomicType 'a', star), boolType)),
+        arity: ['x', 'y'])
+  # concatMaps (mapMap desiplifyTypeAndArity, newMapWith '&', '(Fn a b b)', # TODO: replace with actual type
+  #   'show-list', '(Fn a b)' # TODO: replace with actual type
+  #   'from-nullable', '(Fn a b)' # TODO: replace with actual type JS -> Maybe a
 
-    # TODO match
+  # TODO match
 
-    # 'if', '(Fn Bool a a a)'
-    # TODO JS interop
+  # 'if', '(Fn Bool a a a)'
+  # TODO JS interop
 
-    # 'sqrt', '(Fn Num Num)'
-    # 'not', '(Fn Bool Bool)'
+  # 'sqrt', '(Fn Num Num)'
+  # 'not', '(Fn Bool Bool)'
 
-    # '^', binaryMathOpType
+  # '^', binaryMathOpType
 
-    # '~', '(Fn Num Num)'
+  # '~', '(Fn Num Num)'
 
-    # '+', binaryMathOpType
-    # '*', binaryMathOpType
-    '==', comparatorOpType
-    # '!=', comparatorOpType
-    # 'and', '(Fn Bool Bool Bool)'
-    # 'or', '(Fn Bool Bool Bool)'
+  # '+', binaryMathOpType
+  # '*', binaryMathOpType
+  # '==', comparatorOpType
+  # '!=', comparatorOpType
+  # 'and', '(Fn Bool Bool Bool)'
+  # 'or', '(Fn Bool Bool Bool)'
 
-    # '-', binaryMathOpType
-    # '/', binaryMathOpType
-    # 'rem', binaryMathOpType
-    # '<', comparatorOpType
-    # '>', comparatorOpType
-    # '<=', comparatorOpType
-    # '>=', comparatorOpType
-    ),
-    newMapWith 'empty-array', (type: (parseUnConstrainedType '(Fn (Array a))'), arity: [])
-      'cons-array', (type: (parseUnConstrainedType '(Fn a (Array a) (Array a))'), arity: ['what', 'onto'])
+  # '-', binaryMathOpType
+  # '/', binaryMathOpType
+  # 'rem', binaryMathOpType
+  # '<', comparatorOpType
+  # '>', comparatorOpType
+  # '<=', comparatorOpType
+  # '>=', comparatorOpType
+  # ),
+  # newMapWith 'True', (type: boolType, arity: [])
+  #   'False', (type: boolType, arity: [])
+  #   'empty-array', (type: (parseUnConstrainedType '(Fn (Array a))'), arity: [])
+  #   'cons-array', (type: (parseUnConstrainedType '(Fn a (Array a) (Array a))'), arity: ['what', 'onto'])
 
 desiplifyTypeAndArity = (simple) ->
   type = parseUnConstrainedType simple
@@ -2992,6 +3031,12 @@ subtractMaps = (from, what) ->
 arrayToSet = (array) ->
   addAllToSet newSet(), array
 
+arrayToMap = (pairs) ->
+  created = newMap()
+  for [key, value] in pairs
+    addToMap created, key, value
+  created
+
 values = (map) ->
   map.values
 
@@ -3036,9 +3081,9 @@ bindVariable = (variable, type) ->
   if type instanceof TypeVariable and variable.name is type.name
     emptySubstitution()
   else if inSet (findFree type), variable.name
-    newSetWith variable.name, "occurs check failed"
+    newMapWith variable.name, "occurs check failed"
   else if not kindsEq (kind variable), (kind type)
-    newSetWith variable.name, "kinds don't match for #{variable.name}"
+    newMapWith variable.name, "kinds don't match for #{variable.name} and #{safePrintType type}"
   else
     newMapWith variable.name, type
 
@@ -3063,9 +3108,9 @@ matchType = (t1, t2) ->
     s2 = matchType t1.arg, t2.arg
     s3 = mergeSubs s1, s2
     s3 or
-      newMapWith "could not unify", [(printType t1), (printType t2)]
+      newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
   else
-    newMapWith "could not unify", [(printType t1), (printType t2)]
+    newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
 
 joinSubs = (s1,s2) ->
   concatMaps s1, mapMap ((type) -> substitute s1, type), s2
@@ -3121,7 +3166,7 @@ findBound = (name, binding) ->
   (lookupInMap binding, name) or 'unbound name #{name}'
 
 freshInstance = (ctx, type) ->
-  throw new Error "not a forall in freshInstance" unless type instanceof ForAll
+  throw new Error "not a forall in freshInstance #{safePrintType type}" unless type instanceof ForAll
   freshes = map ((kind) -> ctx.freshTypeVariable kind), type.kinds
   (substitute freshes, type).type
 
@@ -3235,6 +3280,7 @@ kind = (type) ->
 
 kindsEq = (k1, k2) ->
   k1 is k2 or
+    k1.from and k2.from and
     (kindsEq k1.from, k2.from) and
     (kindsEq k1.to, k2.to)
 
@@ -3285,18 +3331,20 @@ listType = new TypeConstr 'List', kindFn 1
 hashmapType = new TypeConstr 'Map', kindFn 2
 hashsetType = new TypeConstr 'Set', kindFn 1
 stringType = typeConstant 'String'
+boolType = typeConstant 'Bool'
+numType = typeConstant 'Num'
 
 safePrintType = (type) ->
   try
     return printType type
   catch e
-    return type.toString()
+    return "#{type}"
 
 printType = (type) ->
   if type instanceof TypeVariable
     type.name
   else if type instanceof QuantifiedVar
-    type.var
+    "#{type.var}"
   else if type instanceof TypeConstr
     type.name
   else if type instanceof TypeApp
@@ -3373,6 +3421,9 @@ var seq_size = function (xs) {
   if (typeof xs === "undefined" || xs === null) {
     throw new Error('Pattern matching on size of undefined');
   }
+  if (xs.size !== null) {
+    return xs.size;
+  }
   if (xs.length !== null) {
     return xs.length;
   }
@@ -3403,7 +3454,7 @@ var seq_at = function (i, xs) {
 
 var seq_splat = function (from, leave, xs) {
   if (xs.slice) {
-    return xs.slice(from, xs.length - leave);
+    return xs.slice(from, (xs.size || xs.length) - leave);
   }
   return $listSlice(from, seq_size(xs) - leave - from, xs);
 };
@@ -3456,21 +3507,21 @@ var from__nullable = function (jsValue) {
   varNames = "abcdefghi".split ''
   first = (j) -> varNames[0...j].join ', '
   # TODO: handle A9 first branch
-  """var _#{i} = function (f, #{first i}) {
-    if (f._ === #{i} || f.length === #{i}) {
-      return f(#{first i});
-    } else if (f._ > #{i} || f.length > #{i}) {
+  """var _#{i} = function (fn, #{first i}) {
+    if (fn._ === #{i} || fn.length === #{i}) {
+      return fn(#{first i});
+    } else if (fn._ > #{i} || fn.length > #{i}) {
       return function (#{varNames[i]}) {
-        return _#{i + 1}(f, #{first i + 1});
+        return _#{i + 1}(fn, #{first i + 1});
       };
     } else {
-      return _1(#{if i is 1 then "f()" else "_#{i - 1}(f, #{first i - 1})"}, #{varNames[i - 1]});
+      return _1(#{if i is 1 then "fn()" else "_#{i - 1}(fn, #{first i - 1})"}, #{varNames[i - 1]});
     }
   };""").join('\n\n') +
 (for i in [0..9]
-  """var λ#{i} = function (f) {
-      f._ = #{i};
-      return f;
+  """var λ#{i} = function (fn) {
+      fn._ = #{i};
+      return fn;
     };""").join('\n\n') +
 """
 ;
@@ -4011,6 +4062,37 @@ tests = [
   """
   """(at 5 data)""", 'b'
 
+  'collections'
+  """
+  Collection (class [collection]
+    elem? (fn [what in]
+      (: (Fn item (collection item) Bool))
+      (# Whether in contains what .)))
+
+  Bag (class [bag]
+    {(Collection bag)}
+
+    fold (fn [with initial over]
+      (: (Fn (Fn item b b) b (bag item)))
+      (# Fold over with using initial .))
+
+    length (fn [bag]
+      (: (Fn (bag item) Num))
+      (# The number of items in the bag .))
+
+    empty? (fn [bag]
+      (: (Fn (bag item) Bool))
+      (# A bag with no elements.)))
+
+  list-elem? (macro [what in]
+    (: (Fn item (List item) Bool))
+    (Js.call (Js.access in "contains") {what}))
+
+  collection-list (instance (Collection List)
+    elem? (fn [what in]
+      (list-elem? what in)))
+  """
+  "(elem? 3 {1 2 3})", yes
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
