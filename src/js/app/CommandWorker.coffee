@@ -23,6 +23,7 @@ exports.Worker = (sender, path) ->
             type: 'command'
       else
         if value.length > 0
+          # console.log "from command worker", (@source or '') + value
           sourceAndCommand = (@source or '') + value
           try
             # [res, warnings] = compiler.compileExp value
@@ -34,6 +35,7 @@ exports.Worker = (sender, path) ->
                 @compiler.compileTopLevelAndExpression sourceAndCommand
 
           catch e
+            console.log sourceAndCommand
             console.log e.stack
             @sender.emit "error",
               text: e.message
