@@ -4,7 +4,7 @@ tokenize = (input, initPos = 0) ->
     match = input.match ///
       ^ # must be at the start
       (
-        \x20+ # spaces
+        \x20 # space
       | \n # newline
       | [#{controls}] # delims
       | /([^\\x20]|\\/)([^/]|\\/)*?/ # regex
@@ -23,29 +23,35 @@ tokenize = (input, initPos = 0) ->
 
 controls = '\\(\\)\\[\\]\\{\\}'
 
-noWS = (tokens) ->
-  tokens.filter (token) -> token.label isnt 'whitespace'
-
 astize = (tokens) ->
   tree = []
   current = []
   stack = [[]]
+  indentAccumulator = []
   for token in tokens
-    if token.symbol in leftDelims
-      form = [token]
-      form.start = token.start
-      stack.push form
-    else if token.symbol in rightDelims
-      closed = stack.pop()
-      if not stack[stack.length - 1]
-        throw new Error "Missing opening delimeter matching #{token.symbol}"
-      if token.symbol isnt delims[closed[0].symbol]
-        throw new Error "Wrong closing delimiter #{token.symbol} for opening delimiter #{closed[0].symbol}"
-      closed.push token
-      closed.end = token.end
-      stack[stack.length - 1].push closed
+    if token.symbol is ' ' and indentAccumulator?.length <= 2 * (stack.length - 1)
+      indentAccumulator.push token
     else
-      stack[stack.length - 1].push token
+      if indentAccumulator?.length > 0
+        stack[stack.length - 1].push createIndent indentAccumulator
+      indentAccumulator = undefined
+      if token.symbol is '\n'
+        indentAccumulator = []
+      if token.symbol in leftDelims
+        form = [token]
+        form.start = token.start
+        stack.push form
+      else if token.symbol in rightDelims
+        closed = stack.pop()
+        if not stack[stack.length - 1]
+          throw new Error "Missing opening delimeter matching #{token.symbol}"
+        if token.symbol isnt delims[closed[0].symbol]
+          throw new Error "Wrong closing delimiter #{token.symbol} for opening delimiter #{closed[0].symbol}"
+        closed.push token
+        closed.end = token.end
+        stack[stack.length - 1].push closed
+      else
+        stack[stack.length - 1].push token
   ast = stack[0][0]
   if not ast
     throw new Error "Missing closing delimeter matching #{stack[stack.length - 1][0].symbol}"
@@ -55,6 +61,12 @@ astize = (tokens) ->
 leftDelims = ['(', '[', '{']
 rightDelims = [')', ']', '}']
 delims = '(': ')', '[': ']', '{': '}'
+
+createIndent = (accumulator) ->
+  symbol: (new Array accumulator.length + 1).join ' '
+  start: accumulator[0].start
+  end: accumulator[accumulator.length - 1].end
+  label: 'indent'
 
 constantLabeling = (atom) ->
   {symbol} = atom
@@ -69,6 +81,9 @@ constantLabeling = (atom) ->
     ['bracket', symbol in ['[', ']']]
     ['brace', symbol in ['{', '}']]
     ['whitespace', /^\s+$/.test symbol]
+
+noWhitespace = (tokens) ->
+  tokens.filter (token) -> token.label not in ['whitespace', 'indent']
 
 labelMapping = (word, rules...) ->
   for [label, cond] in rules when cond
@@ -3648,7 +3663,7 @@ _arguments = (call) ->
   (_terms call)[1..]
 
 _terms = (form) ->
-  form[1...-1].filter ({label}) -> label isnt 'whitespace'
+  noWhitespace form[1...-1]
 
 _snd = ([a, b]) -> b
 
