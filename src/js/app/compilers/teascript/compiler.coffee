@@ -1061,6 +1061,7 @@ ms.fn = ms_fn = (ctx, call) ->
       malformed call, 'Missing function result'
     else
       [docs, defs] = partition isComment, defs
+      map labelComments, docs
       if isTypeAnnotation defs[0]
         [type, body, wheres...] = defs
       else
@@ -1098,7 +1099,7 @@ ms.fn = ms_fn = (ctx, call) ->
         (isName expression) and (_symbol expression) in paramNames
       labelUsedParams = (expression) ->
         map (syntaxNameAs '', 'param'), filterAst isUsedParam, expression
-      map labelUsedParams, if body then join [body], wheres else wheres
+      map labelUsedParams, join docs, (if body then join [body], wheres else wheres)
 
       if body and not isWellformed body
         return 'malformed'
@@ -2414,11 +2415,9 @@ labelRequires = (ast) ->
 #   macro '#', ast, (node) ->
 #     node.type = 'comment'
 #     node
-# labelComments = (ast) ->
-#   typedMacro 'comment', ast, (node, words) ->
-#     for word in words
-#       word.label = 'comment' unless word.label in ['param', 'recurse']
-# node
+labelComments = (call) ->
+  for term in _terms call
+    term.label = 'comment'
 
 
 # Syntax printing to HTML
@@ -4097,7 +4096,7 @@ tests = [
 
     empty? (fn [bag]
       (: (Fn (bag item) Bool))
-      (# A bag with no elements.)))
+      (# Whether the bag contains no elements.)))
 
   list-elem? (macro [what in]
     (: (Fn item (List item) Bool))
@@ -4108,6 +4107,16 @@ tests = [
       (list-elem? what in)))
   """
   "(elem? 3 {1 2 3})", yes
+
+  # bag-list (instance (Bag List)
+  #   fold (fn [with initial over]
+  #     (fold-list with initial over))
+
+  #   fold (fn [with initial over]
+  #     (fold-list with initial over))
+
+  #   fold (fn [with initial over]
+  #     (fold-list with initial over)))
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
