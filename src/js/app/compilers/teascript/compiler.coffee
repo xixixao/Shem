@@ -91,8 +91,12 @@ labelMapping = (word, rules...) ->
     return word
   word
 
-isCollectionDelim = (atom) ->
-  atom.label in ['bracket', 'brace']
+labelOperator = (expression) ->
+  if isForm expression
+    [open, ..., close] = expression
+    open.label = close.label = 'operator'
+  else
+    expression.label = 'operator'
 
 crawl = (ast, cb, parent) ->
   if Array.isArray ast
@@ -701,7 +705,7 @@ tupleCompile = (ctx, form) ->
   if ctx.assignTo()
     combinePatterns compiledElems
   else
-    form.label = 'operator'
+    (labelOperator form)
     # "[#{listOf compiledElems}]"
     assignCompile ctx, form, (jsArray compiledElems)
 
@@ -788,7 +792,7 @@ hashmapCompile = (ctx, form) ->
 
 uniformCollectionCompile = (ctx, form, items, collectionType, moreConstraints = []) ->
   {constraints, itemType, compiled} = uniformCollectionItemsCompile ctx, items
-  form.label = 'operator' if not isCall form
+  (labelOperator form) if not isCall form
   form.tea = new Constrained (join moreConstraints, constraints),
       new TypeApp collectionType, itemType
   compiled
@@ -833,7 +837,7 @@ typeConstructorCompile = (ctx, call) ->
   args = _arguments call
 
   if isAtom op
-    op.label = 'operator'
+    (labelOperator op)
     name = op.symbol
     compiledArgs = typesCompile ctx, args
     if name is 'Fn'
@@ -849,7 +853,7 @@ typeConstraintCompile = (ctx, expression) ->
   args = _arguments expression
   if isCall expression
     if isAtom op
-      op.label = 'operator'
+      (labelOperator op)
       new ClassContraint op.symbol, (typeCompile ctx, args[0]) # TODO: support multiparameter type classes
     else
       malformed expression, 'Class name required in a constraint'
@@ -861,7 +865,7 @@ typeConstraintsCompile = (ctx, expressions) ->
     (typeConstraintCompile ctx, e for e in expressions)
 
 typeTupleCompile = (ctx, form) ->
-  form.label = 'operator'
+  (labelOperator form)
   elemTypes = _terms form
   applyKindFn (tupleType elemTypes.length), (typesCompile ctx, elemTypes)...
 
@@ -1157,7 +1161,7 @@ ms.data = ms_data = (ctx, call) ->
           fieldTypes.push type
           syntaxType type
       else
-        typeArgs.label = 'malformed'
+        malformed typeArgs, 'Required a record of types'
     if not hasName
       return 'malformed'
 
@@ -1779,7 +1783,7 @@ atomCompile = (ctx, atom) ->
   atom.tea = type if type
   if ctx.isOperator()
     # TODO: maybe don't use label here, it's getting confusing what is its purpose
-    atom.label = 'operator'
+    (labelOperator atom)
   if ctx.assignTo()
     pattern
   else
@@ -2424,13 +2428,10 @@ labelComments = (call) ->
 
 toHtml = (highlighted) ->
   crawl highlighted, (word, symbol, parent) ->
-    (word.ws or '') + colorize(theme[labelOf word, parent], symbol)
+    (word.ws or '') + colorize(theme[labelOf word], symbol)
 
-labelOf = (word, parent) ->
-  if (isCollectionDelim word) and parent
-    parent.label
-  else
-    word.label or 'normal'
+labelOf = (word) ->
+  word.label or 'normal'
 
 collapse = (nodes) ->
   collapsed = ""
