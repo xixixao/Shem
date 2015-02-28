@@ -23,13 +23,13 @@ tokenize = (input, initPos = 0) ->
 
 controls = '\\(\\)\\[\\]\\{\\}'
 
-astize = (tokens) ->
+astize = (tokens, initialDepth = 0) ->
   tree = []
   current = []
   stack = [[]]
   indentAccumulator = []
   for token in tokens
-    if token.symbol is ' ' and indentAccumulator?.length <= 2 * (stack.length - 1)
+    if token.symbol is ' ' and indentAccumulator?.length < 2 * (initialDepth + stack.length - 1)
       indentAccumulator.push token
     else
       if indentAccumulator?.length > 0
@@ -93,7 +93,7 @@ labelMapping = (word, rules...) ->
 
 labelOperator = (expression) ->
   if isForm expression
-    [open, ..., close] = expression
+    [open, _..., close] = expression
     open.label = close.label = 'operator'
   else
     expression.label = 'operator'
@@ -3606,14 +3606,14 @@ syntaxedExpHtml = (string) ->
   collapse toHtml astize tokenize string
 
 compileTopLevel = (source) ->
-  {js, ast, ctx} = compileToJs topLevel, "(#{source})", -1
+  {js, ast, ctx} = compileToJs topLevel, "(#{source})", -1, -1
   {js, ast, types: typeEnumaration ctx}
 
 compileTopLevelAndExpression = (source) ->
   topLevelAndExpression source
 
 topLevelAndExpression = (source) ->
-  ast = astize tokenize "(#{source})", -1
+  ast = astize (tokenize "(#{source})", -1), -1
   [terms..., expression] = _terms ast
   {ctx} = compiledDefinitions = compileAstToJs definitionList, pairs terms
   compiledExpression = compileCtxAstToJs topLevelExpression, ctx, expression
@@ -3625,8 +3625,8 @@ topLevelAndExpression = (source) ->
 typeEnumaration = (ctx) ->
   values mapMap _type, ctx._scope()
 
-compileToJs = (compileFn, source, offset = 0) ->
-  ast = astize tokenize source, offset
+compileToJs = (compileFn, source, posOffset = 0, depthOffset = 0) ->
+  ast = astize (tokenize source, posOffset), depthOffset
   compileAstToJs compileFn, ast
 
 compileAstToJs = (compileFn, ast) ->
@@ -3643,13 +3643,13 @@ compileCtxAstToJs = (compileFn, ctx, ast) ->
   {ctx, ast, js}
 
 astizeList = (source) ->
-  parentize astize tokenize "(#{source})", -1
+  parentize astize (tokenize "(#{source})", -1), -1
 
 astizeExpression = (source) ->
   parentize astize tokenize source
 
 astizeExpressionWithWrapper = (source) ->
-  parentize astize tokenize "(#{source})", -1
+  parentize astize (tokenize "(#{source})", -1), -1
 
 
 # end of API
