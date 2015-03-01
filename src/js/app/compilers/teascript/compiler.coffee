@@ -3605,9 +3605,13 @@ reservedInJs = newSetWith ("abstract arguments boolean break byte case catch cha
 syntaxedExpHtml = (string) ->
   collapse toHtml astize tokenize string
 
+syntaxedType = (type) ->
+  collapse toHtml typeCompile new Context, type
+
 compileTopLevel = (source) ->
   {js, ast, ctx} = compileToJs topLevel, "(#{source})", -1, -1
-  {js, ast, types: typeEnumaration ctx}
+  (finalizeTypes ctx, ast)
+  {js, ast: ast, types: typeEnumaration ctx}
 
 compileTopLevelAndExpression = (source) ->
   topLevelAndExpression source
@@ -3651,6 +3655,9 @@ astizeExpression = (source) ->
 astizeExpressionWithWrapper = (source) ->
   parentize astize (tokenize "(#{source})", -1), -1
 
+finalizeTypes = (ctx, ast) ->
+  visitExpressions ast, (expression) ->
+    expression.tea = highlightType substitute ctx.substitution, expression.tea
 
 # end of API
 
@@ -4163,6 +4170,7 @@ exports.astizeList = astizeList
 exports.astizeExpression = astizeExpression
 exports.astizeExpressionWithWrapper = astizeExpressionWithWrapper
 exports.syntaxedExpHtml = syntaxedExpHtml
+exports.syntaxedType = syntaxedType
 
 # exports.compileModule = (source) ->
 #   """
