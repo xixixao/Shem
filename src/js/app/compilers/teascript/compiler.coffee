@@ -312,7 +312,11 @@ class Context
   isInTopScope: ->
     @_scope().topLevel
 
-  addTypeName: ({name, kind}) ->
+  addTypeName: (dataType) ->
+    if dataType instanceof TypeApp
+      {name, kind} = dataType.op
+    else
+      {name, kind} = dataType
     addToMap @_scope().typeNames, name, kind
 
   kindOfTypeName: (name) ->
@@ -420,7 +424,13 @@ class Context
   freshTypeVariable: (kind) ->
     if not kind
       throw new Error "Provide kind in freshTypeVariable"
-    new TypeVariable (freshName @typeVariabeIndex++), kind
+    name = (freshName @typeVariabeIndex++)
+    # Massive hack to avoid clashes in type classes, need to fix this properly
+    # by renaming
+    if inSet @allBoundTypeVariables(), name
+      @freshTypeVariable kind
+    else
+      new TypeVariable name, kind
 
   extendSubstitution: (substitution) ->
     @substitution = joinSubs substitution, @substitution
@@ -1059,7 +1069,7 @@ ms.fn = ms_fn = (ctx, call) ->
     # For now expect the curried constructor call
     args = _arguments call
     [paramList, defs...] = args
-    params = paramTuple call, paramList
+    params = paramTupleIn call, paramList
     defs ?= []
     if defs.length is 0
       malformed call, 'Missing function result'
@@ -1148,7 +1158,7 @@ ms.data = ms_data = (ctx, call) ->
     args = _arguments call
     if isTuple args[0]
       [typeParamTuple, args...] = args
-      typeParams = _terms typeParamTuple
+      typeParams = paramTupleIn call, typeParamTuple
     typeParams ?= []
     defs = pairsLeft isAtom, args
     # Syntax
@@ -1261,7 +1271,7 @@ ms.record = ms_record = (ctx, call) ->
 ms.class = ms_class = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new class'
     [paramList, defs...] = _arguments call
-    params = paramTuple ctx, paramList
+    params = paramTupleIn call, paramList
     paramNames = _names params
     [docs, defs] = partition isComment, defs
 
@@ -1424,7 +1434,7 @@ findSuperClassInstances = (ctx, instanceType, classDefinition) ->
   # macro: (ctx, call) ->
   #   args = _arguments call
   #   [paramList, body] = args
-  #   paramTuple paramList
+  #   paramTupleIn paramList
   #   if not body
   #     malformed call, 'Missing macro definition'
 
@@ -1611,7 +1621,7 @@ conditional = (condCasePairs, elseCase) ->
   #       #{elseCase}
   #     }"""
 
-paramTuple = (call, expression) ->
+paramTupleIn = (call, expression) ->
   if not expression or not isTuple expression
     malformed call, 'Missing paramater list'
     params = []
@@ -3610,7 +3620,7 @@ syntaxedType = (type) ->
 
 compileTopLevel = (source) ->
   {js, ast, ctx} = compileToJs topLevel, "(#{source})", -1, -1
-  (finalizeTypes ctx, ast)
+  (attachPrintedTypes ctx, ast)
   {js, ast: ast, types: typeEnumaration ctx}
 
 compileTopLevelAndExpression = (source) ->
@@ -3655,9 +3665,10 @@ astizeExpression = (source) ->
 astizeExpressionWithWrapper = (source) ->
   parentize astize (tokenize "(#{source})", -1), -1
 
-finalizeTypes = (ctx, ast) ->
+attachPrintedTypes = (ctx, ast) ->
   visitExpressions ast, (expression) ->
-    expression.tea = highlightType substitute ctx.substitution, expression.tea
+    if expression.tea
+      expression.tea = highlightType substitute ctx.substitution, expression.tea
 
 # end of API
 
