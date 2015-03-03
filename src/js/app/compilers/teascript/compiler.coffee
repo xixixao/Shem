@@ -980,7 +980,7 @@ patternCompile = (ctx, pattern, matched) ->
 
 topLevelExpression = (ctx, expression) ->
   compiled = expressionCompile ctx, expression
-  compiled
+  (irDefinition expression.tea, compiled)
 
 topLevel = (ctx, form) ->
   definitionList ctx, pairs _terms form
@@ -3631,6 +3631,7 @@ topLevelAndExpression = (source) ->
   [terms..., expression] = _terms ast
   {ctx} = compiledDefinitions = compileAstToJs definitionList, pairs terms
   compiledExpression = compileCtxAstToJs topLevelExpression, ctx, expression
+  (attachPrintedTypes ctx, expression)
   types: ctx._scope()
   subs: filterMap ((name) -> name is 'could not unify'), ctx.substitution
   ast: ast
