@@ -468,7 +468,7 @@ class Context
     if typeMap then lookupInMap typeMap, constraint.className
 
   classParamsForType: (constraint) ->
-    lookupInMap @classParams, constraint.type.name
+    nestedLookupInMap @classParams, typeNamesOfNormalized constraint
 
 expressionCompile = (ctx, expression) ->
   throw new Error "invalid expressionCompile args" unless ctx instanceof Context and expression
@@ -864,14 +864,14 @@ typeConstraintCompile = (ctx, expression) ->
   if isCall expression
     if isAtom op
       (labelOperator op)
-      new ClassContraint op.symbol, (typeCompile ctx, args[0]) # TODO: support multiparameter type classes
+      new ClassConstraint op.symbol, new Types (typesCompile ctx, args)
     else
       malformed expression, 'Class name required in a constraint'
   else
     malformed expression, 'Class constraint expected'
 
 typeConstraintsCompile = (ctx, expressions) ->
-  filter ((t) -> t instanceof ClassContraint),
+  filter ((t) -> t instanceof ClassConstraint),
     (typeConstraintCompile ctx, e for e in expressions)
 
 typeTupleCompile = (ctx, form) ->
@@ -1311,23 +1311,23 @@ ms.class = ms_class = (ctx, call) ->
       'malformed'
 
 findClassType = (className, paramNames, methods) ->
-  # TODO: support multi-param classes
-  [param] = paramNames
-  kind = undefined
-  constraint = undefined
+  kinds = mapMap (-> undefined), (arrayToSet paramNames)
   for name, {arity, type, def} of values methods
-    vars = findFree type.type
-    foundKind = lookupInMap vars, param
-    if not foundKind
-      # TODO: attach error to the type expression
-      malformed def, 'Method must include class parameter in its type'
-    if kind and not kindsEq foundKind, kind
-      # TODO: attach error to the type expression instead
-      # TODO: better error message
-      malformed def, 'All methods must use the class paramater of the same kind'
-    kind or= foundKind
-    constraint or= new ClassContraint className, (new TypeVariable param, kind)
-  constraint
+    for param in paramNames
+      vars = findFree type.type
+      kindSoFar = lookupInMap kinds, param
+      foundKind = lookupInMap vars, param
+      if not foundKind
+        # TODO: attach error to the type expression
+        malformed def, 'Method must include class parameter in its type'
+      if kindSoFar and not kindsEq foundKind, kindSoFar
+        # TODO: attach error to the type expression instead
+        # TODO: better error message
+        malformed def, 'All methods must use the class paramater of the same kind'
+      replaceInMap kinds, param, foundKind
+  classParam = (param) ->
+    new TypeVariable param, (lookupInMap kinds, param)
+  new ClassConstraint className, new Types (map classParam, paramNames)
 
 declareMethods = (ctx, classConstraint, methodDeclarations) ->
   for name, {arity, type} of values methodDeclarations
@@ -1356,13 +1356,13 @@ ms.instance = ms_instance = (ctx, call) ->
     classDefinition = ctx.classNamed className
 
     # TODO: defer if super class instances don't exist yet
-    superClassInstances = findSuperClassInstances ctx, instanceType.type, classDefinition
+    superClassInstances = findSuperClassInstances ctx, instanceType.types, classDefinition
 
     if hasName
       instanceName = ctx.definitionName()
 
       ctx.newScope()
-      freshConstrains = assignMethodTypes ctx, instanceName,
+      freshConstraints = assignMethodTypes ctx, instanceName,
         classDefinition, instanceType, constraints
       definitions = pairs wheres
       methodsDeclarations = definitionList ctx,
@@ -1384,7 +1384,7 @@ ms.instance = ms_instance = (ctx, call) ->
 
       # """var #{instanceName} = new #{className}(#{listOf methods});"""
       (jsVarDeclaration (validIdentifier instanceName),
-        (irDefinition (new Constrained freshConstrains, (tupleOfTypes methodTypes).type),
+        (irDefinition (new Constrained freshConstraints, (tupleOfTypes methodTypes).type),
           (jsNew className, (join superClassInstances, methods))))
     else
       'malformed'
@@ -1395,10 +1395,10 @@ assignMethodTypes = (ctx, instanceName, classDeclaration, instanceType, instance
   # First we must freshen the instance type, to avoid name clashes of type vars
   freshInstanceType = freshInstance ctx,
     (quantifyUnbound ctx,
-      (new Constrained instanceConstraints, instanceType.type))
+      (new Constrained instanceConstraints, instanceType.types))
 
   # log "mguing", classDeclaration.constraint.type, freshInstanceType.type
-  sub = mostGeneralUnifier classDeclaration.constraint.type, freshInstanceType.type
+  sub = mostGeneralUnifier classDeclaration.constraint.types, freshInstanceType.type
   # log sub
 
   ctx.bindTypeVariables setToArray (findFree freshInstanceType)
@@ -1421,9 +1421,9 @@ prefixWithInstanceName = (definitionPairs, instanceName) ->
 instancePrefix = (instanceName, methodName) ->
   "#{instanceName}_#{methodName}"
 
-findSuperClassInstances = (ctx, instanceType, classDefinition) ->
+findSuperClassInstances = (ctx, instanceTypes, classDefinition) ->
   toConstraint = (superName) ->
-    new ClassContraint superName, instanceType
+    new ClassConstraint superName, instanceTypes
   superConstraints = map toConstraint, classDefinition.supers
   instanceDictFor ctx, constraint for constraint in superConstraints
 
@@ -1686,8 +1686,8 @@ simplifyConstraints = (ctx, constraints) ->
 # Whether constraints entail constraint
 entail = (ctx, constraints, constraint) ->
   for c in constraints
-    for superClassContraint in constraintsFromSuperClasses ctx, c
-      if typeEq superClassContraint, constraint
+    for superClassConstraint in constraintsFromSuperClasses ctx, c
+      if typeEq superClassConstraint, constraint
         return yes
   instanceContraints = constraintsFromInstance ctx, constraint
   if instanceContraints
@@ -1696,14 +1696,14 @@ entail = (ctx, constraints, constraint) ->
     no
 
 constraintsFromSuperClasses = (ctx, constraint) ->
-  {className, type} = constraint
+  {className, types} = constraint
   join [constraint], concat (for s in (ctx.classNamed className).supers
-    constraintsFromSuperClasses ctx, new ClassContraint s, type)
+    constraintsFromSuperClasses ctx, new ClassConstraint s, types)
 
 constraintsFromInstance = (ctx, constraint) ->
   {className, type} = constraint
   for instance in (ctx.classNamed className).instances
-    substitution = toMatchTypes instance.type.type.type, constraint.type
+    substitution = toMatchTypes instance.type.type.types, constraint.types
     if substitution
       return map ((c) -> substitute substitution, c), instance.type.constraints
   null
@@ -1987,10 +1987,11 @@ irDefinitionTranslate = (ctx, {type, expression}) ->
   counter = {}
   classParams = newMap()
   for constraint in reducedConstraints when not isAlreadyParametrized ctx, constraint
-    {className, type} = constraint
-    typeMap = lookupInMap classParams, type.name
+    {className} = constraint
+    names = typeNamesOfNormalized constraint
+    typeMap = nestedLookupInMap classParams, names
     if not typeMap
-      addToMap classParams, type.name, (typeMap = newMap())
+      nestedAddToMap classParams, names, (typeMap = newMap())
     addToMap typeMap, className,
       "_#{className}_#{counter[className] ?= 0; ++counter[className]}"
   ctx.addClassParams classParams
@@ -2065,6 +2066,9 @@ findSuperClassChain = (ctx, className, targetClassName) ->
       return join [s], chain
   undefined
 
+typeNamesOfNormalized = (constraint) ->
+  map (({name}) -> name), constraint.types.types
+
 accessList = (what, list) ->
   [first, rest...] = list
   if first
@@ -2078,8 +2082,7 @@ isAlreadyParametrized = (ctx, constraint) ->
 instanceDictFor = (ctx, constraint) ->
   for {name, type} in (ctx.classNamed constraint.className).instances
     # TODO: support lookup of composite types, by traversing left depth-first
-    if toMatchTypes type.type.type, constraint.type
-    # if type.type.type.name is constraint.type.name
+    if toMatchTypes type.type.types, constraint.types
       return validIdentifier name
   throw new Error "no instance for #{safePrintType constraint}"
 
@@ -2422,6 +2425,7 @@ theme =
   typecons: '#67B3DD'
   label: '#9C49B6'
   string: '#FEDF6B'
+  char: '#FEDF6B'
   paren: '#444'
   name: '#9EE062'
   recurse: '#67B3DD'
@@ -2971,9 +2975,13 @@ addToSet = (set, key) ->
 
 addToMap = (set, key, value) ->
   return if set.values[key]
-  set.size += 1
+  set.size++
   set.values[key] = value
   set
+
+# Precondition: the key is in the Map
+replaceInMap = (map, key, value) ->
+  map.values[key] = value
 
 removeFromSet =
 removeFromMap = (set, key) ->
@@ -3097,6 +3105,20 @@ intersectRight = (mapA, mapB) ->
     addToMap intersection, k, v
   intersection
 
+nestedAddToMap = (map, keys, value) ->
+  [nestedKeys..., finalKey] = keys
+  for key in nestedKeys
+    map = lookupInMap map, key
+    if not map
+      map = addToMap map, key, newMap()
+  addToMap map, finalKey, value
+
+nestedLookupInMap = (map, keys) ->
+  for key in keys
+    return null if not map?.size?
+    map = lookupInMap map, key
+  map
+
 # end of Set
 
 # Type inference and checker ala Mark Jones
@@ -3119,6 +3141,13 @@ mostGeneralUnifier = (t1, t2) ->
     s1 = mostGeneralUnifier t1.op, t2.op
     s2 = mostGeneralUnifier (substitute s1, t1.arg), (substitute s1, t2.arg)
     joinSubs s1, s2
+  else if t1 instanceof Types and t2 instanceof Types
+    if _notEmpty t1.types
+      s1 = mostGeneralUnifier t1.types[0], t2.types[0]
+      s2 = mostGeneralUnifier (new Types t1.types[1...]), (new Types t2.types[1...])
+      joinSubs s1, s2
+    else
+      emptySubstitution()
   else
     newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
 
@@ -3154,6 +3183,15 @@ matchType = (t1, t2) ->
     s3 = mergeSubs s1, s2
     s3 or
       newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
+  else if t1 instanceof Types and t2 instanceof Types
+    if _notEmpty t1.types
+      s1 = matchType t1.types[0], t2.types[0]
+      s2 = matchType (new Types t1.types[1...]), (new Types t2.types[1...])
+      s3 = mergeSubs s1, s2
+      s3 or
+        newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
+    else
+      emptySubstitution()
   else
     newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
 
@@ -3187,8 +3225,10 @@ substitute = (substitution, type) ->
   else if type instanceof Constrained
     new Constrained (substituteList substitution, type.constraints),
       (substitute substitution, type.type)
-  else if type instanceof ClassContraint
-    new ClassContraint type.className, substitute substitution, type.type
+  else if type instanceof ClassConstraint
+    new ClassConstraint type.className, substitute substitution, type.types
+  else if type instanceof Types
+    new Types substituteList substitution, type.types
   else
     type
 
@@ -3201,14 +3241,16 @@ findFree = (type) ->
   else if type instanceof TypeApp
     concatMaps (findFree type.op), (findFree type.arg)
   else if type instanceof Constrained
-    concatMaps (findFree (map findFree, type.constraints)), (findFree type.type)
-  else if type instanceof ClassContraint
-    findFree type.type
+    concatMaps (findFreeInList type.constraints), (findFree type.type)
+  else if type instanceof ClassConstraint
+    findFree type.types
+  else if type instanceof Types
+    findFreeInList type.types
   else
     newMap()
 
-findBound = (name, binding) ->
-  (lookupInMap binding, name) or 'unbound name #{name}'
+findFreeInList = (list) ->
+  concatMaps (map findFree, list)...
 
 freshInstance = (ctx, type) ->
   throw new Error "not a forall in freshInstance #{safePrintType type}" unless type instanceof ForAll
@@ -3223,13 +3265,16 @@ freshName = (nameIndex) ->
 #   that is either ordinary type variable or type variable standing for a constructor
 #   with arbitrary type arguments
 isNormalizedConstraint = (constraint) ->
-  {type} = constraint
+  all (map isNormalizedConstraintArgument, constraint.types.types)
+
+isNormalizedConstraintArgument = (type) ->
   if type instanceof TypeVariable
     yes
   else if type instanceof TypeConstr
     no
   else if type instanceof TypeApp
-    isNormalizedConstraint type.op
+    isNormalizedConstraintArgument type.op.type
+
 
 typeEq = (a, b) ->
   if a instanceof TypeVariable and b instanceof TypeVariable or
@@ -3244,8 +3289,8 @@ typeEq = (a, b) ->
   else if a instanceof Constrained and b instanceof Constrained
     (all zipWith typeEq, a.constraints, b.constraints) and
       (typeEq a.type, b.type)
-  else if a instanceof ClassContraint and b instanceof ClassContraint
-    a.className is b.className and (typeEq a.type, b.type)
+  else if a instanceof ClassConstraint and b instanceof ClassConstraint
+    a.className is b.className and (all zipWith typeEq, a.types, b.types)
   else
     no
 
@@ -3345,11 +3390,13 @@ class ForAll
 class TempType
   constructor: (@type) ->
 
+class Types
+  constructor: (@types) ->
+
 class Constrained
   constructor: (@constraints, @type) ->
-class ClassContraint
-  constructor: (@className, @type) ->
-
+class ClassConstraint
+  constructor: (@className, @types) ->
 
 addConstraints = ({constraints, type}, addedConstraints) ->
   new Constrained (join constraints, addedConstraints), type
@@ -3397,8 +3444,8 @@ printType = (type) ->
     flattenType collectArgs type
   else if type instanceof ForAll
     "(∀ #{printType type.type})"
-  else if type instanceof ClassContraint
-    "(#{type.className} #{printType type.type})"
+  else if type instanceof ClassConstraint
+    "(#{type.className} #{(map printType, type.types.types).join ' '})"
   else if type instanceof Constrained
     "(: #{(map printType, join [type.type], type.constraints).join ' '})"
   else if type instanceof TempType
@@ -4119,36 +4166,68 @@ tests = [
 
   'collections'
   """
-  Collection (class [collection]
-    elem? (fn [what in]
-      (: (Fn item (collection item) Bool))
-      (# Whether in contains what .)))
+    Collection (class [collection]
+      elem? (fn [what in]
+        (: (Fn item (collection item) Bool))
+        (# Whether in contains what .)))
 
-  Bag (class [bag]
-    {(Collection bag)}
+    Bag (class [bag]
+      {(Collection bag)}
 
-    fold (fn [with initial over]
-      (: (Fn (Fn item b b) b (bag item)))
-      (# Fold over with using initial .))
+      fold (fn [with initial over]
+        (: (Fn (Fn item b b) b (bag item)))
+        (# Fold over with using initial .))
 
-    length (fn [bag]
-      (: (Fn (bag item) Num))
-      (# The number of items in the bag .))
+      length (fn [bag]
+        (: (Fn (bag item) Num))
+        (# The number of items in the bag .))
 
-    empty? (fn [bag]
-      (: (Fn (bag item) Bool))
-      (# Whether the bag contains no elements.)))
+      empty? (fn [bag]
+        (: (Fn (bag item) Bool))
+        (# Whether the bag contains no elements.)))
 
-  list-elem? (macro [what in]
-    (: (Fn item (List item) Bool))
-    (Js.call (Js.access in "contains") {what}))
+    list-elem? (macro [what in]
+      (: (Fn item (List item) Bool))
+      (Js.call (Js.access in "contains") {what}))
 
-  collection-list (instance (Collection List)
-    elem? (fn [what in]
-      (list-elem? what in)))
+    collection-list (instance (Collection List)
+      elem? (fn [what in]
+        (list-elem? what in)))
   """
   "(elem? 3 {1 2 3})", yes
 
+  'multiparam classes'
+  """
+    Collection (class [ce e]
+      first (fn [in]
+        (: (Fn (ce e) e))))
+
+    list-first (macro [in]
+      (: (Fn (List item) item))
+      (Js.call (Js.access in "first") {}))
+
+    list-collection (instance (Collection List a)
+      first (fn [in]
+        (list-first in)))
+  """
+  "(first {42 43 44})", 42
+
+  'functional deps'
+  """
+    Collection (class [ce e]
+      (# (| ce: e))
+      first (fn [in]
+        (: (Fn ce e))))
+
+    list-first (macro [in]
+      (: (Fn (List item) item))
+      (Js.call (Js.access in "first") {}))
+
+    list-collection (instance (Collection (List a) a)
+      first (fn [in]
+        (list-first in)))
+  """
+  "(first {42 43 44})", 42
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
   #
