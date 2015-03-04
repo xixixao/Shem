@@ -2042,7 +2042,7 @@ dictsForConstraint = (ctx, constraints) ->
     dictForConstraint ctx, constraint
 
 dictForConstraint = (ctx, constraint) ->
-  if constraint.type instanceof TypeVariable
+  if isNormalizedConstraint constraint
     (ctx.classParamNameFor constraint) or findSubClassParam ctx, constraint
   else if _notEmpty (constraints = (constraintsFromInstance ctx, constraint) or [])
     (jsCall (instanceDictFor ctx, constraint),
@@ -2078,7 +2078,8 @@ isAlreadyParametrized = (ctx, constraint) ->
 instanceDictFor = (ctx, constraint) ->
   for {name, type} in (ctx.classNamed constraint.className).instances
     # TODO: support lookup of composite types, by traversing left depth-first
-    if type.type.type.name is constraint.type.name
+    if toMatchTypes type.type.type, constraint.type
+    # if type.type.type.name is constraint.type.name
       return validIdentifier name
   throw new Error "no instance for #{safePrintType constraint}"
 
