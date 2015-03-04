@@ -24,7 +24,7 @@ exports.Worker = (sender, path) ->
       else
         if value.length > 0
           # console.log "from command worker", (@source or '') + value
-          sourceAndCommand = (@source or '') + value
+          sourceAndCommand = (@source or '') + '\n' + value
           try
             # [res, warnings] = compiler.compileExp value
             # [";" + res, warnings])
