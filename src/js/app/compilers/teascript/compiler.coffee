@@ -4148,6 +4148,27 @@ tests = [
   """
   "(elem? 3 {1 2 3})", yes
 
+  # The following doesn't work because the Collection type class specifies
+  # that the constructor takes only one argument.
+  #
+  # 'map as collection'
+  # """
+  # Collection (class [collection]
+  #   elem? (fn [what in]
+  #     (: (Fn item (collection item) Bool))
+  #     (# Whether in contains what .)))
+  #
+  # map-elem? (macro [what in]
+  #   (: (Fn item (Map key item) Bool))
+  #   (Js.call (Js.access in "contains") {what}))
+  #
+  # collection-map (instance (Collection Map)
+  #   elem? (fn [what in]
+  #     (map-elem? what in)))
+  # """
+  # "(elem? 1 {a: 1})", yes
+
+
   # bag-list (instance (Bag List)
   #   fold (fn [with initial over]
   #     (fold-list with initial over))
