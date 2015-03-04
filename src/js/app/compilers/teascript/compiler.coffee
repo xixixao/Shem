@@ -9,7 +9,7 @@ tokenize = (input, initPos = 0) ->
       | [#{controls}] # delims
       | /([^\\x20]|\\/)([^/]|\\/)*?/ # regex
       | "(?:[^"\\]|\\.)*" # strings
-      | \\[^\x20] # char
+      | \\[^\x20#{controls}]+ # char
       | [^#{controls}"'\s]+ # normal tokens
       )///
     if not match
@@ -1781,9 +1781,7 @@ atomCompile = (ctx, atom) ->
       when 'regex'
         regexCompile ctx, symbol
       when 'char'
-        type: toConstrained typeConstant 'Char'
-        translation: symbol
-        pattern: literalPattern ctx, symbol
+        charCompile ctx, atom, symbol
       when 'string'
         type: toConstrained stringType
         translation: symbol
@@ -1874,6 +1872,26 @@ regexCompile = (ctx, symbol) ->
     if ctx.assignTo()
       precs: [cond_ (jsBinary "===",
         (jsAccess ctx.assignTo(), "string"), "#{symbol}.string")]
+
+specialCharacters =  "\\newline \\tab \\formfeed \\backspace \\return".split ' '
+charCompile = (ctx, atom, symbol) ->
+  translation =
+    if symbol.length is 2
+      '"' + symbol[1] + '"'
+    else if symbol is "\\space"
+      ' '
+    else if symbol in specialCharacters
+      "\"\\#{symbol[1]}\""
+    else if /^\\x[a-fA-F0-9]{2}/.test symbol
+      '"' + symbol + '"'
+    else if /^\\u[a-fA-F0-9]{4}/.test symbol
+      '"' + symbol + '"'
+    else
+      malformed atom, 'Unrecognized character'
+      ''
+  type: toConstrained charType
+  translation: translation
+  pattern: literalPattern ctx, translation
 
 literalPattern = (ctx, translation) ->
   if ctx.assignTo()
@@ -2874,6 +2892,7 @@ builtInTypeNames = ->
     hashmapType
     hashsetType
     stringType
+    charType
     boolType
     numType
   ]
@@ -3356,6 +3375,7 @@ listType = new TypeConstr 'List', kindFn 1
 hashmapType = new TypeConstr 'Map', kindFn 2
 hashsetType = new TypeConstr 'Set', kindFn 1
 stringType = typeConstant 'String'
+charType = typeConstant 'Char'
 boolType = typeConstant 'Bool'
 numType = typeConstant 'Num'
 
