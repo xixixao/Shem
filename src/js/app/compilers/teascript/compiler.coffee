@@ -115,7 +115,7 @@ teas = (fn, string) ->
   ast = astize tokenize string
   compiled = fn (ctx = new Context), ast
   syntax: collapse toHtml ast
-  types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInContext()
+  types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInDefinitions()
   translation: '\n' + compiled
 
 mapCompile = (fn, string) ->
@@ -127,7 +127,7 @@ mapTyping = (fn, string) ->
   expressions = []
   visitExpressions ast, (expression) ->
     expressions.push "#{collapse toHtml expression} :: #{highlightType expression.tea}" if expression.tea
-  types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInContext()
+  types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInDefinitions()
   subs: values mapMap highlightType, ctx.substitution
   ast: expressions
   deferred: ctx.deferredBindings()
@@ -138,7 +138,7 @@ mapTypingBare = (fn, string) ->
   expressions = []
   visitExpressions ast, (expression) ->
     expressions.push [(collapse toHtml expression), expression.tea] if expression.tea
-  types: values mapMap _type, subtractMaps ctx._scope(), builtInContext()
+  types: values mapMap _type, subtractMaps ctx._scope(), builtInDefinitions()
   subs: values ctx.substitution
   ast: expressions
   deferred: ctx.deferredBindings()
@@ -168,7 +168,7 @@ class Context
     @statement = []
     @cacheScopes = [[]]
     @_assignTos = []
-    topScope = @_augmentScope builtInContext()
+    topScope = @_augmentScope builtInDefinitions()
     topScope.typeNames = builtInTypeNames()
     topScope.topLevel = yes
     @scopes = [topScope]
@@ -2902,7 +2902,7 @@ builtInTypeNames = ->
     numType
   ]
 
-builtInContext = ->
+builtInDefinitions = ->
   newMapWith 'True', (type: (quantifyAll toConstrained boolType), arity: []),
       'False', (type: (quantifyAll toConstrained boolType), arity: [])
       '==', (
@@ -2983,6 +2983,11 @@ addToMap = (set, key, value) ->
 replaceInMap = (map, key, value) ->
   map.values[key] = value
 
+replaceOrAddToMap = (map, key, value) ->
+  map.size++ unless map.values[key]
+  map.values[key] = value
+  map
+
 removeFromSet =
 removeFromMap = (set, key) ->
   return if !set.values[key]?
@@ -3038,6 +3043,11 @@ filterMap = (fn, set) ->
     addToMap initialized, key, val
   initialized
 
+reduceSet = (fn, def, set) ->
+  (setToArray set).reduce (prev, curr) ->
+    fn curr, prev
+  , def
+
 newSetWith = (args...) ->
   initialized = newSet()
   for k in args
@@ -3087,6 +3097,12 @@ arrayToSet = (array) ->
 arrayToMap = (pairs) ->
   created = newMap()
   for [key, value] in pairs
+    addToMap created, key, value
+  created
+
+objectToMap = (object) ->
+  created = newMap()
+  for key, value of object
     addToMap created, key, value
   created
 
@@ -3677,8 +3693,90 @@ reservedInJs = newSetWith ("abstract arguments boolean break byte case catch cha
   "public return short static super switch synchronized this throw throws transient " +
   "try typeof var void volatile while with yield").split(' ')...
 
+# Compilation Server
+# Ala Hack keeps track of compiled modules
+
+compiledModules = newMap()
+moduleGraph = newMap()
+
+compileTopLevel = (source, moduleName = '@unnamed') ->
+  required = newSetWith 'Prelude' # TODO: Hardcoded prelude dependency
+  if (not lookupInMap compiledModules, 'Prelude') and moduleName isnt 'Prelude'
+    request: 'Prelude'
+  else
+    directRequires = subtractSets required, (newSetWith moduleName)
+    replaceOrAddToMap moduleGraph, moduleName, requires: directRequires
+    toInject = collectRequiresFor moduleName
+    ctx = injectedContext toInject
+    {js, ast} = compileCtxAstToJs topLevel, ctx, (astFromSource "(#{source})", -1, -1)
+    replaceOrAddToMap compiledModules, moduleName,
+      declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
+      js: js
+    (attachPrintedTypes ctx, ast)
+    {js, ast: ast, types: typeEnumaration ctx}
+
+compileExpression = (source, moduleName = '@unnamed') ->
+  module = lookupInMap compiledModules, moduleName
+  toInject = concatSets (collectRequiresFor moduleName), (newSetWith moduleName)
+  ctx = injectedContext toInject
+  ast = (astFromSource "(#{source})", -1, -1)
+  [expression] = _terms ast
+  {js} = compileCtxAstToJs topLevelExpression, ctx, expression
+  (attachPrintedTypes ctx, expression)
+  js: library + immutable + (listOfLines map lookupJs, setToArray toInject) + js
+  ast: ast
+
+lookupJs = (moduleName) ->
+  js = (lookupInMap compiledModules, moduleName)?.js
+  if not js
+    console.error "#{moduleName} not found"
+  else
+    js
+
+subtractContexts = (ctx, what) ->
+  definitions = subtractMaps ctx._scope(), what._scope()
+  typeNames = subtractMaps ctx._scope().typeNames, what._scope().typeNames
+  classes = subtractMaps ctx._scope().classes, what._scope().classes
+  macros = subtractMaps (objectToMap ctx._macros), (objectToMap what._macros)
+  {definitions, typeNames, classes, macros}
+
+injectedContext = (modulesToInject) ->
+  ctx = new Context
+  for name of values modulesToInject
+    injectContext ctx, (lookupInMap compiledModules, name).declared
+  ctx
+
+injectContext = (ctx, compiledModule) ->
+  {definitions, typeNames, classes, macros} = compiledModule
+  for name, macro of values macros
+    if ctx._macros[name]
+      throw new Error "Macro #{name} already defined"
+    else
+      ctx._macros[name] = macro
+  topScope = ctx._scope()
+  for name, definition of values definitions
+    replaceOrAddToMap topScope, name, definition
+  topScope.typeNames = concatMaps topScope.typeNames, typeNames
+  topScope.classes = concatMaps topScope.classes, classes
+  ctx
+
+collectRequiresFor = (name) ->
+  collectRequiresWithAcc name, newSet()
+
+collectRequiresWithAcc = (name, acc) ->
+  compiled = lookupInMap moduleGraph, name
+  if not compiled
+    console.error "#{name} module not found"
+    newSet()
+  else
+    {requires} = compiled
+    collected = reduceSet collectRequiresWithAcc,
+      (concatSets requires, acc),
+      (subtractSets requires, acc)
+    concatSets collected, acc
 
 # API
+
 
 syntaxedExpHtml = (string) ->
   collapse toHtml astize tokenize string
@@ -3686,7 +3784,7 @@ syntaxedExpHtml = (string) ->
 syntaxedType = (type) ->
   collapse toHtml typeCompile new Context, type
 
-compileTopLevel = (source) ->
+compileTopLevelSource = (source) ->
   {js, ast, ctx} = compileToJs topLevel, "(#{source})", -1, -1
   (attachPrintedTypes ctx, ast)
   {js, ast: ast, types: typeEnumaration ctx}
@@ -3709,8 +3807,10 @@ typeEnumaration = (ctx) ->
   values mapMap _type, ctx._scope()
 
 compileToJs = (compileFn, source, posOffset = 0, depthOffset = 0) ->
-  ast = astize (tokenize source, posOffset), depthOffset
-  compileAstToJs compileFn, ast
+  compileAstToJs compileFn, (astFromSource source, posOffset, depthOffset)
+
+astFromSource = (source, posOffset = 0, depthOffset = 0) ->
+  astize (tokenize source, posOffset), depthOffset
 
 compileAstToJs = (compileFn, ast) ->
   ctx = new Context
@@ -4298,7 +4398,7 @@ runTests = (tests) ->
 # end of tests
 
 exports.compileTopLevel = compileTopLevel
-exports.compileTopLevelAndExpression = compileTopLevelAndExpression
+exports.compileExpression = compileExpression
 exports.astizeList = astizeList
 exports.astizeExpression = astizeExpression
 exports.astizeExpressionWithWrapper = astizeExpressionWithWrapper
