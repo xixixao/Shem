@@ -75,7 +75,7 @@ constantLabeling = (atom) ->
     ['label', isLabel atom]
     ['string', /^"/.test symbol]
     ['char', /^\\/.test symbol]
-    ['regex', /^\/[^ \/]/.test symbol]
+    ['regex', /^\/[^\s\/]/.test symbol]
     ['const', /^[A-Z][^\s\.]*$/.test symbol] # TODO: instead label based on context
     ['paren', symbol in ['(', ')']]
     ['bracket', symbol in ['[', ']']]
@@ -964,9 +964,10 @@ patternCompile = (ctx, pattern, matched) ->
           ctx.allBoundTypeVariables(),
           (findFree currentType),
           (substituteList ctx.substitution, matched.tea.constraints)
+        # log "assign type", name, printType currentType
         ctx.assignType name,
           if ctx.isAtDeferrableDefinition()
-            quantifyAll (addConstraints currentType, retainedConstraints)
+            quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
           else
             toForAll currentType
   # here I will create type schemes for all definitions
@@ -1094,6 +1095,7 @@ ms.fn = ms_fn = (ctx, call) ->
       paramTypeVars = map (-> ctx.freshTypeVariable star), params
       paramTypes = map (__ toForAll, toConstrained), paramTypeVars
       ctx.newLateScope()
+      ctx.bindTypeVariables (map (({name}) -> name), paramTypeVars)
       # log "adding types", (map _symbol, params), paramTypes
       ctx.declareTypes paramNames, paramTypes
 
@@ -1812,6 +1814,7 @@ nameCompile = (ctx, atom, symbol) ->
     else
       atom.label = 'name'
       type = toConstrained ctx.freshTypeVariable star
+      ctx.bindTypeVariables [type.type.name]
       ctx.addToDefinedNames {name: symbol, type: type}
       type: type
       pattern:
@@ -2173,7 +2176,7 @@ isCapital = (atom) ->
 
 isName = (expression) ->
   throw new Error "Nothing passed to isName" unless expression
-  (isAtom expression) and (expression.symbol is '~' or /[^~"'\/].*/.test expression.symbol)
+  (isAtom expression) and (expression.symbol in ['~', '/', '//'] or /[^~"'\/].*/.test expression.symbol)
 
 isAtom = (expression) ->
   not (Array.isArray expression)
