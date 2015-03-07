@@ -7,7 +7,7 @@ tokenize = (input, initPos = 0) ->
         \x20 # space
       | \n # newline
       | [#{controls}] # delims
-      | /([^\\x20]|\\/)([^/]|\\/)*?/ # regex
+      | /([^\s]|\\/)([^/]|\\/)*?/ # regex
       | "(?:[^"\\]|\\.)*" # strings
       | \\[^\x20#{controls}]+ # char
       | [^#{controls}"'\s]+ # normal tokens
