@@ -766,7 +766,7 @@ seqCompile = (ctx, form) ->
       lhsCompiled)
     elemType = ctx.freshTypeVariable star
     # TODO use (Seq c e) instead of (Array e)
-    form.tea = new Constrained (concatMap _constraints, elems),
+    form.tea = new Constrained (concatMap _constraints, (tea for {tea} in elems)),
       new TypeApp listType, elemType
 
     for elem in elems
@@ -2120,7 +2120,7 @@ irList = (items) ->
   {ir: irListTranslate, items}
 
 irListTranslate = (ctx, {items}) ->
-  (jsCall "Immutable.List.of", items)
+  (jsCall "Immutable.List.of", (translateIr ctx, items))
 
 
 
@@ -2283,6 +2283,16 @@ walkIr = (ast, cb) ->
   else
     ast
 
+printIr = (ast) ->
+  walkIr ast, (ast) ->
+    args = {}
+    for name, node of ast
+      args[name] =
+        if node?
+          if name in ['js', 'ir'] then true else printIr node
+        else
+          undefined
+    args
 
 jsAccess = (lhs, name) ->
   {js: jsAccessTranslate, lhs, name}
@@ -2534,6 +2544,7 @@ validIdentifier = (name) ->
     .replace(/\</g, 'lt_')
     .replace(/\>/g, 'gt_')
     .replace(/\~/g, 'neg_')
+    .replace(/\^/g, 'pow_')
     # .replace(/\√/g, 'sqrt_')
     # .replace(/\./g, 'dot_')
     .replace(/\&/g, 'and_')
@@ -4018,6 +4029,20 @@ tests = [
         xx True))
     {x ..xs} {1}"""
   "(tail? xs)", no
+
+  'seq splice in match'
+  """
+    & (macro [what to]
+      (: (Fn a (List a) (List a)))
+      (Js.call (Js.access to "unshift") {what}))
+
+    map (fn [what to]
+      (match to
+        {} {}
+        {x ..xs} (& (what x) (map what xs))))
+
+    {{x} ..xs} (map (& 42) {{}})"""
+  "x", 42
 
   'typed function'
   """f (fn [x y]
