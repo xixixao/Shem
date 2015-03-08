@@ -164,7 +164,7 @@ class Context
     @_isOperator = []
     @variableIndex = 0
     @typeVariabeIndex = 0
-    @nameIndex = 0
+    @nameIndex = 1
     @substitution = newMap()
     @statement = []
     @cacheScopes = [[]]
@@ -1802,7 +1802,7 @@ atomCompile = (ctx, atom) ->
       else
         nameCompile ctx, atom, symbol
   atom.tea = type if type
-  atom.id = id if id
+  atom.id = id if id?
   if ctx.isOperator()
     # TODO: maybe don't use label here, it's getting confusing what is its purpose
     (labelOperator atom)
@@ -1825,7 +1825,7 @@ nameCompile = (ctx, atom, symbol) ->
         pattern: []
     else
       atom.label = 'name'
-      id = ctx.freshId()
+      id = (ctx.declarationId symbol) ? ctx.freshId()
       type = toConstrained ctx.freshTypeVariable star
       ctx.bindTypeVariables [type.type.name]
       ctx.addToDefinedNames {name: symbol, id: id, type: type}
