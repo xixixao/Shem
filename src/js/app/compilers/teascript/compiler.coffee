@@ -164,6 +164,7 @@ class Context
     @_isOperator = []
     @variableIndex = 0
     @typeVariabeIndex = 0
+    @nameIndex = 0
     @substitution = newMap()
     @statement = []
     @cacheScopes = [[]]
@@ -408,8 +409,12 @@ class Context
     if lookupInMap @_scope(), name
       false
     else
+      declaration.id ?= @freshId()
       addToMap @_scope(), name, declaration
       true
+
+  freshId: ->
+    @nameIndex++
 
   declareTypes: (names, types) ->
     for name, i in names
@@ -417,6 +422,9 @@ class Context
 
   type: (name) ->
     (@_declaration name)?.type
+
+  declarationId: (name) ->
+    (@_declaration name)?.id
 
   arity: (name) ->
     (@_declaration name)?.arity
@@ -941,7 +949,7 @@ patternCompile = (ctx, pattern, matched) ->
     unify ctx, matched.tea.type, pattern.tea.type
 
   # log "pattern compiel", definedNames, pattern
-  for {name, type} in definedNames
+  for {name, id, type} in definedNames
     currentType = substitute ctx.substitution, type
     deps = ctx.deferredNames()
     if deps.length > 0
@@ -949,11 +957,11 @@ patternCompile = (ctx, pattern, matched) ->
       ctx.addToDeferred {name, type, deps: (map (({name}) -> name), deps)}
       for dep in deps
         ctx.addToDeferred {name: dep.name, type: dep.type, deps: [name]}
-      ctx.declare name, type: new TempType type
+      ctx.declare name, type: (new TempType type), id: id
     else
       # TODO: this is because functions might declare arity before being declared
       if not ctx.isCurrentlyDeclared name
-        ctx.declare name
+        ctx.declare name, id: id
       # For explicitly typed bindings, we need to check that the inferred type
       #   corresponds to the annotated
       if ctx.isTyped name
@@ -1098,6 +1106,8 @@ ms.fn = ms_fn = (ctx, call) ->
       ctx.bindTypeVariables (map (({name}) -> name), paramTypeVars)
       # log "adding types", (map _symbol, params), paramTypes
       ctx.declareTypes paramNames, paramTypes
+      for param in params
+        param.id = ctx.declarationId _symbol param
 
       #log "compiling wheres", pairs wheres
       compiledWheres = definitionList ctx, pairs wheres
@@ -1777,7 +1787,7 @@ requireName = (ctx, message) ->
 atomCompile = (ctx, atom) ->
   {symbol, label} = atom
   # Typing and Translation
-  {type, translation, pattern} =
+  {type, id, translation, pattern} =
     switch label
       when 'numerical'
         numericalCompile ctx, symbol
@@ -1792,6 +1802,7 @@ atomCompile = (ctx, atom) ->
       else
         nameCompile ctx, atom, symbol
   atom.tea = type if type
+  atom.id = id if id
   if ctx.isOperator()
     # TODO: maybe don't use label here, it's getting confusing what is its purpose
     (labelOperator atom)
@@ -1814,10 +1825,12 @@ nameCompile = (ctx, atom, symbol) ->
         pattern: []
     else
       atom.label = 'name'
+      id = ctx.freshId()
       type = toConstrained ctx.freshTypeVariable star
       ctx.bindTypeVariables [type.type.name]
-      ctx.addToDefinedNames {name: symbol, type: type}
+      ctx.addToDefinedNames {name: symbol, id: id, type: type}
       type: type
+      id: id
       pattern:
         assigns:
           [[(validIdentifier symbol), exp]]
@@ -1826,6 +1839,7 @@ nameCompile = (ctx, atom, symbol) ->
     if contextType and contextType not instanceof TempType
       type = freshInstance ctx, contextType
       {
+        id: ctx.declarationId symbol
         type: type
         translation: nameTranslate ctx, atom, symbol, type
       }
@@ -1835,6 +1849,7 @@ nameCompile = (ctx, atom, symbol) ->
       type = toConstrained ctx.freshTypeVariable star
       ctx.addToDeferredNames {name: symbol, type: type}
       {
+        id: ctx.declarationId symbol
         type: type
         translation: nameTranslate ctx, atom, symbol, type
       }
