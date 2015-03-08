@@ -1509,8 +1509,9 @@ ms.macro = ms_macro = (ctx, call) ->
       return malformed call, "Type annotation required"
 
     # Register type
+    params = _terms paramTuple
     ctx.declare macroName,
-      arity: (map _symbol, _terms paramTuple)
+      arity: (map _symbol, params)
       type: quantifyUnbound ctx, typeConstrainedCompile ctx, type
 
     #macroFn = transform call
@@ -1519,7 +1520,7 @@ ms.macro = ms_macro = (ctx, call) ->
     # log compiledMacro
     ctx.addMacro macroName, simpleMacro eval compiledMacro
 
-    jsNoop()
+    fn_ params, call_ (token_ macroName), params
 
 simpleMacro = (macroFn) ->
   (ctx, call) ->
@@ -2503,33 +2504,29 @@ exportList = (source) ->
 # Valid identifiers
 
 validIdentifier = (name) ->
-  [firstChar] = name
-  if firstChar is '/'
-    throw new Error "Identifier expected, but found regex #{name}"
+  (if inSet reservedInJs, name
+    "#{name}_"
+  else if name is '.'
+    "dot_"
   else
-    (if inSet reservedInJs, name
-      "#{name}_"
-    else if name is '.'
-      "dot_"
-    else
-      name)
-      .replace(/\+/g, 'plus_')
-      .replace(/\-/g, '__')
-      .replace(/\*/g, 'times_')
-      .replace(/\//g, 'over_')
-      .replace(/\!/g, 'not_')
-      .replace(/\=/g, 'eq_')
-      .replace(/\</g, 'lt_')
-      .replace(/\>/g, 'gt_')
-      .replace(/\~/g, 'neg_')
-      # .replace(/\√/g, 'sqrt_')
-      # .replace(/\./g, 'dot_')
-      .replace(/\&/g, 'and_')
-      .replace(/\?/g, 'p_')
-      .replace(/^const$/, 'const_')
-      .replace(/^default$/, 'default_')
-      .replace(/^with$/, 'with_')
-      .replace(/^in$/, 'in_')
+    name)
+    .replace(/\+/g, 'plus_')
+    .replace(/\-/g, '__')
+    .replace(/\*/g, 'times_')
+    .replace(/\//g, 'over_')
+    .replace(/\!/g, 'not_')
+    .replace(/\=/g, 'eq_')
+    .replace(/\</g, 'lt_')
+    .replace(/\>/g, 'gt_')
+    .replace(/\~/g, 'neg_')
+    # .replace(/\√/g, 'sqrt_')
+    # .replace(/\./g, 'dot_')
+    .replace(/\&/g, 'and_')
+    .replace(/\?/g, 'p_')
+    .replace(/^const$/, 'const_')
+    .replace(/^default$/, 'default_')
+    .replace(/^with$/, 'with_')
+    .replace(/^in$/, 'in_')
 
 
 # graphToWheres = (graph) ->
