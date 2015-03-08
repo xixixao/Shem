@@ -298,6 +298,7 @@ class Context
     scope.boundTypeVariables = newSet()
     scope.classes = newMap()
     scope.typeNames = newMap()
+    scope.typeAliases = newMap()
     scope
 
   newLateScope: ->
@@ -324,6 +325,15 @@ class Context
     for scope in (reverse @scopes)
       if kind = lookupInMap scope.typeNames, name
         return kind
+
+  addTypeAlias: (name, type) ->
+    addToMap @_scope().typeAliases, name, type
+
+  resolveTypeAliases: (name) ->
+    if alias = lookupInMap @_scope().typeAliases, name
+      alias
+    else
+      name
 
   bindTypeVariables: (vars) ->
     addAllToSet @_scope().boundTypeVariables, vars
@@ -838,7 +848,7 @@ typeConstrainedCompile = (ctx, call) ->
 typeCompile = (ctx, expression) ->
   throw new Error "invalid typeCompile args" unless expression
   (if isAtom expression
-    typeConstantCompile
+    typeNameCompile
   else if isTuple expression
     typeTupleCompile
   else if isCall expression
@@ -850,21 +860,53 @@ typeCompile = (ctx, expression) ->
 typesCompile = (ctx, expressions) ->
   typeCompile ctx, e for e in expressions
 
+typeNameCompile = (ctx, atom, expectedKind) ->
+  expanded = ctx.resolveTypeAliases atom.symbol
+  type =
+    if expanded is atom.symbol
+      kindOfType =
+        if isCapital atom
+          ctx.kindOfTypeName atom.symbol
+        else
+          expectedKind or star
+      if not kindOfType
+        # throw new Error "type name #{atom.symbol} was not defined" unless kind
+        malformed atom, "This type name has not been defined"
+      atomicType atom.symbol, kindOfType
+    else
+      expanded
+  finalKind = kind type
+  if finalKind instanceof KindFn
+    labelOperator atom
+  else
+    atom.label = 'typename'
+  if expectedKind and (not kindsEq expectedKind, finalKind)
+    malformed atom, "The kind of the type operator doesn't match the
+                  supplied number of arguments"
+  # log type
+  type
+
+typeTupleCompile = (ctx, form) ->
+  (labelOperator form)
+  elemTypes = _terms form
+  applyKindFn (tupleType elemTypes.length), (typesCompile ctx, elemTypes)...
+
 typeConstructorCompile = (ctx, call) ->
   op = _operator call
   args = _arguments call
 
   if isAtom op
-    (labelOperator op)
     name = op.symbol
     compiledArgs = typesCompile ctx, args
     if name is 'Fn'
+      (labelOperator op)
       typeFn compiledArgs...
     else
       arity = args.length
-      applyKindFn (atomicType name, kindFn arity), compiledArgs...
+      operatorType = typeNameCompile ctx, op, (kindFn arity)
+      applyKindFn operatorType, compiledArgs...
   else
-    malformed op, 'Should use a type constructor here'
+    malformed op, 'Expected a type constructor instead'
 
 typeConstraintCompile = (ctx, expression) ->
   op = _operator expression
@@ -881,21 +923,6 @@ typeConstraintCompile = (ctx, expression) ->
 typeConstraintsCompile = (ctx, expressions) ->
   filter ((t) -> t instanceof ClassConstraint),
     (typeConstraintCompile ctx, e for e in expressions)
-
-typeTupleCompile = (ctx, form) ->
-  (labelOperator form)
-  elemTypes = _terms form
-  applyKindFn (tupleType elemTypes.length), (typesCompile ctx, elemTypes)...
-
-typeConstantCompile = (ctx, atom) ->
-  atom.label = 'typename'
-  kind =
-    if isCapital atom
-      ctx.kindOfTypeName atom.symbol
-    else
-      star
-  throw new Error "type name #{atom.symbol} was not defined" unless kind
-  atomicType atom.symbol, kind
 
 # Inside definition, we call assignCompile with its RHS
 #   whether to call it and with what expression is left to the RHS expression
@@ -1136,11 +1163,12 @@ ms.fn = ms_fn = (ctx, call) ->
         else
           # Typing
           if body and not body.tea
-            throw new Error "Body not typed"
+            malformed body, 'Expression failed to type check'
+            #throw new Error "Body not typed"
           call.tea =
             if body
               new Constrained body.tea.constraints,
-                typeFn paramTypeVars..., body.tea.type
+                typeFn paramTypeVars..., body.tea?.type
             else
               freshInstance ctx, explicitType
           # """λ#{paramNames.length}(function (#{listOf paramNames}) {
@@ -1157,6 +1185,15 @@ ms.fn = ms_fn = (ctx, call) ->
             #     name: (ctx.definitionName() if ctx.isAtSimpleDefinition())
             #     params: paramNames
             #     body: (join compiledWheres, [(jsReturn compiledBody)]))])
+
+ms.type = ms_type = (ctx, call) ->
+  hasName = requireName ctx, 'Name required to declare new type alias'
+  alias = ctx.definitionName()
+  if not (isCapital symbol: alias)
+    malformed ctx.definitionPattern(), 'Type aliases must start with a capital letter'
+  [type] = _arguments call
+  ctx.addTypeAlias alias, typeCompile ctx, type
+  jsNoop()
 
   # data
   #   listing or
@@ -3735,6 +3772,7 @@ compileTopLevel = (source, moduleName = '@unnamed') ->
     toInject = collectRequiresFor moduleName
     ctx = injectedContext toInject
     {js, ast} = compileCtxAstToJs topLevel, ctx, (astFromSource "(#{source})", -1, -1)
+    checkTypes ctx
     replaceOrAddToMap compiledModules, moduleName,
       declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
       js: js
@@ -3748,9 +3786,16 @@ compileExpression = (source, moduleName = '@unnamed') ->
   ast = (astFromSource "(#{source})", -1, -1)
   [expression] = _terms ast
   {js} = compileCtxAstToJs topLevelExpression, ctx, expression
+  checkTypes ctx
   (attachPrintedTypes ctx, expression)
   js: library + immutable + (listOfLines map lookupJs, setToArray toInject) + js
   ast: ast
+
+# Primitive type checking for now
+checkTypes = (ctx) ->
+  failed = mapToArray filterMap ((name) -> name is 'could not unify'), ctx.substitution
+  if _notEmpty failed
+    throw new Error "Could not unify #{failed[0][0]} with #{failed[0][1]}!"
 
 lookupJs = (moduleName) ->
   js = (lookupInMap compiledModules, moduleName)?.js
@@ -4303,6 +4348,17 @@ tests = [
       (Js.call (Js.access in "get") {key}))
   """
   """(at 5 data)""", 'b'
+
+  'type alias'
+  """
+    Point (type [Num Num])
+
+    x (fn [p]
+      (: (Fn Point Num))
+      first
+      [first second] p)
+  """
+  "(x [3 4]", 3
 
   'collections'
   """
