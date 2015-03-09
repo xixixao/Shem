@@ -2167,7 +2167,8 @@ irMap = (keys, elems) ->
   {ir: irMapTranslate, keys, elems}
 
 irMapTranslate = (ctx, {keys, elems}) ->
-  (jsCall "Immutable.Map", [(jsArray (map jsArray, (zip keys, elems)))])
+  (jsCall "Immutable.Map", [(jsArray (map jsArray,
+    (zip (translateIr ctx, keys), (translateIr ctx, elems))))])
 
 
 irSet = (items) ->
