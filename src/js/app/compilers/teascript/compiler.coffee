@@ -242,8 +242,8 @@ class Context
   isAtDeferrableDefinition: ->
     @isAtDefinition() and @_currentDefinition().deferrable
 
-  # isInsideDefinition: ->
-  #   (definition = @_currentDefinition()) and definition.inside isnt 0
+  # isInsideSimpleDefinition: ->
+  #   (definition = @_currentDefinition())
 
   isOperator: ->
     @_isOperator[@_isOperator.length - 1]
@@ -1513,6 +1513,11 @@ ms.match = ms_match = (ctx, call) ->
     ctx.setAssignTo subjectCompiled
     varNames = []
     constraints = []
+    errorMessage =
+      if ctx.definitionName()?
+        " in #{ctx.definitionName()}"
+      else
+        ""
     compiledCases = conditional (for [pattern, result] in pairs cases
 
       ctx.newScope() # for variables defined inside pattern
@@ -1536,7 +1541,7 @@ ms.match = ms_match = (ctx, call) ->
       varNames.push (findDeclarables precs)...
 
       matchBranchTranslate precs, assigns, compiledResult
-    ), "throw new Error('match failed to match');" #TODO: what subject?
+    ), "throw new Error('match failed to match#{errorMessage}');" #TODO: what subject?
     translationCache = ctx.resetAssignTo()
     call.tea = new Constrained constraints, resultType
     assignCompile ctx, call, iife concat (filter _is, [
