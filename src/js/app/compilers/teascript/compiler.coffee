@@ -1557,8 +1557,9 @@ ms.macro = ms_macro = (ctx, call) ->
 
     # Register type
     params = _terms paramTuple
+    paramNames = map _symbol, params
     ctx.declare macroName,
-      arity: (map _symbol, params)
+      arity: paramNames
       type: quantifyUnbound ctx, typeConstrainedCompile ctx, type
 
     #macroFn = transform call
@@ -1566,6 +1567,7 @@ ms.macro = ms_macro = (ctx, call) ->
       (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], rest))
     # log compiledMacro
     ctx.addMacro macroName, simpleMacro eval compiledMacro
+    params = (map token_, paramNames) # freshen
 
     fn_ params, call_ (token_ macroName), params
 
@@ -2586,10 +2588,6 @@ validIdentifier = (name) ->
     # .replace(/\./g, 'dot_')
     .replace(/\&/g, 'and_')
     .replace(/\?/g, 'p_')
-    .replace(/^const$/, 'const_')
-    .replace(/^default$/, 'default_')
-    .replace(/^with$/, 'with_')
-    .replace(/^in$/, 'in_')
 
 
 # graphToWheres = (graph) ->
