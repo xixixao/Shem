@@ -279,7 +279,7 @@ class Context
 
   resetAssignTo: ->
     if cache = @_assignTos.pop().cache
-      [compileVariableAssignment cache]
+      [cache]
     else
       []
 
@@ -720,8 +720,9 @@ tupleCompile = (ctx, form) ->
         # "#{ctx.assignTo()}[#{i}]"
         ctx.setAssignTo (jsAccess ctx.assignTo(), "#{i}")
         elemCompiled = expressionCompile ctx, elem
-        ctx.resetAssignTo()
-        elemCompiled
+        cache = ctx.resetAssignTo()
+        precs: elemCompiled.precs
+        assigns: cache.concat elemCompiled.assigns or []
     else
       termsCompile ctx, elems
   # TODO: could support partial tuple application via bare labels
@@ -936,7 +937,6 @@ assignCompile = (ctx, expression, translatedExpression) ->
   # if not translatedExpression # TODO: throw here?
   if ctx.isAtDefinition()
     to = ctx.definitionPattern()
-
     ctx.setAssignTo (irDefinition expression.tea, translatedExpression)
     {precs, assigns} = patternCompile ctx, to, expression
     translationCache = ctx.resetAssignTo()
@@ -948,7 +948,7 @@ assignCompile = (ctx, expression, translatedExpression) ->
 
     if assigns.length is 0
       return malformed to, 'Not an assignable pattern'
-    join translationCache, map compileVariableAssignment, assigns
+    map compileVariableAssignment, (join translationCache, assigns)
   else
     translatedExpression
 
@@ -1561,7 +1561,7 @@ ms.match = ms_match = (ctx, call) ->
     translationCache = ctx.resetAssignTo()
     call.tea = new Constrained constraints, resultType
     assignCompile ctx, call, iife concat (filter _is, [
-      translationCache
+      (map compileVariableAssignment, translationCache)
       varList varNames
       compiledCases])
 
@@ -3402,21 +3402,21 @@ emptySubstitution = ->
 # Unlike in Jones, we simply use substitute for both variables and quantifieds
 # - variables are strings, wheres quantifieds are ints
 substitute = (substitution, type) ->
-  if type instanceof TypeVariable and substitution.vars
+  if type.TypeVariable and substitution.vars
     (inSub substitution, type.name) or type
-  else if type instanceof QuantifiedVar
+  else if type.QuantifiedVar
     substitution[type.var] or type
-  else if type instanceof TypeApp
+  else if type.TypeApp
     new TypeApp (substitute substitution, type.op),
       (substitute substitution, type.arg)
-  else if type instanceof ForAll
+  else if type.ForAll
     new ForAll type.kinds, (substitute substitution, type.type)
-  else if type instanceof Constrained
+  else if type.Constrained
     new Constrained (substituteList substitution, type.constraints),
       (substitute substitution, type.type)
-  else if type instanceof ClassConstraint
+  else if type.ClassConstraint
     new ClassConstraint type.className, substitute substitution, type.types
-  else if type instanceof Types
+  else if type.Types
     new Types substituteList substitution, type.types
   else
     type
@@ -3573,24 +3573,33 @@ class KindFn
 
 class TypeVariable
   constructor: (@name, @kind) ->
+  TypeVariable: yes
 class TypeConstr
   constructor: (@name, @kind) ->
+  TypeConstr: yes
 class TypeApp
   constructor: (@op, @arg) ->
+  TypeApp: yes
 class QuantifiedVar
   constructor: (@var) ->
+  QuantifiedVar: yes
 class ForAll
   constructor: (@kinds, @type) ->
+  ForAll: yes
 class TempType
   constructor: (@type) ->
+  TempType: yes
 
 class Types
   constructor: (@types) ->
+  Types: yes
 
 class Constrained
   constructor: (@constraints, @type) ->
+  Constrained: yes
 class ClassConstraint
   constructor: (@className, @types) ->
+  ClassConstraint: yes
 
 addConstraints = ({constraints, type}, addedConstraints) ->
   new Constrained (join constraints, addedConstraints), type
@@ -4541,6 +4550,14 @@ tests = [
         (list-first in)))
   """
   "(first {42 43 44})", 42
+
+  'nested pattern matching'
+  """
+    f (fn [x]
+      y
+      [[z y] g] x)
+  """
+  "(f [[2 42] 3])", 42
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
   #
@@ -4594,9 +4611,9 @@ testNamed = (givenName) ->
   throw new Error "Test #{givenName} not found!"
 
 logError = (message, error) ->
-  log message, error.message, error.stack
+  log message, error.message, (error.stack
     .replace(/\n?((\w+)[^>\n]+>[^>\n]+>[^>\n]+:(\d+:\d+)|.*)(?=\n)/g, '\n$2 $3')
-    .replace(/\n (?=\n)/g, '')
+    .replace(/\n (?=\n)/g, ''))
 
 debug = (fun) ->
   try
