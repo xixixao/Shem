@@ -128,7 +128,7 @@ mapTyping = (fn, string) ->
   visitExpressions ast, (expression) ->
     expressions.push "#{collapse toHtml expression} :: #{highlightType expression.tea}" if expression.tea
   types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInDefinitions()
-  subs: values mapMap highlightType, ctx.substitution
+  subs: mapSub highlightType, ctx.substitution
   ast: expressions
   deferred: ctx.deferredBindings()
 
@@ -139,7 +139,7 @@ mapTypingBare = (fn, string) ->
   visitExpressions ast, (expression) ->
     expressions.push [(collapse toHtml expression), expression.tea] if expression.tea
   types: values mapMap _type, subtractMaps ctx._scope(), builtInDefinitions()
-  subs: values ctx.substitution
+  subs: ctx.substitution
   ast: expressions
   deferred: ctx.deferredBindings()
 
@@ -165,7 +165,7 @@ class Context
     @variableIndex = 0
     @typeVariabeIndex = 0
     @nameIndex = 1
-    @substitution = newMap()
+    @substitution = emptySubstitution()
     @statement = []
     @cacheScopes = [[]]
     @_assignTos = []
@@ -3269,31 +3269,36 @@ mostGeneralUnifier = (t1, t2) ->
     else
       emptySubstitution()
   else
-    newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
+    unifyFail t1, t2
+
+unifyFail = (t1, t2) ->
+  substituionFail "could not unify #{(safePrintType t1)}, #{(safePrintType t2)}"
 
 bindVariable = (variable, type) ->
   if type instanceof TypeVariable and variable.name is type.name
     emptySubstitution()
   else if inSet (findFree type), variable.name
-    newMapWith variable.name, "occurs check failed"
+    substituionFail "occurs check failed for #{variable.name}"
+    # newMapWith variable.name, "occurs check failed"
   else if not kindsEq (kind variable), (kind type)
-    newMapWith variable.name, "kinds don't match for #{variable.name} and #{safePrintType type}"
+    # newMapWith variable.name, "kinds don't match for #{variable.name} and #{safePrintType type}"
+    substituionFail "kinds don't match for #{variable.name} and #{safePrintType type}"
   else
-    newMapWith variable.name, type
+    newSubstitution variable.name, type
 
 # Maybe substitution if the types match
 # t1 can be more general than t2
 toMatchTypes = (t1, t2) ->
   substitution = matchType t1, t2
-  if not lookupInMap substitution, "could not unify"
-    substitution
-  else
+  if _notEmpty substitution.fails
     null
+  else
+    substitution
 
 # Returns a substitution
 matchType = (t1, t2) ->
   if t1 instanceof TypeVariable and kindsEq (kind t1), (kind t2)
-    newMapWith t1.name, t2
+    newSubstitution t1.name, t2
   else if t1 instanceof TypeConstr and t2 instanceof TypeConstr and
     t1.name is t2.name
       emptySubstitution()
@@ -3302,39 +3307,87 @@ matchType = (t1, t2) ->
     s2 = matchType t1.arg, t2.arg
     s3 = mergeSubs s1, s2
     s3 or
-      newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
+      # newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
+      unifyFail t1, t2
   else if t1 instanceof Types and t2 instanceof Types
     if _notEmpty t1.types
       s1 = matchType t1.types[0], t2.types[0]
       s2 = matchType (new Types t1.types[1...]), (new Types t2.types[1...])
       s3 = mergeSubs s1, s2
       s3 or
-        newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
+        unifyFail t1, t2
+        # newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
     else
       emptySubstitution()
   else
-    newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
+    unifyFail t1, t2
+    # newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
 
 joinSubs = (s1,s2) ->
-  concatMaps s1, mapMap ((type) -> substitute s1, type), s2
+  subUnion s1, (mapSub ((type) -> substitute s1, type), s2)
 
 mergeSubs = (s1, s2) ->
   agree = (varName) ->
     variable = new TypeVariable varName, star
     typeEq (substitute s1, variable), (substitute s2, variable)
-  if allMap agree, keysOfMap intersectRight s1, s2
-    concatMaps s1, s2
+  if allMap agree, subIntersection s1, s2
+    subUnion s1, s2
   else
     null
 
+mapSub = (fn, sub) ->
+  mapped = emptySubstitution()
+  mapped.start = (subStart sub)
+  mapped.fails = sub.fails
+  for name in [(subStart sub)...(subLimit sub)] by 1 when v = (inSub sub, name)
+    mapped.vars[name] = fn v
+  mapped
+
+subIntersection = (subA, subB) ->
+  for name in [(subStart subB)...(subLimit subB)] by 1 when (inSub subB, name) and (inSub subA, name)
+    name
+
+subUnion = (subA, subB) ->
+  union = emptySubstitution()
+  start = Math.min (subStart subA), (subStart subB)
+  union.start = start
+  for name in [start...Math.max (subLimit subA), (subLimit subB)] by 1
+    type = (inSub subA, name) or (inSub subB, name)
+    if type
+      union.vars[name] = type
+  union.fails = [].concat subA.fails, subB.fails
+  union
+
+newSubstitution = (name, type) ->
+  sub = emptySubstitution()
+  sub.vars[name] = type
+  sub.start = name
+  sub
+
+substituionFail = (failure) ->
+  sub = emptySubstitution()
+  sub.fails.push failure
+  sub
+
+subLimit = (sub) ->
+  sub.vars.length
+
+subStart = (sub) ->
+  sub.start
+
+inSub = (sub, name) ->
+  sub.vars[name]
+
 emptySubstitution = ->
-  newMap()
+  start: Infinity
+  fails: []
+  vars: []
 
 # Unlike in Jones, we simply use substitute for both variables and quantifieds
 # - variables are strings, wheres quantifieds are ints
 substitute = (substitution, type) ->
-  if type instanceof TypeVariable and substitution.values
-    (lookupInMap substitution, type.name) or type
+  if type instanceof TypeVariable and substitution.vars
+    (inSub substitution, type.name) or type
   else if type instanceof QuantifiedVar
     substitution[type.var] or type
   else if type instanceof TypeApp
@@ -3556,11 +3609,11 @@ safePrintType = (type) ->
 
 printType = (type) ->
   if type instanceof TypeVariable
-    type.name
+    "#{type.name}"
   else if type instanceof QuantifiedVar
     "#{type.var}"
   else if type instanceof TypeConstr
-    type.name
+    "#{type.name}"
   else if type instanceof TypeApp
     flattenType collectArgs type
   else if type instanceof ForAll
@@ -3835,9 +3888,9 @@ compileExpression = (source, moduleName = '@unnamed') ->
 
 # Primitive type checking for now
 checkTypes = (ctx) ->
-  failed = mapToArray filterMap ((name) -> name is 'could not unify'), ctx.substitution
-  if _notEmpty failed
-    throw new Error "Could not unify #{failed[0][0]} with #{failed[0][1]}!"
+  # failed = mapToArray filterMap ((name) -> name is 'could not unify'), ctx.substitution
+  if _notEmpty (failed = ctx.substitution.fails)
+    throw new Error failed[0]
 
 lookupJs = (moduleName) ->
   js = (lookupInMap compiledModules, moduleName)?.js
@@ -3912,7 +3965,7 @@ topLevelAndExpression = (source) ->
   compiledExpression = compileCtxAstToJs topLevelExpression, ctx, expression
   (attachPrintedTypes ctx, expression)
   types: ctx._scope()
-  subs: filterMap ((name) -> name is 'could not unify'), ctx.substitution
+  # subs: filterMap ((name) -> name is 'could not unify'), ctx.substitution
   ast: ast
   compiled: library + immutable + compiledDefinitions.js + compiledExpression.js
 
