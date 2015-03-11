@@ -999,7 +999,7 @@ patternCompile = (ctx, pattern, matched) ->
           ctx.allBoundTypeVariables(),
           (findFree currentType),
           (substituteList ctx.substitution, matched.tea.constraints)
-        # log "assign type", name, printType currentType
+        # log "assign type", name, (printType currentType), retainedConstraints
         ctx.assignType name,
           if ctx.isAtDeferrableDefinition()
             quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
@@ -1228,7 +1228,6 @@ ms.data = ms_data = (ctx, call) ->
         dataType
       paramLabels = (_labeled _terms params or []).map(_fst).map(_labelName)
       # log "Adding constructor #{constr.symbol}", constrType
-      log printType constrType
       ctx.declare constr.symbol,
         type: quantifyUnbound ctx, toConstrained constrType
         arity: (paramLabels if params)
@@ -1267,22 +1266,25 @@ findDataType = (ctx, typeArgLists, typeParams, dataName) ->
   # TODO: I need to figure out the error handling, we should bail out
   #       if an undeclared type var is used
   fieldTypes = for typeArgs in typeArgLists
-    if isRecord typeArgs
-      for type in _snd unzip _labeled _terms typeArgs
-        type = typeCompile ctx, type
-        for name, kind of values findFree type
-          if not inSet varNameSet, name
-            malformed type, "Type variable #{name} not declared"
-            throw new Error "Type variable #{name} not declared"
-          else
-            if foundKind = lookupInMap kinds, name
-              if not kindsEq foundKind, kind
-                malformed type, "Type variable #{name} must have the same kind"
+    if typeArgs
+      if isRecord typeArgs
+        for type in _snd unzip _labeled _terms typeArgs
+          type = typeCompile ctx, type
+          for name, kind of values findFree type
+            if not inSet varNameSet, name
+              malformed type, "Type variable #{name} not declared"
+              throw new Error "Type variable #{name} not declared"
             else
-              addToMap kinds, name, kind
-        type
+              if foundKind = lookupInMap kinds, name
+                if not kindsEq foundKind, kind
+                  malformed type, "Type variable #{name} must have the same kind"
+              else
+                addToMap kinds, name, kind
+          type
+      else
+        malformed typeArgs, 'Required a record of types'
+        null
     else
-      malformed typeArgs, 'Required a record of types'
       null
 
   for typeParam in typeParams
@@ -1359,15 +1361,15 @@ ms.class = ms_class = (ctx, call) ->
       if ctx.isClassDefined name
         malformed 'class already defined', ctx.definitionPattern()
       else
-        classConstraint = findClassType name, paramNames, declarations
-        ctx.addClass name, classConstraint, superClasses, declarations
-        declareMethods ctx, classConstraint, declarations
+        {classConstraint, freshedDeclarations} = findClassType ctx, name, paramNames, declarations
+        ctx.addClass name, classConstraint, superClasses, freshedDeclarations
+        declareMethods ctx, classConstraint, freshedDeclarations
 
-        translateDict name, (keysOfMap declarations), superClasses
+        translateDict name, (keysOfMap freshedDeclarations), superClasses
     else
       'malformed'
 
-findClassType = (className, paramNames, methods) ->
+findClassType = (ctx, className, paramNames, methods) ->
   kinds = mapMap (-> undefined), (arrayToSet paramNames)
   for name, {arity, type, def} of values methods
     for param in paramNames
@@ -1382,9 +1384,13 @@ findClassType = (className, paramNames, methods) ->
         # TODO: better error message
         malformed def, 'All methods must use the class paramater of the same kind'
       replaceInMap kinds, param, foundKind
+  freshingSub = mapToSubstitution mapMap ((kind) -> ctx.freshTypeVariable kind), kinds
   classParam = (param) ->
-    new TypeVariable param, (lookupInMap kinds, param)
-  new ClassConstraint className, new Types (map classParam, paramNames)
+    substitute freshingSub, new TypeVariable param, (lookupInMap kinds, param)
+  method = ({arity, type, def}) ->
+    {arity, def, type: (substitute freshingSub, type)}
+  classConstraint: (new ClassConstraint className, new Types (map classParam, paramNames))
+  freshedDeclarations: (mapMap method, methods)
 
 declareMethods = (ctx, classConstraint, methodDeclarations) ->
   for name, {arity, type} of values methodDeclarations
@@ -1419,8 +1425,9 @@ ms.instance = ms_instance = (ctx, call) ->
       instanceName = ctx.definitionName()
 
       ctx.newScope()
-      freshConstraints = assignMethodTypes ctx, instanceName,
+      freshInstanceType = assignMethodTypes ctx, instanceName,
         classDefinition, instanceType, constraints
+      freshConstraints = freshInstanceType.constraints
       definitions = pairs wheres
       methodsDeclarations = definitionList ctx,
         (prefixWithInstanceName definitions, instanceName)
@@ -1433,7 +1440,8 @@ ms.instance = ms_instance = (ctx, call) ->
       # TODO: defer for class declaration if not defined
       ## if not ctx.isClassDefined className    ...
 
-      instance = (new Constrained constraints, instanceType)
+      instance = (new Constrained freshConstraints,
+        (new ClassConstraint instanceType.className, freshInstanceType.type))
       ## if overlaps ctx, instance
       ##   malformed 'instance overlaps with another', instance
       ## else
@@ -1454,7 +1462,7 @@ assignMethodTypes = (ctx, instanceName, classDeclaration, instanceType, instance
     (quantifyUnbound ctx,
       (new Constrained instanceConstraints, instanceType.types))
 
-  # log "mguing", classDeclaration.constraint.type, freshInstanceType.type
+  # log "mguing", classDeclaration.constraint.types, freshInstanceType.type
   sub = mostGeneralUnifier classDeclaration.constraint.types, freshInstanceType.type
   # log sub
 
@@ -1466,7 +1474,7 @@ assignMethodTypes = (ctx, instanceName, classDeclaration, instanceType, instance
     prefixedName = instancePrefix instanceName, name
     ctx.declareArity prefixedName, arity
     ctx.assignType prefixedName, quantifiedType
-  freshInstanceType.constraints
+  freshInstanceType
 
 prefixWithInstanceName = (definitionPairs, instanceName) ->
   for [lhs, rhs] in definitionPairs
@@ -2329,8 +2337,8 @@ tuplize = (n, list) ->
 
 unzip = (pairs) ->
   [
-    filter _is, map _fst, pairs
-    filter _is, map _snd, pairs
+    map _fst, pairs
+    map _snd, pairs
   ]
 
 zip = (list1, list2) ->
@@ -3600,7 +3608,7 @@ quantify = (vars, type) ->
   polymorphicVars = filterMap ((name) -> inSet vars, name), findFree type
   kinds = mapToArray polymorphicVars
   varIndex = 0
-  quantifiedVars = mapMap (-> new QuantifiedVar varIndex++), polymorphicVars
+  quantifiedVars = mapToSubstitution mapMap (-> new QuantifiedVar varIndex++), polymorphicVars
   new ForAll kinds, (substitute quantifiedVars, type)
 
 star = '*'
@@ -3977,7 +3985,7 @@ topLevelAndExpression = (source) ->
   compiledExpression = compileCtxAstToJs topLevelExpression, ctx, expression
   (attachPrintedTypes ctx, expression)
   types: ctx._scope()
-  # subs: filterMap ((name) -> name is 'could not unify'), ctx.substitution
+  subs: ctx.substitution.fails
   ast: ast
   compiled: library + immutable + compiledDefinitions.js + compiledExpression.js
 
@@ -4092,7 +4100,7 @@ test = (testName, teaSource, result) ->
     return
   try
     log (collapse toHtml compiled.ast)
-    if not isMapEmpty compiled.subs
+    if _notEmpty compiled.subs
       log compiled.subs
     if result isnt (got = eval compiled.compiled)
       log "'#{testName}' expected", result, "got", got
