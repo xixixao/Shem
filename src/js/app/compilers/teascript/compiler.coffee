@@ -1213,29 +1213,22 @@ ms.data = ms_data = (ctx, call) ->
     # Syntax
     [names, typeArgLists] = unzip defs
     map (syntaxNewName 'Type constructor name required'), names
-    fieldTypes = []
-    for typeArgs in typeArgLists
-      if isRecord typeArgs
-        for type in _snd unzip _labeled _terms typeArgs
-          fieldTypes.push type
-          syntaxType type
-      else
-        malformed typeArgs, 'Required a record of types'
     if not hasName
       return 'malformed'
 
     dataName = ctx.definitionName()
 
     # Types, Arity
-    dataType = findDataType ctx, fieldTypes, typeParams, dataName
-    for [constr, params] in defs
-      paramTypes = typesCompile ctx, (map _snd, (_labeled _terms params or []))
+    {fieldTypes, dataType} = findDataType ctx, typeArgLists, typeParams, dataName
+    for [constr, params], i in defs
+      paramTypes = fieldTypes[i]
       constrType = if params
         typeFn (join paramTypes, [dataType])...
       else
         dataType
       paramLabels = (_labeled _terms params or []).map(_fst).map(_labelName)
       # log "Adding constructor #{constr.symbol}", constrType
+      log printType constrType
       ctx.declare constr.symbol,
         type: quantifyUnbound ctx, toConstrained constrType
         arity: (paramLabels if params)
@@ -1266,29 +1259,44 @@ ms.data = ms_data = (ctx, call) ->
           (jsNew identifier, []))
       (join (translateDict identifier, paramNames), [constrValue]))
 
-findDataType = (ctx, types, typeParams, dataName) ->
+findDataType = (ctx, typeArgLists, typeParams, dataName) ->
   varNames = map _symbol, typeParams
   varNameSet = arrayToSet varNames
   kinds = newMap()
-  for type in types
-    for name, kind of values findFree typeCompile ctx, type
-      if not inSet varNameSet, name
-        malformed type, "Type variable #{name} not declared"
-      else
-        if foundKind = lookupInMap kinds, name
-          if not kindsEq foundKind, kind
-            malformed type, "Type variable #{name} must have the same kind"
-        else
-          addToMap kinds, name, kind
+
+  # TODO: I need to figure out the error handling, we should bail out
+  #       if an undeclared type var is used
+  fieldTypes = for typeArgs in typeArgLists
+    if isRecord typeArgs
+      for type in _snd unzip _labeled _terms typeArgs
+        type = typeCompile ctx, type
+        for name, kind of values findFree type
+          if not inSet varNameSet, name
+            malformed type, "Type variable #{name} not declared"
+            throw new Error "Type variable #{name} not declared"
+          else
+            if foundKind = lookupInMap kinds, name
+              if not kindsEq foundKind, kind
+                malformed type, "Type variable #{name} must have the same kind"
+            else
+              addToMap kinds, name, kind
+        type
+    else
+      malformed typeArgs, 'Required a record of types'
+      null
 
   for typeParam in typeParams
     if not lookupInMap kinds, (_symbol typeParam)
       malformed typeParam, 'Data type parameter not used'
+      throw new Error 'Data type parameter not used'
+
+  freshingSub = mapToSubstitution mapMap ((kind) -> ctx.freshTypeVariable kind), kinds
 
   dataKind = kindFnOfArgs (map ((name) -> lookupInMap kinds, name), varNames)...
-  typeVars = mapToArrayVia ((name, kind) -> new TypeVariable name, kind), kinds
-  applyKindFn (new TypeConstr dataName, dataKind), typeVars...
-
+  typeVars = map ((name) -> new TypeVariable name, (lookupInMap kinds, name)), varNames
+  dataType: (substitute freshingSub,
+    (applyKindFn (new TypeConstr dataName, dataKind), typeVars...))
+  fieldTypes: (map ((types) -> if types then substituteList freshingSub, types), fieldTypes)
 
 ms.record = ms_record = (ctx, call) ->
     args = _arguments call
@@ -3407,6 +3415,10 @@ substitute = (substitution, type) ->
 
 substituteList = (substitution, list) ->
   map ((t) -> substitute substitution, t), list
+
+# Only valid for substitute
+mapToSubstitution = (map) ->
+  vars: map.values
 
 findFree = (type) ->
   if type instanceof TypeVariable
