@@ -1549,6 +1549,43 @@ ms.match = ms_match = (ctx, call) ->
       varList varNames
       compiledCases])
 
+ms.format = ms_format = (ctx, call) ->
+  typeTable =
+    n: numType
+    i: numType
+    s: stringType
+    c: charType
+  [formatStringToken, args...] = _arguments call
+  types = []
+  formatString = _stringValue formatStringToken
+  while formatString.length > 0
+    match = formatString.match /^(.*?(?:^|[^\\]))\%(.)/
+    break unless match
+    [matched, prefix, symbol] = match
+    if symbol of typeTable
+      types.push
+        type: typeTable[symbol]
+        symbol: symbol
+        prefix: prefix
+    else
+      malformed formatString, "Found an unsupported control character #{symbol}"
+    formatString = formatString[matched.length...]
+  if args.length > types.length
+    malformed call, "Too many arguments to format"
+  call.tea = toConstrained stringType
+  compiledArgs = termsCompile ctx, args
+  # TODO: curry
+  formattedArgs = for {type, symbol, prefix}, i in types when args[i]
+    compiled = compiledArgs[i]
+    unify ctx, type, args[i].tea.type
+    [(string_ prefix), switch symbol
+      when 's' then compiled
+      when 'c' then compiled
+      when 'n' then compiled
+      when 'i' then (jsUnary "~", (jsUnary "~", compiled))]
+  assignCompile ctx, call,
+    (jsBinaryMulti "+", join (concat formattedArgs), [string_ formatString])
+
 ms.macro = ms_macro = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare a new instance'
   [paramTuple, type, rest...] = _arguments call
@@ -3341,8 +3378,9 @@ freshInstance = (ctx, type) ->
   (substitute freshes, type).type
 
 freshName = (nameIndex) ->
-  suffix = if nameIndex >= 25 then freshName (Math.floor nameIndex / 25) - 1 else ''
-  (String.fromCharCode 97 + nameIndex % 25) + suffix
+  nameIndex
+  # suffix = if nameIndex >= 25 then freshName (Math.floor nameIndex / 25) - 1 else ''
+  # (String.fromCharCode 97 + nameIndex % 25) + suffix
 
 # Normalized constraint has a type which has type variable at its head
 #   that is either ordinary type variable or type variable standing for a constructor
@@ -3933,6 +3971,8 @@ _fst = ([a, b]) -> a
 
 _labelName = (atom) -> (_symbol atom)[0...-1]
 
+_stringValue = ({symbol}) -> symbol[1...-1]
+
 _symbol = ({symbol}) -> symbol
 
 # Utils
@@ -4362,7 +4402,7 @@ tests = [
       first
       [first second] p)
   """
-  "(x [3 4]", 3
+  "(x [3 4])", 3
 
   'collections'
   """
