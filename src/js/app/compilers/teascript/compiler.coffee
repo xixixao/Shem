@@ -9,8 +9,8 @@ tokenize = (input, initPos = 0) ->
       | [#{controls}] # delims
       | /([^\s]|\\/)([^/]|\\/)*?/ # regex
       | "(?:[^"\\]|\\.)*" # strings
-      | \\[^\x20#{controls}]+ # char
-      | [^#{controls}"'\s]+ # normal tokens
+      | \\[^\s][^\s#{controls}]* # char
+      | [^#{controls}"'\\\s]+ # normal tokens
       )///
     if not match
       throw new Error "Could not recognize a token starting with `#{input[0..10]}`"
@@ -70,23 +70,24 @@ createIndent = (accumulator) ->
 
 constantLabeling = (atom) ->
   {symbol} = atom
-  labelMapping atom,
-    ['numerical', /^~?\d+/.test symbol]
-    ['label', isLabel atom]
-    ['string', /^"/.test symbol]
-    ['char', /^\\/.test symbol]
-    ['regex', /^\/[^\s\/]/.test symbol]
-    ['const', /^[A-Z][^\s\.]*$/.test symbol] # TODO: instead label based on context
-    ['paren', symbol in ['(', ')']]
-    ['bracket', symbol in ['[', ']']]
-    ['brace', symbol in ['{', '}']]
-    ['whitespace', /^\s+$/.test symbol]
+  labelMapping atom, [
+    ['numerical', -> /^~?\d+/.test symbol]
+    ['label', -> isLabel atom]
+    ['string', -> /^"/.test symbol]
+    ['char', -> /^\\/.test symbol]
+    ['regex', -> /^\/[^\s\/]/.test symbol]
+    ['const', -> /^[A-Z][^\s\.]*$/.test symbol] # TODO: instead label based on context
+    ['paren', -> symbol in ['(', ')']]
+    ['bracket', -> symbol in ['[', ']']]
+    ['brace', -> symbol in ['{', '}']]
+    ['whitespace', -> /^\s+$/.test symbol]
+  ]
 
 noWhitespace = (tokens) ->
   tokens.filter (token) -> token.label not in ['whitespace', 'indent']
 
-labelMapping = (word, rules...) ->
-  for [label, cond] in rules when cond
+labelMapping = (word, rules) ->
+  for [label, cond] in rules when cond()
     word.label = label
     return word
   word
@@ -729,7 +730,8 @@ tupleCompile = (ctx, form) ->
   #   map [0: "hello" 1:] {"world", "le mond", "svete"}
   # TODO: should we support bare records?
   #   [a: 2 b: 3]
-  form.tea = tupleOfTypes (tea for {tea} in elems)
+  if not ctx.shouldDefer()
+    form.tea = tupleOfTypes (tea for {tea} in elems)
 
   if ctx.assignTo()
     combinePatterns compiledElems
@@ -2263,7 +2265,7 @@ isComment = (expression) ->
 
 isCall = (expression) ->
   (isForm expression) and (isEmptyForm expression) and
-    expression[0].label is 'paren'
+    expression[0].symbol is '('
 
 isRecord = (expression) ->
   if isTuple expression
@@ -2271,10 +2273,10 @@ isRecord = (expression) ->
     labels.length is values.length and (allMap isLabel, labels)
 
 isSeq = (expression) ->
-  (isForm expression) and expression[0].label is 'brace'
+  (isForm expression) and expression[0].symbol is '{'
 
 isTuple = (expression) ->
-  (isForm expression) and expression[0].label is 'bracket'
+  (isForm expression) and expression[0].symbol is '['
 
 isEmptyForm = (form) ->
   (_terms form).length > 0
@@ -2283,7 +2285,7 @@ isForm = (expression) ->
   Array.isArray expression
 
 isLabel = (atom) ->
-  /:$/.test atom.symbol
+  /[^\\]:$/.test atom.symbol
 
 isCapital = (atom) ->
   /[A-Z]/.test atom.symbol
@@ -3896,12 +3898,14 @@ compileTopLevel = (source, moduleName = '@unnamed') ->
     toInject = collectRequiresFor moduleName
     ctx = injectedContext toInject
     {js, ast} = compileCtxAstToJs topLevel, ctx, (astFromSource "(#{source})", -1, -1)
-    checkTypes ctx
     replaceOrAddToMap compiledModules, moduleName,
       declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
       js: js
     (attachPrintedTypes ctx, ast)
-    {js, ast: ast, types: typeEnumaration ctx}
+    js: js
+    ast: ast
+    types: typeEnumaration ctx
+    errors: checkTypes ctx
 
 compileExpression = (source, moduleName = '@unnamed') ->
   module = lookupInMap compiledModules, moduleName
@@ -3910,16 +3914,16 @@ compileExpression = (source, moduleName = '@unnamed') ->
   ast = (astFromSource "(#{source})", -1, -1)
   [expression] = _terms ast
   {js} = compileCtxAstToJs topLevelExpression, ctx, expression
-  checkTypes ctx
   (attachPrintedTypes ctx, expression)
   js: library + immutable + (listOfLines map lookupJs, setToArray toInject) + js
   ast: ast
+  errors: checkTypes ctx
 
 # Primitive type checking for now
 checkTypes = (ctx) ->
   # failed = mapToArray filterMap ((name) -> name is 'could not unify'), ctx.substitution
   if _notEmpty (failed = ctx.substitution.fails)
-    throw new Error failed[0]
+    failed
 
 lookupJs = (moduleName) ->
   js = (lookupInMap compiledModules, moduleName)?.js
@@ -4558,6 +4562,14 @@ tests = [
       [[z y] g] x)
   """
   "(f [[2 42] 3])", 42
+
+  'deferring in tuples'
+  """
+    g [f {} 3]
+    f 4
+    [o t r] g
+  """
+  "o", 4
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
   #
