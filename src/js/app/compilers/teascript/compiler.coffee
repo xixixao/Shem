@@ -780,7 +780,7 @@ seqCompile = (ctx, form) ->
     elemType = ctx.freshTypeVariable star
     # TODO use (Seq c e) instead of (Array e)
     form.tea = new Constrained (concatMap _constraints, (tea for {tea} in elems)),
-      new TypeApp listType, elemType
+      new TypeApp arrayType, elemType
 
     for elem in elems
       unify ctx, elem.tea.type,
@@ -799,8 +799,8 @@ seqCompile = (ctx, form) ->
     # expressionCompile ctx, arrayToConses elems
     # result =>         "[#{listOf map _compiled, elems}]"
 
-    compiledItems = uniformCollectionCompile ctx, form, elems, listType
-    assignCompile ctx, form, (irList compiledItems)
+    compiledItems = uniformCollectionCompile ctx, form, elems, arrayType
+    assignCompile ctx, form, (irArray compiledItems)
 
 isSplat = (expression) ->
   (isAtom expression) and (_symbol expression)[...2] is '..'
@@ -1612,7 +1612,7 @@ ms.macro = ms_macro = (ctx, call) ->
     macroName = ctx.definitionName()
     if ctx.macros()[macroName]
       return malformed call, "Macro with this name already defined"
-    if not isTypeAnnotation type
+    if not type or not isTypeAnnotation type
       return malformed call, "Type annotation required"
 
     # Register type
@@ -1620,7 +1620,11 @@ ms.macro = ms_macro = (ctx, call) ->
     paramNames = map _symbol, params
     ctx.declare macroName,
       arity: paramNames
-      type: quantifyUnbound ctx, typeConstrainedCompile ctx, type
+      type: type = quantifyUnbound ctx, typeConstrainedCompile ctx, type
+    call.tea = type
+
+    if not rest.length > 0
+      return malformed call, "Macro body missing"
 
     #macroFn = transform call
     compiledMacro = translateToJs translateIr ctx,
@@ -1658,7 +1662,7 @@ ms['=='] = ms_eq = (ctx, call) ->
     assignCompile ctx, call, (jsBinary "===", compiledA, compiledB)
 
 ms.Set = ms_Set = (ctx, call) ->
-  if hashset = ctx.assignTo()
+  if ctx.assignTo()
     # TODO:
     throw new Error "matching on sets not supported yet"
   else
@@ -1666,10 +1670,19 @@ ms.Set = ms_Set = (ctx, call) ->
     compiledItems = uniformCollectionCompile ctx, call, items, hashsetType
     assignCompile ctx, call, (irSet compiledItems)
 
-ms.Map = ms_Map = (ctx, call) ->
-  if hashset = ctx.assignTo()
+ms.List = ms_List = (ctx, call) ->
+  if ctx.assignTo()
     # TODO:
-    throw new Error "matching on sets not supported yet"
+    throw new Error "matching on lists not supported yet"
+  else
+    items = _arguments call
+    compiledItems = uniformCollectionCompile ctx, call, items, listType
+    assignCompile ctx, call, (irList compiledItems)
+
+ms.Map = ms_Map = (ctx, call) ->
+  if ctx.assignTo()
+    # TODO:
+    throw new Error "matching on maps not supported yet"
   else
     args = _arguments call
     if args.length % 2 != 0
@@ -2215,12 +2228,18 @@ irFunctionTranslate = (ctx, {name, params, body}) ->
       body: translateIr ctx, body)])
 
 
+irArray = (items) ->
+  {ir: irArrayTranslate, items}
+
+irArrayTranslate = (ctx, {items}) ->
+  (jsCall "Immutable.List.of", (translateIr ctx, items))
+
+
 irList = (items) ->
   {ir: irListTranslate, items}
 
 irListTranslate = (ctx, {items}) ->
-  (jsCall "Immutable.List.of", (translateIr ctx, items))
-
+  (jsCall "Immutable.Stack.of", (translateIr ctx, items))
 
 
 irMap = (keys, elems) ->
@@ -2252,7 +2271,7 @@ irJsCompatibleTranslate = (ctx, {type, expression}) ->
 isCustomCollectionType = ({type}) ->
   helpContext = new Context
   newVar = -> helpContext.freshTypeVariable star
-  (toMatchTypes (applyKindFn listType, newVar()), type) or
+  (toMatchTypes (applyKindFn arrayType, newVar()), type) or
     (toMatchTypes (applyKindFn hashmapType, newVar(), newVar()), type) or
     (toMatchTypes (applyKindFn hashsetType, newVar()), type)
 
@@ -3015,7 +3034,7 @@ comparatorOpType = '(Fn a a Bool)'
 builtInTypeNames = ->
   arrayToMap map (({name, kind}) -> [name, kind]), [
     arrowType
-    listType
+    arrayType
     hashmapType
     hashsetType
     stringType
@@ -3624,6 +3643,7 @@ quantify = (vars, type) ->
 
 star = '*'
 arrowType = new TypeConstr 'Fn', kindFn 2
+arrayType = new TypeConstr 'Array', kindFn 1
 listType = new TypeConstr 'List', kindFn 1
 hashmapType = new TypeConstr 'Map', kindFn 2
 hashsetType = new TypeConstr 'Set', kindFn 1
@@ -4208,7 +4228,7 @@ tests = [
   'seq splice in match'
   """
     & (macro [what to]
-      (: (Fn a (List a) (List a)))
+      (: (Fn a (Array a) (Array a)))
       (Js.call (Js.access to "unshift") {what}))
 
     map (fn [what to]
@@ -4513,10 +4533,10 @@ tests = [
         (# Whether the bag contains no elements.)))
 
     list-elem? (macro [what in]
-      (: (Fn item (List item) Bool))
+      (: (Fn item (Array item) Bool))
       (Js.call (Js.access in "contains") {what}))
 
-    collection-list (instance (Collection List)
+    collection-list (instance (Collection Array)
       elem? (fn [what in]
         (list-elem? what in)))
   """
@@ -4529,10 +4549,10 @@ tests = [
         (: (Fn (ce e) e))))
 
     list-first (macro [in]
-      (: (Fn (List item) item))
+      (: (Fn (Array item) item))
       (Js.call (Js.access in "first") {}))
 
-    list-collection (instance (Collection List a)
+    list-collection (instance (Collection Array a)
       first (fn [in]
         (list-first in)))
   """
@@ -4546,10 +4566,10 @@ tests = [
         (: (Fn ce e))))
 
     list-first (macro [in]
-      (: (Fn (List item) item))
+      (: (Fn (Array item) item))
       (Js.call (Js.access in "first") {}))
 
-    list-collection (instance (Collection (List a) a)
+    list-collection (instance (Collection (Array a) a)
       first (fn [in]
         (list-first in)))
   """
