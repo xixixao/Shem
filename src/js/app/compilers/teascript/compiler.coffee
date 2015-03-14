@@ -444,12 +444,7 @@ class Context
     if not kind
       throw new Error "Provide kind in freshTypeVariable"
     name = (freshName @typeVariabeIndex++)
-    # Massive hack to avoid clashes in type classes, need to fix this properly
-    # by renaming
-    if inSet @allBoundTypeVariables(), name
-      @freshTypeVariable kind
-    else
-      new TypeVariable name, kind
+    new TypeVariable name, kind
 
   extendSubstitution: (substitution) ->
     @substitution = joinSubs substitution, @substitution
@@ -936,11 +931,14 @@ typeConstraintsCompile = (ctx, expressions) ->
 #   with the right subs for type vars on the left
 # For each defined name in the LHS, we declare it
 assignCompile = (ctx, expression, translatedExpression) ->
+  assignCompileAs ctx, expression, translatedExpression, no
+
+assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
   # if not translatedExpression # TODO: throw here?
   if ctx.isAtDefinition()
     to = ctx.definitionPattern()
     ctx.setAssignTo (irDefinition expression.tea, translatedExpression)
-    {precs, assigns} = patternCompile ctx, to, expression
+    {precs, assigns} = patternCompile ctx, to, expression, polymorphic
     translationCache = ctx.resetAssignTo()
 
     #log "ASSIGN #{ctx.definitionName()}", ctx.shouldDefer()
@@ -954,7 +952,10 @@ assignCompile = (ctx, expression, translatedExpression) ->
   else
     translatedExpression
 
-patternCompile = (ctx, pattern, matched) ->
+polymorphicAssignCompile = (ctx, expression, translatedExpression) ->
+  assignCompileAs ctx, expression, translatedExpression, yes
+
+patternCompile = (ctx, pattern, matched, polymorphic) ->
 
   # caching can occur while compiling the pattern
   # precs are {cond}s and {cache}s, sorted in order they need to be executed
@@ -1003,7 +1004,7 @@ patternCompile = (ctx, pattern, matched) ->
           (substituteList ctx.substitution, matched.tea.constraints)
         # log "assign type", name, (printType currentType), retainedConstraints
         ctx.assignType name,
-          if ctx.isAtDeferrableDefinition()
+          if polymorphic
             quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
           else
             toForAll currentType
@@ -1159,7 +1160,7 @@ ms.fn = ms_fn = (ctx, call) ->
       if body and not isWellformed body
         return 'malformed'
 
-      assignCompile ctx, call,
+      polymorphicAssignCompile ctx, call,
         if ctx.shouldDefer()
           deferredExpression()
         else
@@ -1540,7 +1541,7 @@ ms.match = ms_match = (ctx, call) ->
 
       ctx.newScope() # for variables defined inside pattern
       ctx.defineNonDeferrablePattern pattern
-      {precs, assigns} = patternCompile ctx, pattern, subject
+      {precs, assigns} = patternCompile ctx, pattern, subject, no
 
       # Compile the result, given current scope
       ctx.setAssignTo undefined
@@ -1948,6 +1949,7 @@ nameCompile = (ctx, atom, symbol) ->
           [[(validIdentifier symbol), exp]]
   else
     # Name typed, use a fresh instance
+    # log symbol, contextType
     if contextType and contextType not instanceof TempType
       type = freshInstance ctx, contextType
       {
@@ -4025,6 +4027,9 @@ topLevelAndExpression = (source) ->
 typeEnumaration = (ctx) ->
   values mapMap _type, ctx._scope()
 
+toJs = (compileFn, source) ->
+  (compileToJs compileFn, "(#{source})", -1, -1)?.js
+
 compileToJs = (compileFn, source, posOffset = 0, depthOffset = 0) ->
   compileAstToJs compileFn, (astFromSource source, posOffset, depthOffset)
 
@@ -4302,6 +4307,24 @@ tests = [
         (match x
           [fst snd] (show snd))))"""
   """(show ["Adam" "Michal"])""", "Michal"
+
+  'instance constraints on array' # Tests where clause typing
+  """
+    Show (class [a]
+      show (fn [x] (: (Fn a String))))
+
+    show-string (instance (Show String)
+      show (fn [x] x))
+
+    head (fn [array]
+      x
+      {x ..xs} array)
+
+    show-snd (instance (Show (Array a))
+      {(Show a)}
+      show (fn [array]
+        (show (head array))))"""
+  """(show {"Michal" "Adam"})""", "Michal"
 
   'multiple constraints'
   """
@@ -4639,7 +4662,7 @@ tests = [
 
 testNamed = (givenName) ->
   for [name, source, expression, result] in tuplize 4, tests when name is givenName
-    return source
+    return source + "\n" + "_ " + expression
   throw new Error "Test #{givenName} not found!"
 
 logError = (message, error) ->
@@ -4652,6 +4675,11 @@ debug = (fun) ->
     fun()
   catch e
     logError "debug", e
+
+runTest = (givenName) ->
+  for [name, source, expression, result] in tuplize 4, tests when name is givenName
+    test name, source + "\n" + expression, result
+  "Done"
 
 runTests = (tests) ->
   for [name, source, expression, result] in tuplize 4, tests
