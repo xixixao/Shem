@@ -726,7 +726,7 @@ tupleCompile = (ctx, form) ->
   # TODO: should we support bare records?
   #   [a: 2 b: 3]
   if not ctx.shouldDefer()
-    form.tea = tupleOfTypes (tea for {tea} in elems)
+    form.tea = tupleOfTypes map _tea, elems
 
   if ctx.assignTo()
     combinePatterns compiledElems
@@ -774,7 +774,7 @@ seqCompile = (ctx, form) ->
       lhsCompiled)
     elemType = ctx.freshTypeVariable star
     # TODO use (Seq c e) instead of (Array e)
-    form.tea = new Constrained (concatMap _constraints, (tea for {tea} in elems)),
+    form.tea = new Constrained (concatMap _constraints, (map _tea, elems)),
       new TypeApp arrayType, elemType
 
     for elem in elems
@@ -1022,7 +1022,10 @@ topLevelExpression = (ctx, expression) ->
   (irDefinition expression.tea, compiled)
 
 topLevel = (ctx, form) ->
-  definitionList ctx, pairs _terms form
+  if (terms = _terms form).length % 2 == 0
+    definitionList ctx, pairs terms
+  else
+    throw new Error "Missing definition at top level"
 
 definitionList = (ctx, pairs) ->
   compiledPairs = (for [lhs, rhs] in pairs
@@ -1424,38 +1427,39 @@ ms.instance = ms_instance = (ctx, call) ->
     # TODO: defer if super class instances don't exist yet
     superClassInstances = findSuperClassInstances ctx, instanceType.types, classDefinition
 
-    if hasName
-      instanceName = ctx.definitionName()
+    if not hasName
+      return malformed call, "An instance requires a name"
+    instanceName = ctx.definitionName()
 
-      ctx.newScope()
-      freshInstanceType = assignMethodTypes ctx, instanceName,
-        classDefinition, instanceType, constraints
-      freshConstraints = freshInstanceType.constraints
-      definitions = pairs wheres
-      methodsDeclarations = definitionList ctx,
-        (prefixWithInstanceName definitions, instanceName)
-      ctx.closeScope()
+    ctx.newScope()
+    freshInstanceType = assignMethodTypes ctx, instanceName,
+      classDefinition, instanceType, constraints
+    freshConstraints = freshInstanceType.constraints
+    definitions = pairs wheres
+    methodsDeclarations = definitionList ctx,
+      (prefixWithInstanceName definitions, instanceName)
+    ctx.closeScope()
 
-      methods = map (({rhs}) -> rhs), methodsDeclarations
-      # log "methods", methods
-      methodTypes = (rhs.tea for [lhs, rhs] in definitions)
+    methods = map (({rhs}) -> rhs), methodsDeclarations
+    # log "methods", methods
+    methodTypes = (rhs.tea for [lhs, rhs] in definitions)
+    if not all methodTypes
+      return (jsMalformed "missing type of a method")
 
-      # TODO: defer for class declaration if not defined
-      ## if not ctx.isClassDefined className    ...
+    # TODO: defer for class declaration if not defined
+    ## if not ctx.isClassDefined className    ...
 
-      instance = (new Constrained freshConstraints,
-        (new ClassConstraint instanceType.className, freshInstanceType.type))
-      ## if overlaps ctx, instance
-      ##   malformed 'instance overlaps with another', instance
-      ## else
-      ctx.addInstance instanceName, instance
+    instance = (new Constrained freshConstraints,
+      (new ClassConstraint instanceType.className, freshInstanceType.type))
+    ## if overlaps ctx, instance
+    ##   malformed 'instance overlaps with another', instance
+    ## else
+    ctx.addInstance instanceName, instance
 
-      # """var #{instanceName} = new #{className}(#{listOf methods});"""
-      (jsVarDeclaration (validIdentifier instanceName),
-        (irDefinition (new Constrained freshConstraints, (tupleOfTypes methodTypes).type),
-          (jsNew className, (join superClassInstances, methods))))
-    else
-      'malformed'
+    # """var #{instanceName} = new #{className}(#{listOf methods});"""
+    (jsVarDeclaration (validIdentifier instanceName),
+      (irDefinition (new Constrained freshConstraints, (tupleOfTypes methodTypes).type),
+        (jsNew className, (join superClassInstances, methods))))
 
 # Makes sure methods are typed explicitly and returns the instance constraint
 # with renamed type variables to avoid clashes
@@ -1575,6 +1579,10 @@ ms.format = ms_format = (ctx, call) ->
     s: stringType
     c: charType
   [formatStringToken, args...] = _arguments call
+  compiledArgs = termsCompile ctx, args
+  call.tea = toConstrained stringType
+  if not all map _tea, args
+    return malformed call, "Argument not typed"
   types = []
   formatString = _stringValue formatStringToken
   while formatString.length > 0
@@ -1591,8 +1599,6 @@ ms.format = ms_format = (ctx, call) ->
     formatString = formatString[matched.length...]
   if args.length > types.length
     malformed call, "Too many arguments to format"
-  call.tea = toConstrained stringType
-  compiledArgs = termsCompile ctx, args
   # TODO: curry
   formattedArgs = for {type, symbol, prefix}, i in types when args[i]
     compiled = compiledArgs[i]
@@ -4066,6 +4072,9 @@ attachPrintedTypes = (ctx, ast) ->
 # end of API
 
 # AST accessors
+
+_tea = (expression) ->
+  expression.tea
 
 _operator = (call) ->
   (_terms call)[0]
