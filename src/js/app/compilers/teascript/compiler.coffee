@@ -3514,7 +3514,9 @@ typeEq = (a, b) ->
     (all zipWith typeEq, a.constraints, b.constraints) and
       (typeEq a.type, b.type)
   else if a instanceof ClassConstraint and b instanceof ClassConstraint
-    a.className is b.className and (all zipWith typeEq, a.types, b.types)
+    a.className is b.className and typeEq a.types, b.types
+  else if a instanceof Types and b instanceof Types
+    all zipWith typeEq, a.types, b.types
   else
     no
 
@@ -3937,16 +3939,22 @@ compileTopLevel = (source, moduleName = '@unnamed') ->
     errors: checkTypes ctx
 
 compileExpression = (source, moduleName = '@unnamed') ->
-  module = lookupInMap compiledModules, moduleName
-  toInject = concatSets (collectRequiresFor moduleName), (newSetWith moduleName)
-  ctx = injectedContext toInject
   ast = (astFromSource "(#{source})", -1, -1)
-  [expression] = _terms ast
-  {js} = compileCtxAstToJs topLevelExpression, ctx, expression
-  (attachPrintedTypes ctx, expression)
-  js: library + immutable + (listOfLines map lookupJs, setToArray toInject) + js
-  ast: ast
-  errors: checkTypes ctx
+  if _empty _terms ast
+    {
+      ast: ast
+      js: ''
+    }
+  else
+    module = lookupInMap compiledModules, moduleName
+    toInject = concatSets (collectRequiresFor moduleName), (newSetWith moduleName)
+    ctx = injectedContext toInject
+    [expression] = _terms ast
+    {js} = compileCtxAstToJs topLevelExpression, ctx, expression
+    (attachPrintedTypes ctx, expression)
+    js: library + immutable + (listOfLines map lookupJs, setToArray toInject) + js
+    ast: ast
+    errors: checkTypes ctx
 
 # Primitive type checking for now
 checkTypes = (ctx) ->
@@ -4131,6 +4139,8 @@ partition = (fn, list) ->
   [(filter fn, list), (filter ((x) -> not (fn x)), list)]
 
 _notEmpty = (x) -> x.length > 0
+
+_empty = (x) -> x.length is 0
 
 _is = (x) -> !!x
 
@@ -4623,6 +4633,22 @@ tests = [
     [o t r] g
   """
   "o", 4
+
+  'multiple generic constraints'
+  """
+    Show (class [a]
+      show (fn [x] (: (Fn a String))))
+
+    show-string (instance (Show String)
+      show (fn [x] x))
+
+    f (fn [pair]
+      [(show a) (show b)]
+      [a b] pair)
+
+    [x y] (f ["A" "B"])
+  """
+  """x""", "A"
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
   #
