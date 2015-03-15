@@ -1586,7 +1586,7 @@ ms.format = ms_format = (ctx, call) ->
   types = []
   formatString = _stringValue formatStringToken
   while formatString.length > 0
-    match = formatString.match /^(.*?(?:^|[^\\]))\%(.)/
+    match = formatString.match /^(.*?(?:^|[^\\]|\\\\))\%(.)/
     break unless match
     [matched, prefix, symbol] = match
     if symbol of typeTable
@@ -3043,6 +3043,7 @@ builtInTypeNames = ->
   arrayToMap map (({name, kind}) -> [name, kind]), [
     arrowType
     arrayType
+    listType
     hashmapType
     hashsetType
     stringType
