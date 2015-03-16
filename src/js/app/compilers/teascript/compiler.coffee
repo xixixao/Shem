@@ -1183,7 +1183,6 @@ ms.fn = ms_fn = (ctx, call) ->
           # })"""
           (irFunction
             name: (ctx.definitionName() if ctx.isAtSimpleDefinition())
-            type: call.tea
             params: paramNames
             body: (join compiledWheres, [(jsReturn compiledBody)]))
             # (jsCall "λ#{paramNames.length}", [
@@ -1961,7 +1960,7 @@ nameCompile = (ctx, atom, symbol) ->
       {
         id: ctx.declarationId symbol
         type: type
-        translation: nameTranslate ctx, atom, symbol, type
+        translation: nameTranslate ctx, atom, symbol, type, ctx.arity symbol
       }
     # Inside function only defer compilation if we don't know arity
     else if ctx.isInsideLateScope() and (ctx.isDeclared symbol) or contextType instanceof TempType
@@ -1971,7 +1970,7 @@ nameCompile = (ctx, atom, symbol) ->
       {
         id: ctx.declarationId symbol
         type: type
-        translation: nameTranslate ctx, atom, symbol, type
+        translation: nameTranslate ctx, atom, symbol, type, ctx.arity symbol
       }
     else
       # log "deferring in rhs for #{symbol}"
@@ -1986,17 +1985,15 @@ constPattern = (ctx, symbol) ->
       else
         (jsBinary "instanceof", exp, (validIdentifier symbol)))]
 
-nameTranslate = (ctx, atom, symbol, type) ->
+nameTranslate = (ctx, atom, symbol, type, arity) ->
   if atom.label is 'const'
     switch symbol
       when 'True' then 'true'
       when 'False' then 'false'
       else
         (jsAccess (validIdentifier symbol), "_value")
-  else if ctx.isMethod symbol, type
-    (irMethod type, symbol)
   else
-    validIdentifier symbol
+    (irReference symbol, type, arity)
 
 numericalCompile = (ctx, symbol) ->
   translation = if symbol[0] is '~' then (jsUnary "-", symbol[1...]) else symbol
@@ -2155,11 +2152,34 @@ irCallTranslate = (ctx, {type, op, args}) ->
   finalType = substitute ctx.substitution, type
   # log op, (printType type), printType finalType
   classParams =
-    if op.ir is irMethodTranslate
+    if op.ir is irReferenceTranslate and ctx.isMethod op.name, op.type
       []
     else
       dictsForConstraint ctx, finalType.constraints
-  (jsCall (translateIr ctx, op), (join classParams, (translateIr ctx, args)))
+  op =
+    if op.ir is irReferenceTranslate and not ctx.isMethod op.name, op.type
+      validIdentifier op.name
+    else
+      translateIr ctx, op
+  (jsCall op, (join classParams, (translateIr ctx, args)))
+
+
+irReference = (name, type, arity) ->
+  {ir: irReferenceTranslate, name, type, arity}
+
+irReferenceTranslate = (ctx, {name, type, arity}) ->
+  if ctx.isMethod name, type
+    translateIr ctx, (irMethod type, name)
+  else
+    finalType = substitute ctx.substitution, type
+    classParams = dictsForConstraint ctx, finalType.constraints
+    if classParams.length > 0
+      (irFunctionTranslate ctx,
+        params: arity
+        body: [(jsReturn (jsCall (validIdentifier name), (join classParams, arity)))])
+    else
+      validIdentifier name
+
 
 irMethod = (type, name) ->
   {ir: irMethodTranslate, type, name}
@@ -4647,6 +4667,25 @@ tests = [
       [a b] pair)
 
     [x y] (f ["A" "B"])
+  """
+  """x""", "A"
+
+  'higher-order use of constrained function'
+  """
+    Show (class [a]
+      show (fn [x] (: (Fn a String))))
+
+    show-string (instance (Show String)
+      show (fn [x] x))
+
+    f (fn [pair]
+      [(show a) (show b)]
+      [a b] pair)
+
+    apply (fn [m to]
+      (m to))
+
+    [x y] (apply f ["A" "B"])
   """
   """x""", "A"
   # The following doesn't work because the Collection type class specifies
