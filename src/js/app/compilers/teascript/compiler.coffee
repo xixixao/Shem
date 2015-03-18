@@ -4792,6 +4792,7 @@ exports.syntaxedType = syntaxedType
 exports.library = library
 
 exports.isForm = isForm
+exports.isCall = isCall
 exports.isAtom = isAtom
 
 
