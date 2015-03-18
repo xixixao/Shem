@@ -195,6 +195,9 @@ class Context
       deferrable: yes
       _defer: undefined
 
+  bareDefine: ->
+    @definePattern()
+
   defineNonDeferrablePattern: (pattern) ->
     definition = @definePattern pattern
     definition.deferrable = no
@@ -235,13 +238,13 @@ class Context
     !!@_scope().definition
 
   isAtDefinition: ->
-    (definition = @_currentDefinition()) and definition.inside is 0
+    (definition = @_currentDefinition()) and definition.pattern and definition.inside is 0
 
   isAtSimpleDefinition: ->
     @isAtDefinition() and @definitionName()
 
-  isAtDeferrableDefinition: ->
-    @isAtDefinition() and @_currentDefinition().deferrable
+  # isAtDeferrableDefinition: ->
+  #   @isAtDefinition() and @_currentDefinition().deferrable
 
   # isInsideSimpleDefinition: ->
   #   (definition = @_currentDefinition())
@@ -557,7 +560,7 @@ callKnownCompile = (ctx, call) ->
   if not paramNames
     # log "deferring in known call #{operator.symbol}"
     ctx.doDefer operator, operator.symbol
-    return deferredExpression()
+    return assignCompile ctx, call, deferredExpression()
   positionalParams = filter ((param) -> not (lookupInMap labeledArgs, param)), paramNames
   nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
 
@@ -1018,8 +1021,16 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
   assigns: assigns ? []
 
 topLevelExpression = (ctx, expression) ->
+  ctx.bareDefine()
   compiled = expressionCompile ctx, expression
-  (irDefinition expression.tea, compiled)
+  deferred = ctx.deferReason()
+  ctx.leaveDefinition()
+  if deferred
+    [expression, dependencyName] = deferred
+    malformed expression, "#{dependencyName} is not defined"
+    undefined
+  else
+    (irDefinition expression.tea, compiled)
 
 topLevel = (ctx, form) ->
   if (terms = _terms form).length % 2 == 0
@@ -4077,11 +4088,12 @@ compileAstToJs = (compileFn, ast) ->
 
 compileCtxAstToJs = (compileFn, ctx, ast) ->
   ir = compileFn ctx, ast
-  jsIr = translateIr ctx, ir
-  js = (if Array.isArray jsIr
-      translateStatementsToJs
-    else
-      translateToJs) jsIr
+  if ir
+    jsIr = translateIr ctx, ir
+    js = (if Array.isArray jsIr
+        translateStatementsToJs
+      else
+        translateToJs) jsIr
   {ctx, ast, js}
 
 astizeList = (source) ->
