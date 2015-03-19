@@ -873,6 +873,7 @@ typeNameCompile = (ctx, atom, expectedKind) ->
       if not kindOfType
         # throw new Error "type name #{atom.symbol} was not defined" unless kind
         malformed atom, "This type name has not been defined"
+        kindOfType = star
       atomicType atom.symbol, kindOfType
     else
       expanded
@@ -1255,7 +1256,6 @@ ms.data = ms_data = (ctx, call) ->
           arity: ["#{constr.symbol[0].toLowerCase()}#{constr.symbol[1...]}"]
           type: quantifyUnbound ctx, toConstrained typeFn dataType, paramTypes[i]
 
-    # We don't add binding to kind constructors, but maybe we need to
     ctx.addTypeName dataType
 
     # Translate
