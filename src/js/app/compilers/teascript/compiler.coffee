@@ -323,6 +323,8 @@ class Context
       {name, kind} = dataType.op
     else
       {name, kind} = dataType
+    if (lookupInMap @_scope().typeNames, name) instanceof TempKind
+      removeFromMap @_scope().typeNames, name
     addToMap @_scope().typeNames, name, kind
 
   kindOfTypeName: (name) ->
@@ -870,6 +872,8 @@ typeNameCompile = (ctx, atom, expectedKind) ->
           ctx.kindOfTypeName atom.symbol
         else
           expectedKind or star
+      if kindOfType instanceof TempKind
+        kindOfType = expectedKind
       if not kindOfType
         # throw new Error "type name #{atom.symbol} was not defined" unless kind
         malformed atom, "This type name has not been defined"
@@ -878,7 +882,7 @@ typeNameCompile = (ctx, atom, expectedKind) ->
     else
       expanded
   finalKind = kind type
-  if finalKind instanceof KindFn
+  if expectedKind instanceof KindFn
     labelOperator atom
   else
     atom.label = 'typename'
@@ -1278,6 +1282,9 @@ findDataType = (ctx, typeArgLists, typeParams, dataName) ->
   varNames = map _symbol, typeParams
   varNameSet = arrayToSet varNames
   kinds = newMap()
+
+  # Fake kind for recursive use
+  ctx.addTypeName new TypeConstr dataName, new TempKind
 
   # TODO: I need to figure out the error handling, we should bail out
   #       if an undeclared type var is used
@@ -3633,6 +3640,8 @@ kindsEq = (k1, k2) ->
 
 class KindFn
   constructor: (@from, @to) ->
+class TempKind
+  constructor: ->
 
 class TypeVariable
   constructor: (@name, @kind) ->
