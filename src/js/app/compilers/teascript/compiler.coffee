@@ -831,9 +831,9 @@ uniformCollectionCompile = (ctx, form, items, collectionType, moreConstraints = 
 uniformCollectionItemsCompile = (ctx, items) ->
   itemType = ctx.freshTypeVariable star
   compiledItems = termsCompile ctx, items
-  for item in items
+  for item in items when item.tea
     unify ctx, itemType, item.tea.type
-  constraints: (concatMap _constraints, (tea for {tea} in items))
+  constraints: (concatMap _constraints, (tea for {tea} in items when tea))
   itemType: itemType
   compiled: compiledItems
 
