@@ -10,7 +10,7 @@ tokenize = (input, initPos = 0) ->
       | /([^\s]|\\/)([^/]|\\/)*?/ # regex
       | "(?:[^"\\]|\\.)*" # strings
       | \\[^\s][^\s#{controls}]* # char
-      | [^#{controls}"'\\\s]+ # normal tokens
+      | [^#{controls}\\"'\s]+ # normal tokens
       )///
     if not match
       throw new Error "Could not recognize a token starting with `#{input[0..10]}`"
@@ -1091,12 +1091,12 @@ compileDeferred = (ctx) ->
     while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
       prevSize = ctx.deferred().length
       [expression, dependencyName, lhs, rhs] = deferred = ctx.deferred().shift()
-      if ctx.isDeclared dependencyName
+      if ctx.isTyped dependencyName
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
+        deferredCount = 0
       else
         # If can't compile, defer further
         ctx.addDeferredDefinition deferred
-      if prevSize is ctx.deferred().length
         deferredCount++
 
   # defer completely current scope
@@ -4709,6 +4709,15 @@ tests = [
     [x y] (apply f ["A" "B"])
   """
   """x""", "A"
+
+  'deeply deferred'
+  """
+    c b
+    b a
+    a 3
+  """
+  "c", 3
+
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
   #
