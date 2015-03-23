@@ -129,7 +129,7 @@ mapTyping = (fn, string) ->
   visitExpressions ast, (expression) ->
     expressions.push "#{collapse toHtml expression} :: #{highlightType expression.tea}" if expression.tea
   types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInDefinitions()
-  subs: mapSub highlightType, ctx.substitution
+  subs: subToObject mapSub highlightType, ctx.substitution
   ast: expressions
   deferred: ctx.deferredBindings()
 
@@ -148,6 +148,13 @@ highlightType = (type) ->
   typeAst = astize tokenize printType type
   syntaxType typeAst
   collapse toHtml typeAst
+
+subToObject = (sub) ->
+  ob = {}
+  for s, i in sub.vars when s
+    ob["#{i}"] = s
+  ob
+
 
 _type = (declaration) ->
   declaration.type
@@ -374,7 +381,7 @@ class Context
     !!(@_declaration name)
 
   isTyped: (name) ->
-    !!(@_declaration name).type
+    !!(@_declaration name)?.type
 
   _declaration: (name) ->
     @_declarationInScope @scopes.length - 1, name
@@ -390,7 +397,7 @@ class Context
   assignType: (name, type) ->
     # log "TYPE OF #{name}", printType type
     if declaration = (lookupInMap @_scope(), name)
-      if declaration.type
+      if declaration.type and declaration.type not instanceof TempType
         throw new Error "assignType: #{name} already has a type"
       declaration.type = type
     else
@@ -990,16 +997,17 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
   for {name, id, type} in definedNames
     currentType = substitute ctx.substitution, type
     deps = ctx.deferredNames()
+
+    # TODO: this is because functions might declare arity before being declared
+    if not ctx.isCurrentlyDeclared name
+      ctx.declare name, id: id
     if deps.length > 0
       # log "adding top level lhs to deferred #{name}", deps
       ctx.addToDeferred {name, type, deps: (map (({name}) -> name), deps)}
       for dep in deps
         ctx.addToDeferred {name: dep.name, type: dep.type, deps: [name]}
-      ctx.declare name, type: (new TempType type), id: id
+      ctx.assignType name, (new TempType type)
     else
-      # TODO: this is because functions might declare arity before being declared
-      if not ctx.isCurrentlyDeclared name
-        ctx.declare name, id: id
       # For explicitly typed bindings, we need to check that the inferred type
       #   corresponds to the annotated
       if ctx.isTyped name
@@ -1066,7 +1074,7 @@ resolveDeferredTypes = (ctx) ->
     # First get rid of instances of already resolved types
     unresolvedNames = newMap()
     for name, types of values names
-      if canonicalType = ctx.type name
+      if (canonicalType = ctx.type name) and canonicalType not instanceof TempType
         for type in types
           unify ctx, type.type, (freshInstance ctx, canonicalType).type
       else
@@ -1079,9 +1087,6 @@ resolveDeferredTypes = (ctx) ->
         #log type.constructor
         unify ctx, canonicalType.type, type.type
         # log "done unifying one"
-    # log "done unifying"
-    for name of values unresolvedNames
-      # All functions must have been declared already
       ctx.assignType name, quantifyAll substitute ctx.substitution, canonicalType
 
 compileDeferred = (ctx) ->
@@ -4718,6 +4723,19 @@ tests = [
   """
   "c", 3
 
+  'compile before typing due to multiple deferred'
+  """
+    a (f 3)
+    f (fn [x] (h g x))
+    g (fn [x] b)
+    h (fn [y z] (y z))
+    b 4
+    c (f 2)
+  """
+  "a", 4
+
+
+
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
   #
@@ -4791,6 +4809,8 @@ runTests = (tests) ->
     test name, source + "\n" + expression, result
   "Finished"
 # end of tests
+
+
 
 exports.compileTopLevel = compileTopLevel
 exports.compileExpression = compileExpression
