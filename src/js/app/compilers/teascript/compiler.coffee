@@ -381,7 +381,10 @@ class Context
     !!(@_declaration name)
 
   isTyped: (name) ->
-    !!(@_declaration name)?.type
+    !!@type name
+
+  isActuallyTyped: (name) ->
+    !!@actualType name
 
   _declaration: (name) ->
     @_declarationInScope @scopes.length - 1, name
@@ -445,6 +448,9 @@ class Context
 
   type: (name) ->
     (@_declaration name)?.type
+
+  actualType: (name) ->
+    (type = @type name) and (type not instanceof TempType) and type
 
   declarationId: (name) ->
     (@_declaration name)?.id
@@ -1061,6 +1067,8 @@ definitionList = (ctx, pairs) ->
 
   compiledPairs = join compiledPairs, compileDeferred ctx
   resolveDeferredTypes ctx
+  compiledPairs = join compiledPairs, compileDeferred ctx
+  deferDeferred ctx
 
   # log "yay"
   concat filter _is, compiledPairs
@@ -1074,7 +1082,7 @@ resolveDeferredTypes = (ctx) ->
     # First get rid of instances of already resolved types
     unresolvedNames = newMap()
     for name, types of values names
-      if (canonicalType = ctx.type name) and canonicalType not instanceof TempType
+      if canonicalType = ctx.actualType name
         for type in types
           unify ctx, type.type, (freshInstance ctx, canonicalType).type
       else
@@ -1096,14 +1104,16 @@ compileDeferred = (ctx) ->
     while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
       prevSize = ctx.deferred().length
       [expression, dependencyName, lhs, rhs] = deferred = ctx.deferred().shift()
-      if ctx.isTyped dependencyName
+      if ctx.isActuallyTyped dependencyName
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
         deferredCount = 0
       else
         # If can't compile, defer further
         ctx.addDeferredDefinition deferred
         deferredCount++
+  concat compiledPairs
 
+deferDeferred = (ctx) ->
   # defer completely current scope
   if _notEmpty ctx.deferred()
     for [expression, dependencyName, lhs, rhs] in ctx.deferred()
@@ -1111,8 +1121,6 @@ compileDeferred = (ctx) ->
         malformed expression, "#{dependencyName} is not defined"
       else
         ctx.doDefer expression, dependencyName
-
-  concat compiledPairs
 
 definitionPairCompile = (ctx, pattern, value) ->
   # log "COMPILING", pattern
@@ -4734,7 +4742,29 @@ tests = [
   """
   "a", 4
 
+  'more deferred'
+  """
+    a (e 3)
 
+    map (fn [l] (l 2))
+
+    e (fn [x]
+      (map f)
+      k (g 2))
+
+    f (fn [x]
+      (h 2))
+
+    g (fn [x]
+      2)
+
+    h (fn [x]
+      (j 1))
+
+    j (fn [x]
+      2)
+  """
+  "a", 2
 
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
@@ -4809,6 +4839,7 @@ runTests = (tests) ->
     test name, source + "\n" + expression, result
   "Finished"
 # end of tests
+
 
 
 
