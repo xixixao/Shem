@@ -2726,6 +2726,7 @@ validIdentifier = (name) ->
     # .replace(/\√/g, 'sqrt_')
     # .replace(/\./g, 'dot_')
     .replace(/\&/g, 'and_')
+    .replace(/\|/g, 'or_')
     .replace(/\?/g, 'p_')
 
 
