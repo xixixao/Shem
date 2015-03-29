@@ -45,10 +45,11 @@ astize = (tokens, initialDepth = 0) ->
         closed = stack.pop()
         if not stack[stack.length - 1]
           throw new Error "Missing opening delimeter matching #{token.symbol}"
-        if token.symbol isnt delims[closed[0].symbol]
+        if token.symbol isnt closeDelimFor[closed[0].symbol]
           throw new Error "Wrong closing delimiter #{token.symbol} for opening delimiter #{closed[0].symbol}"
         closed.push token
         closed.end = token.end
+        markFake closed
         stack[stack.length - 1].push closed
       else
         stack[stack.length - 1].push token
@@ -60,13 +61,23 @@ astize = (tokens, initialDepth = 0) ->
 
 leftDelims = ['(', '[', '{']
 rightDelims = [')', ']', '}']
-delims = '(': ')', '[': ']', '{': '}'
+allDelims = [].concat leftDelims, rightDelims
+closeDelimFor = '(': ')', '[': ']', '{': '}'
 
 createIndent = (accumulator) ->
   symbol: (new Array accumulator.length + 1).join ' '
   start: accumulator[0].start
   end: accumulator[accumulator.length - 1].end
   label: 'indent'
+
+markFake = (form) ->
+  [prev, rest...] = form
+  for node in rest
+    if (prev.label in ['whitespace', 'indent'] or prev.symbol in leftDelims) and
+        (node.label is 'whitespace' or node.symbol in rightDelims)
+      node.fake = yes
+    prev = node
+  return
 
 constantLabeling = (atom) ->
   {symbol} = atom
@@ -82,9 +93,6 @@ constantLabeling = (atom) ->
     ['brace', -> symbol in ['{', '}']]
     ['whitespace', -> /^\s+$/.test symbol]
   ]
-
-noWhitespace = (tokens) ->
-  tokens.filter (token) -> token.label not in ['whitespace', 'indent']
 
 labelMapping = (word, rules) ->
   for [label, cond] in rules when cond()
@@ -505,7 +513,9 @@ class Context
 expressionCompile = (ctx, expression) ->
   throw new Error "invalid expressionCompile args" unless ctx instanceof Context and expression
   compileFn =
-    if isAtom expression
+    if isFake expression
+      fakeCompile
+    else if isAtom expression
       atomCompile
     else if isTuple expression
       tupleCompile
@@ -761,7 +771,7 @@ seqOrMapCompile = (ctx, form) ->
     seqCompile) ctx, form
 
 seqCompile = (ctx, form) ->
-  elems = _terms form
+  elems = _validTerms form
   size = elems.length
   if size > 1
     ctx.cacheAssignTo()
@@ -1052,7 +1062,7 @@ topLevelExpression = (ctx, expression) ->
     (irDefinition expression.tea, compiled)
 
 topLevel = (ctx, form) ->
-  if (terms = _terms form).length % 2 == 0
+  if (terms = _validTerms form).length % 2 == 0
     definitionList ctx, pairs terms
   else
     throw new Error "Missing definition at top level"
@@ -1138,7 +1148,7 @@ definitionPairCompile = (ctx, pattern, value) ->
 ms = {}
 ms.fn = ms_fn = (ctx, call) ->
     # For now expect the curried constructor call
-    args = _arguments call
+    args = _validArguments call
     [paramList, defs...] = args
     params = paramTupleIn call, paramList
     defs ?= []
@@ -1365,7 +1375,7 @@ ms.record = ms_record = (ctx, call) ->
   # Adds a class to the scope or defers if superclass doesn't exist
 ms.class = ms_class = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new class'
-    [paramList, defs...] = _arguments call
+    [paramList, defs...] = _validArguments call
     params = paramTupleIn call, paramList
     paramNames = _names params
     [docs, defs] = partition isComment, defs
@@ -1438,7 +1448,7 @@ declareMethods = (ctx, classConstraint, methodDeclarations) ->
 ms.instance = ms_instance = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new instance'
 
-    [instanceConstraint, defs...] = _arguments call
+    [instanceConstraint, defs...] = _validArguments call
     if not isCall instanceConstraint
       return malformed call, 'Instance requires a class constraint'
     else
@@ -1933,6 +1943,13 @@ requireName = (ctx, message) ->
     malformed call, message
     false
 
+fakeCompile = (ctx, token) ->
+  if ctx.assignTo()
+    # ???
+  else
+    token.tea = toConstrained ctx.freshTypeVariable star
+    jsNoop()
+
 atomCompile = (ctx, atom) ->
   {symbol, label} = atom
   # Typing and Translation
@@ -2374,6 +2391,16 @@ isName = (expression) ->
 
 isAtom = (expression) ->
   not (Array.isArray expression)
+
+isExpressionOrFake = (node) ->
+  (isFake node) or (isExpression node)
+
+isFake = (node) ->
+  node.fake
+
+isExpression = (node) ->
+  node.label not in ['whitespace', 'indent'] and
+    (not node.symbol or node.symbol not in allDelims)
 
 _labeled = (list) ->
   pairsLeft isLabel, list
@@ -4084,7 +4111,7 @@ compileTopLevelAndExpression = (source) ->
 
 topLevelAndExpression = (source) ->
   ast = astize (tokenize "(#{source})", -1), -1
-  [terms..., expression] = _terms ast
+  [terms..., expression] = _validTerms ast
   {ctx} = compiledDefinitions = compileAstToJs definitionList, pairs terms
   compiledExpression = compileCtxAstToJs topLevelExpression, ctx, expression
   (attachPrintedTypes ctx, expression)
@@ -4146,8 +4173,14 @@ _operator = (call) ->
 _arguments = (call) ->
   (_terms call)[1..]
 
+_validArguments = (call) ->
+  (_validTerms call)[1..]
+
 _terms = (form) ->
-  noWhitespace form[1...-1]
+  filter isExpressionOrFake, form
+
+_validTerms = (form) ->
+  filter isExpression, form
 
 _snd = ([a, b]) -> b
 
@@ -4840,8 +4873,6 @@ runTests = (tests) ->
     test name, source + "\n" + expression, result
   "Finished"
 # end of tests
-
-
 
 
 exports.compileTopLevel = compileTopLevel
