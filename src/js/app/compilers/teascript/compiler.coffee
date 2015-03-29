@@ -4017,7 +4017,7 @@ compileTopLevel = (source, moduleName = '@unnamed') ->
     replaceOrAddToMap compiledModules, moduleName,
       declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
       js: js
-    # (attachPrintedTypes ctx, ast)
+    (finalizeTypes ctx, ast)
     js: js
     ast: ast
     types: typeEnumaration ctx
@@ -4036,7 +4036,7 @@ compileExpression = (source, moduleName = '@unnamed') ->
     ctx = injectedContext toInject
     [expression] = _terms ast
     {js} = compileCtxAstToJs topLevelExpression, ctx, expression
-    # (attachPrintedTypes ctx, expression)
+    (finalizeTypes ctx, expression)
     js: library + immutable + (listOfLines map lookupJs, setToArray toInject) + js
     ast: ast
     errors: checkTypes ctx
@@ -4107,7 +4107,7 @@ syntaxedType = (type) ->
 
 compileTopLevelSource = (source) ->
   {js, ast, ctx} = compileToJs topLevel, "(#{source})", -1, -1
-  (attachPrintedTypes ctx, ast)
+  (finalizeTypes ctx, ast)
   {js, ast: ast, types: typeEnumaration ctx}
 
 compileTopLevelAndExpression = (source) ->
@@ -4118,7 +4118,7 @@ topLevelAndExpression = (source) ->
   [terms..., expression] = _validTerms ast
   {ctx} = compiledDefinitions = compileAstToJs definitionList, pairs terms
   compiledExpression = compileCtxAstToJs topLevelExpression, ctx, expression
-  (attachPrintedTypes ctx, expression)
+  (finalizeTypes ctx, expression)
   types: ctx._scope()
   subs: ctx.substitution.fails
   ast: ast
@@ -4159,10 +4159,12 @@ astizeExpression = (source) ->
 astizeExpressionWithWrapper = (source) ->
   parentize astize (tokenize "(#{source})", -1), -1
 
-# attachPrintedTypes = (ctx, ast) ->
-#   visitExpressions ast, (expression) ->
-#     if expression.tea
-#       expression.tea = highlightType substitute ctx.substitution, expression.tea
+finalizeTypes = (ctx, ast) ->
+  visitExpressions ast, (expression) ->
+    if expression.tea
+      expression.tea = substitute ctx.substitution, expression.tea
+    return
+  return
 
 # end of API
 
