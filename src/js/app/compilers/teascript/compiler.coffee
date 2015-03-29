@@ -542,7 +542,7 @@ callCompile = (ctx, call) ->
   if isName operator
     (if operatorName of ctx.macros() and not ctx.arity operatorName
       macroCompile
-    else if (ctx.isDeclared operatorName) and not ctx.arity operatorName
+    else if (isFake operator) or (ctx.isDeclared operatorName) and not ctx.arity operatorName
       callUnknownCompile
     else
       callKnownCompile) ctx, call
@@ -681,7 +681,7 @@ tagFreeLabels = (pairs) ->
 operatorCompile = (ctx, call) ->
   ctx.setIsOperator yes
   ctx.downInsideDefinition()
-  compiledOperator = atomCompile ctx, _operator call
+  compiledOperator = expressionCompile ctx, _operator call
   ctx.upInsideDefinition()
   ctx.resetIsOperator()
   compiledOperator
@@ -702,7 +702,11 @@ callUnknownTranslate = (ctx, translatedOperator, call) ->
 
 callTyping = (ctx, call) ->
   return if ctx.shouldDefer()
-  call.tea = callInfer ctx, _terms call
+  terms = _terms call
+  if terms.length is 1
+    malformed call, 'Missing an argument (for now)'
+    terms = join terms, [tea: toConstrained ctx.freshTypeVariable star]
+  call.tea = callInfer ctx, terms
 
 callInfer = (ctx, terms) ->
   # Curry the call
@@ -4013,7 +4017,7 @@ compileTopLevel = (source, moduleName = '@unnamed') ->
     replaceOrAddToMap compiledModules, moduleName,
       declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
       js: js
-    (attachPrintedTypes ctx, ast)
+    # (attachPrintedTypes ctx, ast)
     js: js
     ast: ast
     types: typeEnumaration ctx
@@ -4032,7 +4036,7 @@ compileExpression = (source, moduleName = '@unnamed') ->
     ctx = injectedContext toInject
     [expression] = _terms ast
     {js} = compileCtxAstToJs topLevelExpression, ctx, expression
-    (attachPrintedTypes ctx, expression)
+    # (attachPrintedTypes ctx, expression)
     js: library + immutable + (listOfLines map lookupJs, setToArray toInject) + js
     ast: ast
     errors: checkTypes ctx
@@ -4059,8 +4063,8 @@ subtractContexts = (ctx, what) ->
 
 injectedContext = (modulesToInject) ->
   ctx = new Context
-  for name of values modulesToInject
-    injectContext ctx, (lookupInMap compiledModules, name).declared
+  for name of values modulesToInject when compiled = lookupInMap compiledModules, name
+    injectContext ctx, compiled.declared
   ctx
 
 injectContext = (ctx, compiledModule) ->
@@ -4155,10 +4159,10 @@ astizeExpression = (source) ->
 astizeExpressionWithWrapper = (source) ->
   parentize astize (tokenize "(#{source})", -1), -1
 
-attachPrintedTypes = (ctx, ast) ->
-  visitExpressions ast, (expression) ->
-    if expression.tea
-      expression.tea = highlightType substitute ctx.substitution, expression.tea
+# attachPrintedTypes = (ctx, ast) ->
+#   visitExpressions ast, (expression) ->
+#     if expression.tea
+#       expression.tea = highlightType substitute ctx.substitution, expression.tea
 
 # end of API
 
@@ -4873,6 +4877,7 @@ runTests = (tests) ->
     test name, source + "\n" + expression, result
   "Finished"
 # end of tests
+
 
 
 exports.compileTopLevel = compileTopLevel
