@@ -3287,6 +3287,16 @@ filterMap = (fn, set) ->
     addToMap initialized, key, val
   initialized
 
+partitionMap = (fn, map) ->
+  filteredIn = newMap()
+  filteredOut = newMap()
+  for key, val of map.values
+    addToMap (if fn val, key
+      filteredIn
+    else
+      filteredOut), key, val
+  [filteredIn, filteredOut]
+
 reduceSet = (fn, def, set) ->
   (setToArray set).reduce (prev, curr) ->
     fn curr, prev
@@ -3504,6 +3514,9 @@ newSubstitution = (name, type) ->
   sub.start = name
   sub
 
+isFailed = (sub) ->
+  sub.fails.length > 0
+
 substituionFail = (failure) ->
   sub = emptySubstitution()
   sub.fails.push failure
@@ -3701,33 +3714,33 @@ class TempKind
 
 class TypeVariable
   constructor: (@name, @kind) ->
-  TypeVariable: yes
+    @TypeVariable = yes
 class TypeConstr
   constructor: (@name, @kind) ->
-  TypeConstr: yes
+    @TypeConstr = yes
 class TypeApp
   constructor: (@op, @arg) ->
-  TypeApp: yes
+    @TypeApp = yes
 class QuantifiedVar
   constructor: (@var) ->
-  QuantifiedVar: yes
+    @QuantifiedVar = yes
 class ForAll
   constructor: (@kinds, @type) ->
-  ForAll: yes
+    @ForAll = yes
 class TempType
   constructor: (@type) ->
-  TempType: yes
+    @TempType = yes
 
 class Types
   constructor: (@types) ->
-  Types: yes
+    @Types = yes
 
 class Constrained
   constructor: (@constraints, @type) ->
-  Constrained: yes
+    @Constrained = yes
 class ClassConstraint
   constructor: (@className, @types) ->
-  ClassConstraint: yes
+    @ClassConstraint = yes
 
 addConstraints = ({constraints, type}, addedConstraints) ->
   new Constrained (join constraints, addedConstraints), type
@@ -3765,22 +3778,31 @@ safePrintType = (type) ->
   catch e
     return "#{type}"
 
+prettyPrint = (type) ->
+  if type.ForAll
+    prettyPrint type.type
+  else if type.Constrained
+    if _notEmpty type.constraints
+      (map printType, join [type.type], type.constraints).join ' '
+    else
+      printType type.type
+
 printType = (type) ->
-  if type instanceof TypeVariable
+  if type.TypeVariable
     "#{type.name}"
-  else if type instanceof QuantifiedVar
+  else if type.QuantifiedVar
     "#{type.var}"
-  else if type instanceof TypeConstr
+  else if type.TypeConstr
     "#{type.name}"
-  else if type instanceof TypeApp
+  else if type.TypeApp
     flattenType collectArgs type
-  else if type instanceof ForAll
+  else if type.ForAll
     "(∀ #{printType type.type})"
-  else if type instanceof ClassConstraint
+  else if type.ClassConstraint
     "(#{type.className} #{(map printType, type.types.types).join ' '})"
-  else if type instanceof Constrained
+  else if type.Constrained
     "(: #{(map printType, join [type.type], type.constraints).join ' '})"
-  else if type instanceof TempType
+  else if type.TempType
     "(. #{printType type.type})"
   else if Array.isArray type
     "\"#{listOf type}\""
@@ -4063,8 +4085,8 @@ contextWithDependencies = (moduleName) ->
 # Primitive type checking for now
 checkTypes = (ctx) ->
   # failed = mapToArray filterMap ((name) -> name is 'could not unify'), ctx.substitution
-  if _notEmpty (failed = ctx.substitution.fails)
-    failed
+  if isFailed ctx.substitution
+    ctx.substitution.fails
 
 lookupJs = (moduleName) ->
   js = (lookupCompiledModule moduleName)?.js
@@ -4121,7 +4143,7 @@ findMatchingDefinitions = (moduleName, reference) ->
   {declared: {savedScopes}} = lookupCompiledModule moduleName
   {ctx} = contextWithDependencies moduleName
   {scope, type} = reference
-  return [] unless scope
+  return [] unless scope?
   definitions = concatMaps (while scope isnt 0
     found = savedScopes[scope]
     scope = found.parent
@@ -4129,7 +4151,14 @@ findMatchingDefinitions = (moduleName, reference) ->
   findMatchingDefinitionsOnType type, definitions
 
 findMatchingDefinitionsOnType = (type, definitions) ->
-  setToArray definitions
+  ctx = new Context
+  console.log type, type.type.TypeConstr
+  typesUnify = (def) ->
+    not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
+  [typed, notTyped] = partitionMap typesUnify, definitions
+  # allDefs = join (setToArray typed), (setToArray notTyped)
+  allDefs = concatMaps typed, notTyped # TODO: don't use object key ordering for ordering
+  values mapMap (__ prettyPrint, _type), allDefs
 
 # API
 
@@ -4200,7 +4229,6 @@ finalizeTypes = (ctx, ast) ->
       expression.tea = substitute ctx.substitution, expression.tea
     return
   return
-
 
 # end of API
 
@@ -4915,7 +4943,6 @@ runTests = (tests) ->
     test name, source + "\n" + expression, result
   "Finished"
 # end of tests
-
 
 
 exports.compileTopLevel = compileTopLevel
