@@ -1983,6 +1983,7 @@ atomCompile = (ctx, atom) ->
         nameCompile ctx, atom, symbol
   atom.tea = type if type
   atom.id = id if id?
+  atom.scope = ctx.currentScopeIndex()
   if ctx.isOperator()
     # TODO: maybe don't use label here, it's getting confusing what is its purpose
     (labelOperator atom)
