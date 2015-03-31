@@ -3885,7 +3885,7 @@ var seq_at = function (i, xs) {
   if (typeof xs === "undefined" || xs === null) {
     throw new Error('Pattern matching required sequence got undefined');
   }
-  if (Immutable.List.isList(xs)) {
+  if (Immutable.Iterable.isIterable(xs)) {
     if (i >= xs.size) {
       throw new Error('Pattern matching required a list of size at least ' + (i + 1));
     }
@@ -4152,6 +4152,7 @@ findMatchingDefinitions = (moduleName, reference) ->
     found = savedScopes[scope]
     scope = found.parent
     found.definitions)..., ctx._scope()
+  removeFromMap definitions, '=='
   findMatchingDefinitionsOnType type, definitions
 
 findMatchingDefinitionsOnType = (type, definitions) ->
