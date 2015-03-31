@@ -310,7 +310,7 @@ class Context
     @scopes[@scopes.length - 2]
 
   newScope: ->
-    @scopes.push @_augmentScope newMap(), @scopeIndex++
+    @scopes.push @_augmentScope newMap(), ++@scopeIndex
 
   _augmentScope: (scope, index) ->
     scope.index = index
@@ -1161,7 +1161,7 @@ definitionPairCompile = (ctx, pattern, value) ->
 ms = {}
 ms.fn = ms_fn = (ctx, call) ->
     # For now expect the curried constructor call
-    args = _validArguments call
+    args = _arguments call
     [paramList, defs...] = args
     params = paramTupleIn call, paramList
     defs ?= []
@@ -1198,7 +1198,7 @@ ms.fn = ms_fn = (ctx, call) ->
       compiledWheres = definitionList ctx, pairs wheres
 
       # log "types added"
-      #log "compiling", body
+      # log "compiling", body
       if body
         compiledBody = termCompile ctx, body
       # log "compiled", body.tea
@@ -4014,9 +4014,13 @@ reservedInJs = newSetWith ("abstract arguments boolean break byte case catch cha
 compiledModules = newMap()
 moduleGraph = newMap()
 
+lookupCompiledModule = (name) ->
+  lookupInMap compiledModules, name
+
+
 compileTopLevel = (source, moduleName = '@unnamed') ->
   required = newSetWith 'Prelude' # TODO: Hardcoded prelude dependency
-  if (not lookupInMap compiledModules, 'Prelude') and moduleName isnt 'Prelude'
+  if (not lookupCompiledModule 'Prelude') and moduleName isnt 'Prelude'
     request: 'Prelude'
   else
     directRequires = subtractSets required, (newSetWith moduleName)
@@ -4041,15 +4045,19 @@ compileExpression = (source, moduleName = '@unnamed') ->
       js: ''
     }
   else
-    module = lookupInMap compiledModules, moduleName
-    toInject = concatSets (collectRequiresFor moduleName), (newSetWith moduleName)
-    ctx = injectedContext toInject
+    module = lookupCompiledModule moduleName
+    {modules, ctx} = contextWithDependencies moduleName
     [expression] = _terms ast
     {js} = compileCtxAstToJs topLevelExpression, ctx, expression
     (finalizeTypes ctx, expression)
-    js: library + immutable + (listOfLines map lookupJs, setToArray toInject) + js
+    js: library + immutable + (listOfLines map lookupJs, modules) + js
     ast: ast
     errors: checkTypes ctx
+
+contextWithDependencies = (moduleName) ->
+  toInject = concatSets (collectRequiresFor moduleName), (newSetWith moduleName)
+  ctx: injectedContext toInject
+  modules: setToArray toInject
 
 # Primitive type checking for now
 checkTypes = (ctx) ->
@@ -4058,7 +4066,7 @@ checkTypes = (ctx) ->
     failed
 
 lookupJs = (moduleName) ->
-  js = (lookupInMap compiledModules, moduleName)?.js
+  js = (lookupCompiledModule moduleName)?.js
   if not js
     console.error "#{moduleName} not found"
   else
@@ -4069,11 +4077,12 @@ subtractContexts = (ctx, what) ->
   typeNames = subtractMaps ctx._scope().typeNames, what._scope().typeNames
   classes = subtractMaps ctx._scope().classes, what._scope().classes
   macros = subtractMaps (objectToMap ctx._macros), (objectToMap what._macros)
-  {definitions, typeNames, classes, macros}
+  savedScopes = ctx.savedScopes
+  {definitions, typeNames, classes, macros, savedScopes}
 
 injectedContext = (modulesToInject) ->
   ctx = new Context
-  for name of values modulesToInject when compiled = lookupInMap compiledModules, name
+  for name of values modulesToInject when compiled = lookupCompiledModule name
     injectContext ctx, compiled.declared
   ctx
 
@@ -4105,6 +4114,21 @@ collectRequiresWithAcc = (name, acc) ->
       (concatSets requires, acc),
       (subtractSets requires, acc)
     concatSets collected, acc
+
+
+findMatchingDefinitions = (moduleName, reference) ->
+  {declared: {savedScopes}} = lookupCompiledModule moduleName
+  {ctx} = contextWithDependencies moduleName
+  {scope, type} = reference
+  return [] unless scope
+  definitions = concatMaps (while scope isnt 0
+    found = savedScopes[scope]
+    scope = found.parent
+    found.definitions)..., ctx._scope()
+  findMatchingDefinitionsOnType type, definitions
+
+findMatchingDefinitionsOnType = (type, definitions) ->
+  setToArray definitions
 
 # API
 
@@ -4175,6 +4199,7 @@ finalizeTypes = (ctx, ast) ->
       expression.tea = substitute ctx.substitution, expression.tea
     return
   return
+
 
 # end of API
 
@@ -4894,6 +4919,7 @@ runTests = (tests) ->
 
 exports.compileTopLevel = compileTopLevel
 exports.compileExpression = compileExpression
+exports.findMatchingDefinitions = findMatchingDefinitions
 exports.astizeList = astizeList
 exports.astizeExpression = astizeExpression
 exports.astizeExpressionWithWrapper = astizeExpressionWithWrapper
