@@ -626,6 +626,8 @@ callKnownCompile = (ctx, call) ->
         lambda = (fn_ extraParams, sortedCall)
         compiled = macroCompile ctx, lambda
         retrieve call, lambda
+        # TODO: massive hack, erase inserted scope, will have to figure out how to fix this better
+        ctx.savedScopes[ctx.savedScopes.length - 1].definitions = newMap()
         compiled
       else
         compiled =
@@ -3283,7 +3285,7 @@ mapMap = (fn, set) ->
 filterSet =
 filterMap = (fn, set) ->
   initialized = newMap()
-  for key, val of set.values when fn key
+  for key, val of set.values when fn key, val
     addToMap initialized, key, val
   initialized
 
@@ -3425,7 +3427,7 @@ unifyFail = (t1, t2) ->
   substituionFail "could not unify #{(safePrintType t1)}, #{(safePrintType t2)}"
 
 bindVariable = (variable, type) ->
-  if type instanceof TypeVariable and variable.name is type.name
+  if type.TypeVariable and variable.name is type.name
     emptySubstitution()
   else if inSet (findFree type), variable.name
     substituionFail "occurs check failed for #{variable.name}"
@@ -3566,15 +3568,15 @@ mapToSubstitution = (map) ->
   vars: map.values
 
 findFree = (type) ->
-  if type instanceof TypeVariable
+  if type.TypeVariable
     newMapWith type.name, type.kind
-  else if type instanceof TypeApp
+  else if type.TypeApp
     concatMaps (findFree type.op), (findFree type.arg)
-  else if type instanceof Constrained
+  else if type.Constrained
     concatMaps (findFreeInList type.constraints), (findFree type.type)
-  else if type instanceof ClassConstraint
+  else if type.ClassConstraint
     findFree type.types
-  else if type instanceof Types
+  else if type.Types
     findFreeInList type.types
   else
     newMap()
@@ -3583,7 +3585,7 @@ findFreeInList = (list) ->
   concatMaps (map findFree, list)...
 
 freshInstance = (ctx, type) ->
-  throw new Error "not a forall in freshInstance #{safePrintType type}" unless type instanceof ForAll
+  throw new Error "not a forall in freshInstance #{safePrintType type}" unless type and type.ForAll
   freshes = map ((kind) -> ctx.freshTypeVariable kind), type.kinds
   (substitute freshes, type).type
 
@@ -3599,30 +3601,31 @@ isNormalizedConstraint = (constraint) ->
   all (map isNormalizedConstraintArgument, constraint.types.types)
 
 isNormalizedConstraintArgument = (type) ->
-  if type instanceof TypeVariable
-    yes
-  else if type instanceof TypeConstr
-    no
-  else if type instanceof TypeApp
-    isNormalizedConstraintArgument type.op.type
+  if type
+    if type.TypeVariable
+      yes
+    else if type.TypeConstr
+      no
+    else if type.TypeApp
+      isNormalizedConstraintArgument type.op.type
 
 
 typeEq = (a, b) ->
-  if a instanceof TypeVariable and b instanceof TypeVariable or
-      a instanceof TypeConstr and b instanceof TypeConstr
+  if a.TypeVariable and b.TypeVariable or
+      a.TypeConstr and b.TypeConstr
     a.name is b.name
-  else if a instanceof QuantifiedVar and b instanceof QuantifiedVar
+  else if a.QuantifiedVar and b.QuantifiedVar
     a.var is b.var
-  else if a instanceof TypeApp and b instanceof TypeApp
+  else if a.TypeApp and b.TypeApp
     (typeEq a.op, b.op) and (typeEq a.arg, b.arg)
-  else if a instanceof ForAll and b instanceof ForAll
+  else if a.ForAll and b.ForAll
     typeEq a.type, b.type
-  else if a instanceof Constrained and b instanceof Constrained
+  else if a.Constrained and b.Constrained
     (all zipWith typeEq, a.constraints, b.constraints) and
       (typeEq a.type, b.type)
-  else if a instanceof ClassConstraint and b instanceof ClassConstraint
+  else if a.ClassConstraint and b.ClassConstraint
     a.className is b.className and typeEq a.types, b.types
-  else if a instanceof Types and b instanceof Types
+  else if a.Types and b.Types
     all zipWith typeEq, a.types, b.types
   else
     no
@@ -3691,14 +3694,15 @@ applyKindFn = (fn, arg, args...) ->
     applyKindFn (applyKindFn fn, arg), args...
 
 isConstructor = (type) ->
-  type instanceof TypeApp
+  type.TypeApp
 
 kind = (type) ->
   if type.kind
     type.kind
-  else if type instanceof TypeApp
+  else if type.TypeApp
     (kind type.op).to
   else
+    console.log "invalid", type
     throw new Error "Invalid type in kind"
 
 kindsEq = (k1, k2) ->
@@ -3812,7 +3816,7 @@ printType = (type) ->
     throw new Error "Unrecognized type in printType"
 
 collectArgs = (type) ->
-  if type instanceof TypeApp
+  if type.TypeApp
     op = collectArgs type.op
     arg = collectArgs type.arg
     if (Array.isArray op) and (Array.isArray arg) and
@@ -4051,10 +4055,10 @@ compileTopLevel = (source, moduleName = '@unnamed') ->
     toInject = collectRequiresFor moduleName
     ctx = injectedContext toInject
     {js, ast} = compileCtxAstToJs topLevel, ctx, (astFromSource "(#{source})", -1, -1)
+    (finalizeTypes ctx, ast)
     replaceOrAddToMap compiledModules, moduleName,
       declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
       js: js
-    (finalizeTypes ctx, ast)
     js: js
     ast: ast
     types: typeEnumaration ctx
@@ -4152,10 +4156,10 @@ findMatchingDefinitions = (moduleName, reference) ->
 
 findMatchingDefinitionsOnType = (type, definitions) ->
   ctx = new Context
-  console.log type, type.type.TypeConstr
+  validDefinitions = filterMap ((name, def) -> def.type?), definitions # TODO: filter before
   typesUnify = (def) ->
     not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
-  [typed, notTyped] = partitionMap typesUnify, definitions
+  [typed, notTyped] = partitionMap typesUnify, validDefinitions
   # allDefs = join (setToArray typed), (setToArray notTyped)
   allDefs = concatMaps typed, notTyped # TODO: don't use object key ordering for ordering
   values mapMap (__ prettyPrint, _type), allDefs
@@ -4228,6 +4232,9 @@ finalizeTypes = (ctx, ast) ->
     if expression.tea
       expression.tea = substitute ctx.substitution, expression.tea
     return
+  for scope in ctx.savedScopes when scope?
+    for name, def of values scope.definitions when def.type
+      def.type = substitute ctx.substitution, def.type
   return
 
 # end of API
