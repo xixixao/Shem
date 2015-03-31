@@ -1811,7 +1811,7 @@ paramTupleIn = (call, expression) ->
     malformed call, 'Missing paramater list'
     params = []
   else
-    params = _terms expression
+    params = _validTerms expression
     map (syntaxNewName 'Parameter name expected'), params
   params
 
