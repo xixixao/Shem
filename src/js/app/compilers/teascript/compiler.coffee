@@ -185,10 +185,11 @@ class Context
     @statement = []
     @cacheScopes = [[]]
     @_assignTos = []
-    topScope = @_augmentScope builtInDefinitions()
+    topScope = @_augmentScope builtInDefinitions(), @scopeIndex = 0
     topScope.typeNames = builtInTypeNames()
     topScope.topLevel = yes
     @scopes = [topScope]
+    @savedScopes = []
     @classParams = newMap()
 
   macros: ->
@@ -309,9 +310,10 @@ class Context
     @scopes[@scopes.length - 2]
 
   newScope: ->
-    @scopes.push @_augmentScope newMap()
+    @scopes.push @_augmentScope newMap(), @scopeIndex++
 
-  _augmentScope: (scope) ->
+  _augmentScope: (scope, index) ->
+    scope.index = index
     scope.deferred = []
     scope.deferredBindings = []
     scope.boundTypeVariables = newSet()
@@ -325,7 +327,13 @@ class Context
     @_deferrableDefinition()?.late = yes
 
   closeScope: ->
-    @scopes.pop()
+    closedScope = @scopes.pop()
+    @savedScopes[closedScope.index] =
+      parent: @scopes[@scopes.length - 1].index
+      definitions: cloneMap closedScope
+
+  currentScopeIndex: ->
+    @_scope().index
 
   isInsideLateScope: ->
     @_deferrableDefinition()?.late
@@ -1083,6 +1091,7 @@ definitionList = (ctx, pairs) ->
   resolveDeferredTypes ctx
   compiledPairs = join compiledPairs, compileDeferred ctx
   deferDeferred ctx
+
 
   # log "yay"
   concat filter _is, compiledPairs
@@ -1952,6 +1961,7 @@ fakeCompile = (ctx, token) ->
     # ???
   else
     token.tea = toConstrained ctx.freshTypeVariable star
+    token.scope = ctx.currentScopeIndex()
     jsNoop()
 
 atomCompile = (ctx, atom) ->
