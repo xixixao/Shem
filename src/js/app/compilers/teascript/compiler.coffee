@@ -4056,7 +4056,7 @@ compileExpression = (source, moduleName = '@unnamed') ->
     errors: checkTypes ctx
 
 contextWithDependencies = (moduleName) ->
-  toInject = concatSets (collectRequiresFor moduleName), (newSetWith moduleName)
+  toInject = concatSets (newSetWith moduleName), (collectRequiresFor moduleName)
   ctx: injectedContext toInject
   modules: setToArray toInject
 
@@ -4096,7 +4096,7 @@ injectContext = (ctx, compiledModule) ->
       ctx._macros[name] = macro
   topScope = ctx._scope()
   for name, definition of values definitions
-    replaceOrAddToMap topScope, name, definition
+    addToMap topScope, name, definition
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
   ctx
