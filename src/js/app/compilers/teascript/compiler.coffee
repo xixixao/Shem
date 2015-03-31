@@ -3390,18 +3390,18 @@ unify = (ctx, t1, t2) ->
 
 # Returns a substitution
 mostGeneralUnifier = (t1, t2) ->
-  if t1 instanceof TypeVariable
+  if t1.TypeVariable
     bindVariable t1, t2
-  else if t2 instanceof TypeVariable
+  else if t2.TypeVariable
     bindVariable t2, t1
-  else if t1 instanceof TypeConstr and t2 instanceof TypeConstr and
+  else if t1.TypeConstr and t2.TypeConstr and
     t1.name is t2.name
       emptySubstitution()
-  else if t1 instanceof TypeApp and t2 instanceof TypeApp
+  else if t1.TypeApp and t2.TypeApp
     s1 = mostGeneralUnifier t1.op, t2.op
     s2 = mostGeneralUnifier (substitute s1, t1.arg), (substitute s1, t2.arg)
     joinSubs s1, s2
-  else if t1 instanceof Types and t2 instanceof Types
+  else if t1.Types and t2.Types
     if _notEmpty t1.types
       s1 = mostGeneralUnifier t1.types[0], t2.types[0]
       s2 = mostGeneralUnifier (new Types t1.types[1...]), (new Types t2.types[1...])
@@ -3437,19 +3437,19 @@ toMatchTypes = (t1, t2) ->
 
 # Returns a substitution
 matchType = (t1, t2) ->
-  if t1 instanceof TypeVariable and kindsEq (kind t1), (kind t2)
+  if t1.TypeVariable and kindsEq (kind t1), (kind t2)
     newSubstitution t1.name, t2
-  else if t1 instanceof TypeConstr and t2 instanceof TypeConstr and
+  else if t1.TypeConstr and t2.TypeConstr and
     t1.name is t2.name
       emptySubstitution()
-  else if t1 instanceof TypeApp and t2 instanceof TypeApp
+  else if t1.TypeApp and t2.TypeApp
     s1 = matchType t1.op, t2.op
     s2 = matchType t1.arg, t2.arg
     s3 = mergeSubs s1, s2
     s3 or
       # newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
       unifyFail t1, t2
-  else if t1 instanceof Types and t2 instanceof Types
+  else if t1.Types and t2.Types
     if _notEmpty t1.types
       s1 = matchType t1.types[0], t2.types[0]
       s2 = matchType (new Types t1.types[1...]), (new Types t2.types[1...])
