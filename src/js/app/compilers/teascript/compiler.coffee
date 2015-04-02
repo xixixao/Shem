@@ -1717,7 +1717,8 @@ ms[','] = ms_comma = (ctx, call) ->
 constantToSource = (value) ->
   switch typeof value
     when 'boolean' then (tokenize (if value then 'True' else 'False'))[0]
-    when 'number', 'string' then (tokenize "#{value}")[0]
+    when 'number' then (tokenize (if value < 0 then "~#{Math.abs value}" else "#{value}"))[0]
+    when 'string' then (tokenize "#{value}")[0]
     when 'object'
       kind = Object.prototype.toString.call(value).slice(8, -1)
       value
