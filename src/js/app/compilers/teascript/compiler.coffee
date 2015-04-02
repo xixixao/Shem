@@ -519,7 +519,7 @@ class Context
     nestedLookupInMap @classParams, typeNamesOfNormalized constraint
 
 expressionCompile = (ctx, expression) ->
-  throw new Error "invalid expressionCompile args" unless ctx instanceof Context and expression
+  throw new Error "invalid expressionCompile args" unless ctx instanceof Context and expression?
   compileFn =
     if isFake expression
       fakeCompile
@@ -549,7 +549,7 @@ callCompile = (ctx, call) ->
   operatorName = _symbol operator
   if isName operator
     (if operatorName of ctx.macros() and not ctx.arity operatorName
-      macroCompile
+      callMacroCompile
     else if (isFake operator) or (ctx.isDeclared operatorName) and not ctx.arity operatorName
       callUnknownCompile
     else
@@ -562,14 +562,14 @@ callCompile = (ctx, call) ->
       expressionCompile ctx, replicate call,
         (call_ (join [expandedOp], (_arguments call)))
 
-macroCompile = (ctx, call) ->
+callMacroCompile = (ctx, call) ->
   op = _operator call
   op.label = 'keyword'
   expanded = ctx.macros()[op.symbol] ctx, call
   if isTranslated expanded
     expanded
   else
-    expressionCompile ctx, expanded
+    macroResultCompile ctx, expanded
 
 isTranslated = (result) ->
   (isSimpleTranslated result) or (Array.isArray result) and (isSimpleTranslated result[0])
@@ -624,7 +624,7 @@ callKnownCompile = (ctx, call) ->
       if nonLabeledArgs.length < positionalParams.length
         # log "currying known call"
         lambda = (fn_ extraParams, sortedCall)
-        compiled = macroCompile ctx, lambda
+        compiled = callMacroCompile ctx, lambda
         retrieve call, lambda
         # TODO: massive hack, erase inserted scope, will have to figure out how to fix this better
         ctx.savedScopes[ctx.savedScopes.length - 1].definitions = newMap()
@@ -632,7 +632,7 @@ callKnownCompile = (ctx, call) ->
       else
         compiled =
           if operator.symbol of ctx.macros()
-            macroCompile ctx, sortedCall
+            callMacroCompile ctx, sortedCall
           else
             callSaturatedKnownCompile ctx, sortedCall
         retrieve call, sortedCall
@@ -745,6 +745,29 @@ termCompile = (ctx, term) ->
 
 expressionsCompile = (ctx, list) ->
   expressionCompile ctx, expression for expression in list
+
+macroResultCompile = (ctx, value) ->
+  assign = yes
+  translated = switch typeof value
+    when 'boolean', 'number', 'string' then JSON.stringify value
+    when 'object'
+      kind = Object.prototype.toString.call(value).slice(8, -1)
+      switch kind
+        when 'Date' then (jsNew 'Date', [+value])
+        when 'RegExp' then (jsNew 'RegExp', [value.source])
+        else
+          #TODO: rest of immutable
+          if Immutable.Iterable.isIterable value
+            (jsCallMethod 'Immutable', 'List',
+              [(jsCallMethod 'JSON', 'parse', [JSON.stringify(value.toJS())])])
+          else
+            assign = no
+            expressionCompile ctx, value
+  if assign
+    value = tea: toConstrained typeConstant 'Val'
+    assignCompile ctx, value, translated
+  else
+    translated
 
 tupleCompile = (ctx, form) ->
   elems = _terms form
@@ -1666,6 +1689,54 @@ ms.format = ms_format = (ctx, call) ->
   assignCompile ctx, call,
     (jsBinaryMulti "+", join (concat formattedArgs), [string_ formatString])
 
+ms.syntax = ms_syntax = (ctx, call) ->
+  hasName = requireName ctx, 'Name required to declare new algebraic data'
+  [paramTuple, rest...] = _arguments call
+  [body] = rest
+
+  # ctx.addMacro ctx.definitionName(), (ctx) ->
+  #   expressionCompile ctx, body
+
+  if hasName
+    macroName = ctx.definitionName()
+
+    # params = (map (__ token_, _symbol), _terms paramTuple) # freshen
+
+    compiledMacro = translateToJs translateIr ctx,
+        (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], rest))
+    macroFn = eval compiledMacro
+    ctx.addMacro macroName, (ctx, call) ->
+      # operatorCompile ctx, call
+      # args = termsCompile ctx, (_arguments call)[0..macroFn.length]
+      #callTyping ctx, call
+      macroFn (_arguments call)...
+
+    # ctx.addMacro macroName, (ctx, call) ->
+    #   compiled = termCompile ctx, (fn_ params, body)
+    #   assignCompile ctx, body, compiled
+
+    jsNoop()
+
+
+ms['`'] = ms_quote = (ctx, call) ->
+  [res] = _arguments call
+  # call.tea = toConstrained typeConstant 'Exp'
+  # assignCompile ctx, call, res
+  call.tea = toConstrained typeConstant 'Expression'
+
+  serializeAst = (ast) ->
+    if isForm ast
+      if (_operator ast)?.symbol is ','
+        termCompile ctx, ast
+      else
+        (jsArray (map serializeAst, ast))
+    else
+      (jsValue (JSON.stringify ast))
+  serializeAst res
+
+ms[','] = ms_comma = (ctx, call) ->
+  (expressionCompile ctx, (_arguments call)[0])
+
 ms.macro = ms_macro = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare a new instance'
   [paramTuple, type, rest...] = _arguments call
@@ -2516,6 +2587,9 @@ printIr = (ast) ->
           undefined
     args
 
+jsCallMethod = (object, methodName, args) ->
+  (jsCall (jsAccess object, methodName), args)
+
 jsAccess = (lhs, name) ->
   {js: jsAccessTranslate, lhs, name}
 
@@ -2638,6 +2712,13 @@ jsUnary = (op, arg) ->
 
 jsUnaryTranslate = ({op, arg}) ->
   "#{op}#{arg}"
+
+
+jsValue = (value) ->
+  {js: jsValueTranslate, value}
+
+jsValueTranslate = ({value}) ->
+  value
 
 
 jsVarDeclaration = (name, rhs) ->
@@ -4077,7 +4158,7 @@ compileExpression = (source, moduleName = '@unnamed') ->
     [expression] = _terms ast
     {js} = compileCtxAstToJs topLevelExpression, ctx, expression
     (finalizeTypes ctx, expression)
-    js: library + immutable + (listOfLines map lookupJs, modules) + js
+    js: library + immutable + (listOfLines map lookupJs, (reverse modules)) + js
     ast: ast
     errors: checkTypes ctx
 
