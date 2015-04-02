@@ -196,7 +196,8 @@ class Context
     @_macros
 
   addMacro: (name, macro) ->
-    @_macros[name] = macro
+    @_macros[name.symbol] = macro
+    name.id = macro.id = @freshId()
 
   definePattern: (pattern) ->
     if @isDefining()
@@ -565,7 +566,9 @@ callCompile = (ctx, call) ->
 callMacroCompile = (ctx, call) ->
   op = _operator call
   op.label = 'keyword'
-  expanded = ctx.macros()[op.symbol] ctx, call
+  macro = ctx.macros()[op.symbol]
+  op.id = macro.id
+  expanded = macro ctx, call
   if isTranslated expanded
     expanded
   else
@@ -1682,7 +1685,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
     compiledMacro = translateToJs translateIr ctx,
         (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], rest))
     macroFn = eval compiledMacro
-    ctx.addMacro macroName, (ctx, call) ->
+    ctx.addMacro ctx.definitionPattern(), (ctx, call) ->
       # operatorCompile ctx, call
       # args = termsCompile ctx, (_arguments call)[0..macroFn.length]
       #callTyping ctx, call
@@ -1757,7 +1760,7 @@ ms.macro = ms_macro = (ctx, call) ->
     compiledMacro = translateToJs translateIr ctx,
       (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], rest))
     # log compiledMacro
-    ctx.addMacro macroName, simpleMacro eval compiledMacro
+    ctx.addMacro ctx.definitionPattern(), simpleMacro eval compiledMacro
     params = (map token_, paramNames) # freshen
 
     fn_ params, call_ (token_ macroName), params
