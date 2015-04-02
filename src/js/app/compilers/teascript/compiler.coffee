@@ -1721,17 +1721,15 @@ constantToSource = (value) ->
     when 'string' then (tokenize JSON.stringify value)[0]
     when 'object'
       kind = Object.prototype.toString.call(value).slice(8, -1)
-      value
-      # switch kind
+      switch kind
         # when 'Date' then (jsNew 'Date', [+value])
-        # when 'RegExp' then (jsNew 'RegExp', [value.source])
-        # else
-          #TODO: rest of immutable
-          # if Immutable.Iterable.isIterable value
-          #   (jsCallMethod 'Immutable', 'List',
-          #     [(jsCallMethod 'JSON', 'parse', [JSON.stringify(value.toJS())])])
-          # else
-            # expressionCompile ctx, value
+        when 'RegExp' then (tokenize "#{value.source}")[0]
+        else
+          # TODO: rest of immutable
+          if Immutable.Iterable.isIterable value
+            concat [(tokenize "{")[0], (map constantToSource, value.toJS()), (tokenize "}")[0]]
+          else
+            value
 
 ms.macro = ms_macro = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare a new instance'
