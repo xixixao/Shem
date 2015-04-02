@@ -569,7 +569,7 @@ callMacroCompile = (ctx, call) ->
   if isTranslated expanded
     expanded
   else
-    macroResultCompile ctx, expanded
+    expressionCompile ctx, expanded
 
 isTranslated = (result) ->
   (isSimpleTranslated result) or (Array.isArray result) and (isSimpleTranslated result[0])
@@ -745,29 +745,6 @@ termCompile = (ctx, term) ->
 
 expressionsCompile = (ctx, list) ->
   expressionCompile ctx, expression for expression in list
-
-macroResultCompile = (ctx, value) ->
-  assign = yes
-  translated = switch typeof value
-    when 'boolean', 'number', 'string' then JSON.stringify value
-    when 'object'
-      kind = Object.prototype.toString.call(value).slice(8, -1)
-      switch kind
-        when 'Date' then (jsNew 'Date', [+value])
-        when 'RegExp' then (jsNew 'RegExp', [value.source])
-        else
-          #TODO: rest of immutable
-          if Immutable.Iterable.isIterable value
-            (jsCallMethod 'Immutable', 'List',
-              [(jsCallMethod 'JSON', 'parse', [JSON.stringify(value.toJS())])])
-          else
-            assign = no
-            expressionCompile ctx, value
-  if assign
-    value = tea: toConstrained typeConstant 'Val'
-    assignCompile ctx, value, translated
-  else
-    translated
 
 tupleCompile = (ctx, form) ->
   elems = _terms form
@@ -1709,7 +1686,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
       # operatorCompile ctx, call
       # args = termsCompile ctx, (_arguments call)[0..macroFn.length]
       #callTyping ctx, call
-      macroFn (_arguments call)...
+      constantToSource macroFn (_arguments call)...
 
     # ctx.addMacro macroName, (ctx, call) ->
     #   compiled = termCompile ctx, (fn_ params, body)
@@ -1735,7 +1712,25 @@ ms['`'] = ms_quote = (ctx, call) ->
   serializeAst res
 
 ms[','] = ms_comma = (ctx, call) ->
-  (expressionCompile ctx, (_arguments call)[0])
+  (jsCall 'constantToSource', [expressionCompile ctx, (_arguments call)[0]])
+
+constantToSource = (value) ->
+  switch typeof value
+    when 'boolean' then (tokenize (if value then 'True' else 'False'))[0]
+    when 'number', 'string' then (tokenize "#{value}")[0]
+    when 'object'
+      kind = Object.prototype.toString.call(value).slice(8, -1)
+      value
+      # switch kind
+        # when 'Date' then (jsNew 'Date', [+value])
+        # when 'RegExp' then (jsNew 'RegExp', [value.source])
+        # else
+          #TODO: rest of immutable
+          # if Immutable.Iterable.isIterable value
+          #   (jsCallMethod 'Immutable', 'List',
+          #     [(jsCallMethod 'JSON', 'parse', [JSON.stringify(value.toJS())])])
+          # else
+            # expressionCompile ctx, value
 
 ms.macro = ms_macro = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare a new instance'
