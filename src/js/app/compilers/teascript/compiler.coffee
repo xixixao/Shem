@@ -1813,7 +1813,7 @@ ms.Map = ms_Map = (ctx, call) ->
   else
     args = _arguments call
     if args.length % 2 != 0
-      malformed args[args.length - 1], 'Missing value for key'
+      return malformed args[args.length - 1], 'Missing value for key'
     [labels, items] = unzip pairs args
     compiledLabels = uniformCollectionItemsCompile ctx, labels
     keyType = applyKindFn hashmapType, compiledLabels.itemType
