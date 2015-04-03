@@ -1418,7 +1418,7 @@ ms.class = ms_class = (ctx, call) ->
     ctx.closeScope()
 
     for [name, def] in methodDefinitions
-      (lookupInMap declarations, name)?.def = def
+      (lookupInMap declarations, name.symbol)?.def = def
 
     if hasName
       name = ctx.definitionName()
@@ -1436,18 +1436,19 @@ ms.class = ms_class = (ctx, call) ->
 findClassType = (ctx, className, paramNames, methods) ->
   kinds = mapMap (-> undefined), (arrayToSet paramNames)
   for name, {arity, type, def} of values methods
+    vars = findFree type.type
     for param in paramNames
-      vars = findFree type.type
       kindSoFar = lookupInMap kinds, param
       foundKind = lookupInMap vars, param
-      if not foundKind
+      # if not foundKind
         # TODO: attach error to the type expression
-        malformed def, 'Method must include class parameter in its type'
-      if kindSoFar and not kindsEq foundKind, kindSoFar
+        # malformed def, 'Method must include class parameter in its type'
+      if kindSoFar and foundKind and not kindsEq foundKind, kindSoFar
         # TODO: attach error to the type expression instead
         # TODO: better error message
         malformed def, 'All methods must use the class paramater of the same kind'
-      replaceInMap kinds, param, foundKind
+      if foundKind
+        replaceInMap kinds, param, foundKind
   freshingSub = mapToSubstitution mapMap ((kind) -> ctx.freshTypeVariable kind), kinds
   classParam = (param) ->
     substitute freshingSub, new TypeVariable param, (lookupInMap kinds, param)
