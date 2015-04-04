@@ -1490,6 +1490,8 @@ ms.instance = ms_instance = (ctx, call) ->
     # TODO: defer if class does not exist
     className = instanceType.className
     classDefinition = ctx.classNamed className
+    if not classDefinition
+      return malformed (_operator instanceConstraint), 'Class doesn\'t exist'
 
     # TODO: defer if super class instances don't exist yet
     superClassInstances = findSuperClassInstances ctx, instanceType.types, classDefinition
