@@ -925,7 +925,7 @@ typeNameCompile = (ctx, atom, expectedKind) ->
   if expectedKind instanceof KindFn
     labelOperator atom
   else
-    atom.label = 'typename'
+    atom.label = 'typename' unless isFake atom
   if expectedKind and (not kindsEq expectedKind, finalKind)
     malformed atom, "The kind of the type operator doesn't match the
                   supplied number of arguments"
@@ -2791,7 +2791,7 @@ labelRequires = (ast) ->
 #     node.type = 'comment'
 #     node
 labelComments = (call) ->
-  for term in _terms call
+  for term in _validTerms call
     term.label = 'comment'
 
 
