@@ -199,6 +199,7 @@ class Context
     @_macros[name.symbol] = macro
     name.id = macro.id = @freshId()
 
+  # Creates a deferrable definition to be associated with given pattern
   definePattern: (pattern) ->
     if @isDefining()
       throw new Error "already defining, forgot to leaveDefinition?"
@@ -991,14 +992,18 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
 
     #log "ASSIGN #{ctx.definitionName()}", ctx.shouldDefer()
     if ctx.shouldDefer()
-      ctx.addDeferredDefinition ctx.deferReason().concat [to, expression]
-      return deferredExpression()
+      return deferCurrentDefinition ctx, expression
 
     if assigns.length is 0
       return malformed to, 'Not an assignable pattern'
     map compileVariableAssignment, (join translationCache, assigns)
   else
     translatedExpression
+
+# Pushes the deferring to the parent scope
+deferCurrentDefinition = (ctx, expression) ->
+  ctx.addDeferredDefinition ctx.deferReason().concat [ctx.definitionPattern(), expression]
+  deferredExpression()
 
 polymorphicAssignCompile = (ctx, expression, translatedExpression) ->
   assignCompileAs ctx, expression, translatedExpression, yes
@@ -1511,6 +1516,8 @@ ms.instance = ms_instance = (ctx, call) ->
     methodsDeclarations = definitionList ctx,
       (prefixWithInstanceName definitions, instanceName)
     ctx.closeScope()
+    if ctx.shouldDefer()
+      return deferCurrentDefinition ctx, call
 
     methods = map (({rhs}) -> rhs), methodsDeclarations
     # log "methods", methods
@@ -2779,6 +2786,7 @@ theme =
   param: '#FDA947'
   comment: 'grey'
   operator: '#67B3DD'
+  malformed: '#880000'
   normal: 'white'
 
 colorize = (color, string) ->
@@ -2811,7 +2819,7 @@ toHtml = (highlighted) ->
     (word.ws or '') + colorize(theme[labelOf word], symbol)
 
 labelOf = (word) ->
-  word.label or 'normal'
+  word.malformed and 'malformed' or word.label or 'normal'
 
 collapse = (nodes) ->
   collapsed = ""
