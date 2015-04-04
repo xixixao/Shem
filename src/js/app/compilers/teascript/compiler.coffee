@@ -1755,7 +1755,7 @@ ms.macro = ms_macro = (ctx, call) ->
   if hasName
     macroName = ctx.definitionName()
     if ctx.macros()[macroName]
-      return malformed call, "Macro with this name already defined"
+      return malformed ctx.definitionPattern(), "Macro with this name already defined"
     if not type or not isTypeAnnotation type
       return malformed call, "Type annotation required"
 
