@@ -1182,13 +1182,16 @@ ms.fn = ms_fn = (ctx, call) ->
       paramNames = _names params
 
       # Arity - before deferring instead? put to assignCompile, because this makes the naming of functions special
-      if ctx.isAtSimpleDefinition()
+      if name = ctx.isAtSimpleDefinition()
         #log "adding arity for #{ctx.definitionName()}", paramNames
-        ctx.declareArity ctx.definitionName(), paramNames
+        ctx.declareArity name, paramNames
         # Explicit typing
         if type
           explicitType = quantifyUnbound ctx, typeConstrainedCompile ctx, type
-          ctx.assignType ctx.definitionName(), explicitType
+          if ctx.isTyped name
+            malformed ctx.definitionPattern(), 'This name is already taken'
+          else
+            ctx.assignType name, explicitType
 
       paramTypeVars = map (-> ctx.freshTypeVariable star), params
       paramTypes = map (__ toForAll, toConstrained), paramTypeVars
