@@ -1754,18 +1754,19 @@ ms.macro = ms_macro = (ctx, call) ->
 
   if hasName
     macroName = ctx.definitionName()
-    if ctx.macros()[macroName]
-      return malformed ctx.definitionPattern(), "Macro with this name already defined"
-    if not type or not isTypeAnnotation type
-      return malformed call, "Type annotation required"
+    redefining = ctx.macros()[macroName]
 
     # Register type
     params = _terms paramTuple
     paramNames = map _symbol, params
-    ctx.declare macroName,
-      arity: paramNames
-      type: type = quantifyUnbound ctx, typeConstrainedCompile ctx, type
-    call.tea = type
+    if not type or not isTypeAnnotation type
+      malformed call, "Type annotation required"
+      rest = join [type], rest
+    else if not redefining
+      ctx.declare macroName,
+        arity: paramNames
+        type: type = quantifyUnbound ctx, typeConstrainedCompile ctx, type
+      call.tea = type
 
     if not rest.length > 0
       return malformed call, "Macro body missing"
@@ -1774,10 +1775,13 @@ ms.macro = ms_macro = (ctx, call) ->
     compiledMacro = translateToJs translateIr ctx,
       (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], rest))
     # log compiledMacro
-    ctx.addMacro ctx.definitionPattern(), simpleMacro eval compiledMacro
     params = (map token_, paramNames) # freshen
 
-    fn_ params, call_ (token_ macroName), params
+    if redefining
+      malformed ctx.definitionPattern(), "Macro with this name already defined"
+    else
+      ctx.addMacro ctx.definitionPattern(), simpleMacro eval compiledMacro
+      fn_ params, call_ (token_ macroName), params
 
 simpleMacro = (macroFn) ->
   (ctx, call) ->
