@@ -1425,15 +1425,19 @@ ms.class = ms_class = (ctx, call) ->
       if ctx.isClassDefined name
         malformed 'class already defined', ctx.definitionPattern()
       else
-        {classConstraint, freshedDeclarations} = findClassType ctx, name, paramNames, declarations
-        ctx.addClass name, classConstraint, superClasses, freshedDeclarations
-        declareMethods ctx, classConstraint, freshedDeclarations
+        {classConstraint, freshedDeclarations} = findClassType ctx, params,
+          name, paramNames, declarations
+        if classConstraint
+          ctx.addClass name, classConstraint, superClasses, freshedDeclarations
+          declareMethods ctx, classConstraint, freshedDeclarations
 
-        translateDict name, (keysOfMap freshedDeclarations), superClasses
+          translateDict name, (keysOfMap freshedDeclarations), superClasses
+        else
+          jsNoop()
     else
-      'malformed'
+      jsNoop()
 
-findClassType = (ctx, className, paramNames, methods) ->
+findClassType = (ctx, params, className, paramNames, methods) ->
   kinds = mapMap (-> undefined), (arrayToSet paramNames)
   for name, {arity, type, def} of values methods
     vars = findFree type.type
@@ -1449,6 +1453,10 @@ findClassType = (ctx, className, paramNames, methods) ->
         malformed def, 'All methods must use the class paramater of the same kind'
       if foundKind
         replaceInMap kinds, param, foundKind
+  if not all (for param in params when not lookupInMap kinds, _symbol param
+      malformed param, 'A class paramater must occur in at least one method\'s type'
+      false)
+    return {}
   freshingSub = mapToSubstitution mapMap ((kind) -> ctx.freshTypeVariable kind), kinds
   classParam = (param) ->
     substitute freshingSub, new TypeVariable param, (lookupInMap kinds, param)
