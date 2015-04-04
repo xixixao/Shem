@@ -104,7 +104,7 @@ labelOperator = (expression) ->
   if isForm expression
     [open, _..., close] = expression
     open.label = close.label = 'operator'
-  else
+  else if not isFake expression
     expression.label = 'operator'
 
 crawl = (ast, cb, parent) ->
