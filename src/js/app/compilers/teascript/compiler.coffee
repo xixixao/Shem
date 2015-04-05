@@ -2034,7 +2034,7 @@ cond_ = (x) ->
 malformed = (expression, message) ->
   # TODO support multiple malformations
   expression.malformed = message
-  (jsMalformed message)
+  jsNoop()
 
 isWellformed = (expression) ->
   if expression.malformed
