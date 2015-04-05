@@ -1375,6 +1375,10 @@ findDataType = (ctx, typeArgLists, typeParams, dataName) ->
 ms.record = ms_record = (ctx, call) ->
     args = _arguments call
     hasName = requireName ctx, 'Name required to declare new record'
+    if isTuple args[0]
+      [typeParamTuple, args...] = args
+    else
+      typeParamTuple = (tuple_ [])
     for [name, type] in _labeled args
       if not name
         malformed type, 'Label is required'
@@ -1383,12 +1387,13 @@ ms.record = ms_record = (ctx, call) ->
       if name and type
         syntaxType type
     if args.length is 0
-      malformed call, 'Missing arguments'
+      malformed call, 'Missing field declarations'
     # TS: (data #{ctx.definitionName()} [#{_arguments form}])
     if not hasName
       return 'malformed'
     replicate call,
-      (call_ (token_ 'data'), [(token_ ctx.definitionName()), (tuple_ args)])
+      (call_ (token_ 'data'),
+        [typeParamTuple, (token_ ctx.definitionName()), (tuple_ args)])
 
   # # Type an expression
   # ':': (ctx, call) ->
@@ -3713,7 +3718,7 @@ freshName = (nameIndex) ->
 #   that is either ordinary type variable or type variable standing for a constructor
 #   with arbitrary type arguments
 isNormalizedConstraint = (constraint) ->
-  all (map isNormalizedConstraintArgument, constraint.types.types)
+  isNormalizedConstraintArgument constraint.types.types[0]
 
 isNormalizedConstraintArgument = (type) ->
   if type
@@ -4486,6 +4491,14 @@ tests = [
 
   'records'
   """Person (record name: String id: Num)
+
+    name (fn [person]
+      (match person
+        (Person name id) name))"""
+  """(name ((Person id: 3) "Mike"))""", "Mike"
+
+  'polymorphic records'
+  """Person (record [a] name: a id: Num)
 
     name (fn [person]
       (match person
