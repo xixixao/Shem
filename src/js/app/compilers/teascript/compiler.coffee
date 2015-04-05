@@ -2824,7 +2824,7 @@ toHtml = (highlighted) ->
 
 labelOf = (word, parent) ->
   word.malformed and 'malformed' or
-    parent.malformed and word.symbol in allDelims and 'malformed' or
+    parent?.malformed and word.symbol in allDelims and 'malformed' or
       word.label or 'normal'
 
 collapse = (nodes) ->
