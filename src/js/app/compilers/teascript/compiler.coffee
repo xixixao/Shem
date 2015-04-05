@@ -1509,9 +1509,8 @@ ms.instance = ms_instance = (ctx, call) ->
     instanceName = ctx.definitionName()
 
     ctx.newScope()
-    freshInstanceType = assignMethodTypes ctx, instanceName,
+    freshInstanceType = assignMethodTypes ctx, instanceConstraint, instanceName,
       classDefinition, instanceType, constraints
-    freshConstraints = freshInstanceType.constraints
     definitions = pairs wheres
     methodsDeclarations = definitionList ctx,
       (prefixWithInstanceName definitions, instanceName)
@@ -1527,22 +1526,25 @@ ms.instance = ms_instance = (ctx, call) ->
 
     # TODO: defer for class declaration if not defined
     ## if not ctx.isClassDefined className    ...
+    if not freshInstanceType
+      jsNoop()
+    else
+      freshConstraints = freshInstanceType.constraints
+      instance = (new Constrained freshConstraints,
+        (new ClassConstraint instanceType.className, freshInstanceType.type))
+      ## if overlaps ctx, instance
+      ##   malformed 'instance overlaps with another', instance
+      ## else
+      ctx.addInstance instanceName, instance
 
-    instance = (new Constrained freshConstraints,
-      (new ClassConstraint instanceType.className, freshInstanceType.type))
-    ## if overlaps ctx, instance
-    ##   malformed 'instance overlaps with another', instance
-    ## else
-    ctx.addInstance instanceName, instance
-
-    # """var #{instanceName} = new #{className}(#{listOf methods});"""
-    (jsVarDeclaration (validIdentifier instanceName),
-      (irDefinition (new Constrained freshConstraints, (tupleOfTypes methodTypes).type),
-        (jsNew className, (join superClassInstances, methods))))
+      # """var #{instanceName} = new #{className}(#{listOf methods});"""
+      (jsVarDeclaration (validIdentifier instanceName),
+        (irDefinition (new Constrained freshConstraints, (tupleOfTypes methodTypes).type),
+          (jsNew className, (join superClassInstances, methods))))
 
 # Makes sure methods are typed explicitly and returns the instance constraint
 # with renamed type variables to avoid clashes
-assignMethodTypes = (ctx, instanceName, classDeclaration, instanceType, instanceConstraints) ->
+assignMethodTypes = (ctx, typeExpression, instanceName, classDeclaration, instanceType, instanceConstraints) ->
   # First we must freshen the instance type, to avoid name clashes of type vars
   freshInstanceType = freshInstance ctx,
     (quantifyUnbound ctx,
@@ -1550,7 +1552,9 @@ assignMethodTypes = (ctx, instanceName, classDeclaration, instanceType, instance
 
   # log "mguing", classDeclaration.constraint.types, freshInstanceType.type
   sub = mostGeneralUnifier classDeclaration.constraint.types, freshInstanceType.type
-  # log sub
+  if isFailed sub
+    malformed typeExpression, 'Type doesn\'t match class type'
+    return null
 
   ctx.bindTypeVariables setToArray (findFree freshInstanceType)
   for name, {arity, type} of values classDeclaration.declarations
@@ -2816,10 +2820,12 @@ labelComments = (call) ->
 
 toHtml = (highlighted) ->
   crawl highlighted, (word, symbol, parent) ->
-    (word.ws or '') + colorize(theme[labelOf word], symbol)
+    (word.ws or '') + colorize(theme[labelOf word, parent], symbol)
 
-labelOf = (word) ->
-  word.malformed and 'malformed' or word.label or 'normal'
+labelOf = (word, parent) ->
+  word.malformed and 'malformed' or
+    parent.malformed and word.symbol in allDelims and 'malformed' or
+      word.label or 'normal'
 
 collapse = (nodes) ->
   collapsed = ""
@@ -3518,7 +3524,9 @@ mostGeneralUnifier = (t1, t2) ->
     s2 = mostGeneralUnifier (substitute s1, t1.arg), (substitute s1, t2.arg)
     joinSubs s1, s2
   else if t1.Types and t2.Types
-    if _notEmpty t1.types
+    if t1.types.length isnt t2.types.length
+      unifyFail t1, t2
+    else if _notEmpty t1.types
       s1 = mostGeneralUnifier t1.types[0], t2.types[0]
       s2 = mostGeneralUnifier (new Types t1.types[1...]), (new Types t2.types[1...])
       joinSubs s1, s2
@@ -3566,7 +3574,9 @@ matchType = (t1, t2) ->
       # newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
       unifyFail t1, t2
   else if t1.Types and t2.Types
-    if _notEmpty t1.types
+    if t1.types.length isnt t2.types.length
+      unifyFail t1, t2
+    else if _notEmpty t1.types
       s1 = matchType t1.types[0], t2.types[0]
       s2 = matchType (new Types t1.types[1...]), (new Types t2.types[1...])
       s3 = mergeSubs s1, s2
