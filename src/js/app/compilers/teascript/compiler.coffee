@@ -160,7 +160,7 @@ highlightType = (type) ->
 subToObject = (sub) ->
   ob = {}
   for s, i in sub.vars when s
-    ob["#{i}"] = s
+    ob["#{i + sub.start}"] = s
   ob
 
 
@@ -1364,7 +1364,7 @@ findDataType = (ctx, typeArgLists, typeParams, dataName) ->
       malformed typeParam, 'Data type parameter not used'
       throw new Error 'Data type parameter not used'
 
-  freshingSub = mapToSubstitution mapMap ((kind) -> ctx.freshTypeVariable kind), kinds
+  freshingSub = mapMap ((kind) -> ctx.freshTypeVariable kind), kinds
 
   dataKind = kindFnOfArgs (map ((name) -> lookupInMap kinds, name), varNames)...
   typeVars = map ((name) -> new TypeVariable name, (lookupInMap kinds, name)), varNames
@@ -1465,7 +1465,7 @@ findClassType = (ctx, params, className, paramNames, methods) ->
       malformed param, 'A class paramater must occur in at least one method\'s type'
       false)
     return {}
-  freshingSub = mapToSubstitution mapMap ((kind) -> ctx.freshTypeVariable kind), kinds
+  freshingSub = mapMap ((kind) -> ctx.freshTypeVariable kind), kinds
   classParam = (param) ->
     substitute freshingSub, new TypeVariable param, (lookupInMap kinds, param)
   method = ({arity, type, def}) ->
@@ -3522,14 +3522,14 @@ mostGeneralUnifier = (t1, t2) ->
   else if t1.TypeApp and t2.TypeApp
     s1 = mostGeneralUnifier t1.op, t2.op
     s2 = mostGeneralUnifier (substitute s1, t1.arg), (substitute s1, t2.arg)
-    joinSubs s1, s2
+    joinSubs s2, s1
   else if t1.Types and t2.Types
     if t1.types.length isnt t2.types.length
       unifyFail t1, t2
     else if _notEmpty t1.types
       s1 = mostGeneralUnifier t1.types[0], t2.types[0]
       s2 = mostGeneralUnifier (new Types t1.types[1...]), (new Types t2.types[1...])
-      joinSubs s1, s2
+      joinSubs s2, s1
     else
       emptySubstitution()
   else
@@ -3606,7 +3606,7 @@ mapSub = (fn, sub) ->
   mapped.start = (subStart sub)
   mapped.fails = sub.fails
   for name in [(subStart sub)...(subLimit sub)] by 1 when v = (inSub sub, name)
-    mapped.vars[name] = fn v
+    setInSub mapped, name, fn v
   mapped
 
 subIntersection = (subA, subB) ->
@@ -3616,17 +3616,18 @@ subIntersection = (subA, subB) ->
 subUnion = (subA, subB) ->
   union = emptySubstitution()
   start = Math.min (subStart subA), (subStart subB)
+  end = Math.max (subLimit subA), (subLimit subB)
   union.start = start
-  for name in [start...Math.max (subLimit subA), (subLimit subB)] by 1
+  for name in [start...end] by 1
     type = (inSub subA, name) or (inSub subB, name)
     if type
-      union.vars[name] = type
+      setInSub union, name, type
   union.fails = [].concat subA.fails, subB.fails
   union
 
 newSubstitution = (name, type) ->
   sub = emptySubstitution()
-  sub.vars[name] = type
+  sub.vars[0] = type
   sub.start = name
   sub
 
@@ -3639,13 +3640,16 @@ substituionFail = (failure) ->
   sub
 
 subLimit = (sub) ->
-  sub.vars.length
+  if sub.start is Infinity then -Infinity else sub.start + sub.vars.length
 
 subStart = (sub) ->
   sub.start
 
+setInSub = (sub, name, value) ->
+  sub.vars[name - sub.start] = value
+
 inSub = (sub, name) ->
-  sub.vars[name]
+  sub.vars[name - sub.start]
 
 emptySubstitution = ->
   start: Infinity
@@ -3655,8 +3659,9 @@ emptySubstitution = ->
 # Unlike in Jones, we simply use substitute for both variables and quantifieds
 # - variables are strings, wheres quantifieds are ints
 substitute = (substitution, type) ->
-  if type.TypeVariable and substitution.vars
-    (inSub substitution, type.name) or type
+  if type.TypeVariable
+    substitution.vars and (inSub substitution, type.name) or
+      substitution.values and (lookupInMap substitution, type.name) or type
   else if type.QuantifiedVar
     substitution[type.var] or type
   else if type.TypeApp
@@ -3676,10 +3681,6 @@ substitute = (substitution, type) ->
 
 substituteList = (substitution, list) ->
   map ((t) -> substitute substitution, t), list
-
-# Only valid for substitute
-mapToSubstitution = (map) ->
-  vars: map.values
 
 findFree = (type) ->
   if type.TypeVariable
@@ -3876,7 +3877,7 @@ quantify = (vars, type) ->
   polymorphicVars = filterMap ((name) -> inSet vars, name), findFree type
   kinds = mapToArray polymorphicVars
   varIndex = 0
-  quantifiedVars = mapToSubstitution mapMap (-> new QuantifiedVar varIndex++), polymorphicVars
+  quantifiedVars = mapMap (-> new QuantifiedVar varIndex++), polymorphicVars
   new ForAll kinds, (substitute quantifiedVars, type)
 
 star = '*'
