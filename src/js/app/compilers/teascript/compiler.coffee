@@ -138,6 +138,7 @@ mapTyping = (fn, string) ->
     expressions.push "#{collapse toHtml expression} :: #{highlightType expression.tea}" if expression.tea
   types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInDefinitions()
   subs: subToObject mapSub highlightType, ctx.substitution
+  fails: ctx.substitution.fails
   ast: expressions
   deferred: ctx.deferredBindings()
 
@@ -153,9 +154,12 @@ mapTypingBare = (fn, string) ->
   deferred: ctx.deferredBindings()
 
 highlightType = (type) ->
-  typeAst = astize tokenize printType type
-  syntaxType typeAst
-  collapse toHtml typeAst
+  if type
+    typeAst = astize tokenize printType type
+    syntaxType typeAst
+    collapse toHtml typeAst
+  else
+    "undefined"
 
 subToObject = (sub) ->
   ob = {}
@@ -1057,6 +1061,8 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
           (findFree currentType),
           (substituteList ctx.substitution, matched.tea.constraints)
         # log "assign type", name, (printType currentType), retainedConstraints
+        # Finalizing type again after possibly added substitution when defer constraints
+        currentType = substitute ctx.substitution, type
         ctx.assignType name,
           if polymorphic
             quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
@@ -1992,8 +1998,10 @@ constraintsFromSuperClasses = (ctx, constraint) ->
 constraintsFromInstance = (ctx, constraint) ->
   {className, type} = constraint
   for instance in (ctx.classNamed className).instances
+    # log "trying to find the instance", (printType instance.type.type), (printType constraint)
     substitution = toMatchTypes instance.type.type.types, constraint.types
     if substitution
+      ctx.extendSubstitution substitution
       return map ((c) -> substitute substitution, c), instance.type.constraints
   null
 
@@ -2393,7 +2401,8 @@ findSuperClassChain = (ctx, className, targetClassName) ->
   undefined
 
 typeNamesOfNormalized = (constraint) ->
-  map (({name}) -> name), constraint.types.types
+  #map (({name}) -> name), constraint.types.types
+  [constraint.types.types[0].name]
 
 accessList = (what, list) ->
   [first, rest...] = list
@@ -3582,8 +3591,11 @@ matchType = (t1, t2) ->
     if t1.types.length isnt t2.types.length
       unifyFail t1, t2
     else if _notEmpty t1.types
+      # log "matching ", (printType t1.types[0]), (printType t2.types[0])
       s1 = matchType t1.types[0], t2.types[0]
-      s2 = matchType (new Types t1.types[1...]), (new Types t2.types[1...])
+      # log "after matching", s1
+      # I will imply functional dependency of the form A a b c | a -> b c
+      s2 = mostGeneralUnifier (new Types (substituteList s1, t1.types[1...])), (new Types t2.types[1...])
       s3 = mergeSubs s1, s2
       s3 or
         unifyFail t1, t2
@@ -4898,7 +4910,6 @@ tests = [
   'functional deps'
   """
     Collection (class [ce e]
-      (# (| ce: e))
       first (fn [in]
         (: (Fn ce e))))
 
@@ -4911,6 +4922,26 @@ tests = [
         (list-first in)))
   """
   "(first {42 43 44})", 42
+
+  'functional deps on function'
+  """
+    Map (class [m k v]
+      put (fn [key value map]
+        (: (Fn k v m m))))
+
+    map-map (instance (Map (Map k v) k v)
+      put (macro [key value map]
+        (: (Fn k v (Map k v) (Map k v)))
+        (Js.call (Js.access map "set") {key value})))
+
+    count (macro [map]
+      (: (Fn (Map k v) Num))
+      (Js.access map "size"))
+
+    magic (fn [key map]
+      (put key 42 map))
+  """
+  "(count (magic \\C (Map)))", 1
 
   'nested pattern matching'
   """
