@@ -1424,7 +1424,8 @@ ms.class = ms_class = (ctx, call) ->
     else
       constraints = typeConstraintsCompile ctx, _terms constraintSeq
 
-    superClasses = map (({className}) -> className), constraints
+    superClasses = map (quantifyConstraintFor paramNames), constraints
+    superClassNames = map (({className}) -> className), constraints
 
     # TODO: defer if not all declared to prevent cycles in classes
     #   allDeclared = (ctx.isClass c for c in superClasses)
@@ -1450,11 +1451,20 @@ ms.class = ms_class = (ctx, call) ->
           ctx.addClass name, classConstraint, superClasses, freshedDeclarations
           declareMethods ctx, classConstraint, freshedDeclarations
 
-          translateDict name, (keysOfMap freshedDeclarations), superClasses
+          translateDict name, (keysOfMap freshedDeclarations), superClassNames
         else
           jsNoop()
     else
       jsNoop()
+
+quantifyConstraintFor = (names) -> (constraint) ->
+  new ClassConstraint constraint.className,
+    new Types (for {name} in constraint.types.types
+      index = names.indexOf name
+      # TODO: attach to the syntax
+      # if index is -1
+      #   malformed param, 'Superclass param must occur in class\'s params'
+      new QuantifiedVar index)
 
 findClassType = (ctx, params, className, paramNames, methods) ->
   kinds = mapMap (-> undefined), (arrayToSet paramNames)
@@ -1588,9 +1598,7 @@ instancePrefix = (instanceName, methodName) ->
   "#{instanceName}_#{methodName}"
 
 findSuperClassInstances = (ctx, instanceTypes, classDefinition) ->
-  toConstraint = (superName) ->
-    new ClassConstraint superName, instanceTypes
-  superConstraints = map toConstraint, classDefinition.supers
+  superConstraints = substituteList instanceTypes.types, classDefinition.supers
   instanceDictFor ctx, constraint for constraint in superConstraints
 
 
@@ -1993,7 +2001,7 @@ entail = (ctx, constraints, constraint) ->
 constraintsFromSuperClasses = (ctx, constraint) ->
   {className, types} = constraint
   join [constraint], concat (for s in (ctx.classNamed className).supers
-    constraintsFromSuperClasses ctx, new ClassConstraint s, types)
+    constraintsFromSuperClasses ctx, substitute types.types, s)
 
 constraintsFromInstance = (ctx, constraint) ->
   {className, type} = constraint
@@ -2394,8 +2402,8 @@ findSubClassParam = (ctx, constraint) ->
 
 findSuperClassChain = (ctx, className, targetClassName) ->
   for s in (ctx.classNamed className).supers
-    if s is targetClassName
-      return [s]
+    if s.className is targetClassName
+      return [s.className]
     else if chain = findSuperClassChain ctx, s, targetClassName
       return join [s], chain
   undefined
@@ -4942,6 +4950,35 @@ tests = [
       (put key 42 map))
   """
   "(count (magic \\C (Map)))", 1
+
+  'super classes with less params'
+  """
+    Bag (class [b i]
+      length (fn [bag]
+        (: (Fn b Num)))
+      id (fn [item]
+        (: (Fn i i))))
+
+    Map (class [m k v]
+      {(Bag m v)}
+      put (fn [key value map]
+        (: (Fn k v m m))))
+
+    map-bag (instance (Bag (Map k v) v)
+      length (macro [map]
+        (: (Fn (Map k v) Num))
+        (Js.access map "size"))
+      id (fn [x] x))
+
+    map-map (instance (Map (Map k v) k v)
+      put (macro [key value map]
+        (: (Fn k v (Map k v) (Map k v)))
+        (Js.call (Js.access map "set") {key value})))
+
+    magic (fn [key map]
+      (put key 42 map))
+  """
+  "(length (magic \\C (Map)))", 1
 
   'nested pattern matching'
   """
