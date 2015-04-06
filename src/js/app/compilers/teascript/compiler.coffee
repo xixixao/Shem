@@ -5169,6 +5169,37 @@ tests = [
   """
   "(first (unshift 3 empty))", 3
 
+  # TODO: this works, but show that we honor the monorphism restriction
+  #       in the sense that some is inferred a concrete type
+  #       although it should have a polymorphic type or it should error
+  #       this is because we compile as if x and some where in the same
+  #       implicitly typed group
+  'values with constraints'
+  """
+  A (class [c]
+    empty (: c))
+
+  B (class [c e]
+    add (fn [what to] (: (Fn e c c))))
+
+  list-a (instance (A (Array a))
+    empty {})
+
+  list-b (instance (B (Array a) a)
+    add (macro [what to]
+      (: (Fn a (Array a) (Array a)))
+      (Js.call (Js.access to "unshift") {what})))
+
+  first (macro [list]
+    (: (Fn (Array a) a))
+    (Js.call (Js.access list "first") {}))
+
+  some (add 2 empty)
+
+  x (first some)
+  """
+  "x", 2
+
 
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
