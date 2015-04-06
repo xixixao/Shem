@@ -1204,11 +1204,7 @@ ms.fn = ms_fn = (ctx, call) ->
         ctx.declareArity name, paramNames
         # Explicit typing
         if type
-          explicitType = quantifyUnbound ctx, typeConstrainedCompile ctx, type
-          if ctx.isTyped name
-            malformed ctx.definitionPattern(), 'This name is already taken'
-          else
-            ctx.assignType name, explicitType
+          explicitType = assignExplicitType ctx, typeConstrainedCompile ctx, type
 
       paramTypeVars = map (-> ctx.freshTypeVariable star), params
       paramTypes = map (__ toForAll, toConstrained), paramTypeVars
@@ -1267,6 +1263,16 @@ ms.fn = ms_fn = (ctx, call) ->
             #     name: (ctx.definitionName() if ctx.isAtSimpleDefinition())
             #     params: paramNames
             #     body: (join compiledWheres, [(jsReturn compiledBody)]))])
+
+# Assumes definition name
+assignExplicitType = (ctx, type) ->
+  explicitType = quantifyUnbound ctx, type
+  name = ctx.definitionName()
+  if ctx.isTyped name
+    malformed ctx.definitionPattern(), 'This name is already taken'
+  else
+    ctx.assignType name, explicitType
+  explicitType
 
 ms.type = ms_type = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare new type alias'
@@ -1407,15 +1413,26 @@ ms.record = ms_record = (ctx, call) ->
       (call_ (token_ 'data'),
         [typeParamTuple, (token_ ctx.definitionName()), (tuple_ args)])
 
-  # # Type an expression
-  # ':': (ctx, call) ->
-  #   [expression, type] = _arguments call
-  #   if not type
-  #     return malformed 'Missing type', call
-  #   ctx.setIsType true
-  #   ctx.setIsType false
+  # Type an expression
+ms[':'] = ms_typed = (ctx, call) ->
+    hasName = requireName ctx, 'Name required to declare typed values for now'
+    [type, constraintSeq, rest...] = _arguments call
+    compiledType =
+      if isSeq constraintSeq
+        constraints = typeConstraintsCompile ctx, _terms constraintSeq
+        if type
+          new Constrained constraints, typeCompile ctx, type
+      else
+        typeConstrainedCompile ctx, call
+    if hasName
+      ctx.declare ctx.definitionName()
+      assignExplicitType ctx, compiledType
+    # TODO: support typing of expressions,
+    #watch out of definition patterns without a name
+    jsNoop()
 
-  # Adds a class to the scope or defers if superclass doesn't exist
+
+# Adds a class to the scope or defers if superclass doesn't exist
 ms.class = ms_class = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new class'
     [paramList, defs...] = _validArguments call
@@ -5131,6 +5148,27 @@ tests = [
       2)
   """
   "a", 2
+
+  'constants in classes'
+  """
+  A (class [c e]
+    empty (: c)
+
+    first (fn [x] (: (Fn c e))))
+
+  list-a (instance (A (Array a) a)
+    empty {}
+
+    first (macro [list]
+      (: (Fn (Array a) a))
+      (Js.call (Js.access list "first") {})))
+
+  unshift (macro [what to]
+    (: (Fn a (Array a) (Array a)))
+    (Js.call (Js.access to "unshift") {what}))
+  """
+  "(first (unshift 3 empty))", 3
+
 
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
