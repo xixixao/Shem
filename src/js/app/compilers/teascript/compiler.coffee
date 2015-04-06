@@ -137,10 +137,13 @@ mapTyping = (fn, string) ->
   visitExpressions ast, (expression) ->
     expressions.push "#{collapse toHtml expression} :: #{highlightType expression.tea}" if expression.tea
   types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInDefinitions()
-  subs: subToObject mapSub highlightType, ctx.substitution
+  subs: printSubstitution ctx.substitution
   fails: ctx.substitution.fails
   ast: expressions
   deferred: ctx.deferredBindings()
+
+printSubstitution = (sub) ->
+  subToObject mapSub highlightType, sub
 
 mapTypingBare = (fn, string) ->
   ast = astize tokenize string
@@ -523,6 +526,9 @@ class Context
 
   classParamsForType: (constraint) ->
     nestedLookupInMap @classParams, typeNamesOfNormalized constraint
+
+  updateClassParams: ->
+    @classParams = substituteVarNames this, @classParams
 
 expressionCompile = (ctx, expression) ->
   throw new Error "invalid expressionCompile args" unless ctx instanceof Context and expression?
@@ -1937,15 +1943,21 @@ quantifyUnbound = (ctx, type) ->
   vars = subtractSets (findFree type), ctx.allBoundTypeVariables()
   quantify vars, type
 
+substituteVarNames = (ctx, varNames) ->
+  subbed = (name) =>
+    (inSub ctx.substitution, name)?.name or name
+  rehashMap subbed, varNames
+
 # Takes a set of fixed type variables, a set of type variables which
 # should be quantified and a list of constraints
 # returns deferred and retained constraints
 deferConstraints = (ctx, fixedVars, quantifiedVars, constraints) ->
   reducedConstraints = reduceConstraints ctx, constraints
   throw new Error "could not reduce constraints in deferConstraints" unless reducedConstraints
+  subbedFixedVars = substituteVarNames ctx, fixedVars
   isFixed = (constraint) ->
-    # log fixedVars, constraint, (findFree constraint)
-    isSubset fixedVars, (findFree constraint)
+    # log subbedFixedVars, constraint, (findFree constraint)
+    isSubset subbedFixedVars, (findFree constraint)
   [deferred, retained] = partition isFixed, reducedConstraints
   # TODO: handle ambiguity when reducedConstraints include variables not in
   # fixedVars or quantifiedVars
@@ -2304,6 +2316,7 @@ irDefinition = (type, expression) ->
 irDefinitionTranslate = (ctx, {type, expression}) ->
   finalType = substitute ctx.substitution, type
   reducedConstraints = reduceConstraints ctx, finalType.constraints
+  ctx.updateClassParams()
   # TODO: what about the class dictionaries order?
   counter = {}
   classParams = newMap()
@@ -3409,11 +3422,17 @@ isSetEmpty =
 isMapEmpty = (set) ->
   set.size is 0
 
-mapSet =
 mapMap = (fn, set) ->
   initialized = newMap()
   for key, val of set.values
     addToMap initialized, key, fn val
+  initialized
+
+mapSet =
+rehashMap = (fn, set) ->
+  initialized = newMap()
+  for key, val of set.values
+    addToMap initialized, (fn key), val
   initialized
 
 filterSet =
@@ -4981,6 +5000,43 @@ tests = [
       (put key 42 map))
   """
   "(length (magic \\C (Map)))", 1
+
+  'functional deps with instance constraints'
+  """
+    Stack (data [a]
+      Nil
+      Node [value: a tail: (Stack a)])
+
+    Eq (class [a]
+      = (fn [x y] (: (Fn a a Bool))))
+
+    num-eq (instance (Eq Num)
+      = (macro [x y]
+        (: (Fn Num Num Bool))
+        (Js.binary "===" x y)))
+
+    Collection (class [collection item]
+      elem? (fn [what in]
+        (: (Fn item collection Bool))))
+
+    Bag (class [bag item]
+      fold (fn [with initial over]
+        (: (Fn (Fn a item a) a bag a))))
+
+    stack-collection (instance (Collection (Stack a) a)
+      {(Eq a)}
+      elem? (fn [what in]
+        (fold found-or-equals False in)
+        found-or-equals (fn [found item]
+          (= what item))))
+
+    stack-bag (instance (Bag (Stack a) a)
+      fold (fn [with initial over]
+        (match over
+          Nil initial
+          (Node x xs) (fold with (with initial x) xs))))
+  """
+  "(elem? 2 (Node 2 Nil))", yes
 
   'nested pattern matching'
   """
