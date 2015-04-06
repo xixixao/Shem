@@ -1843,7 +1843,7 @@ simpleMacro = (macroFn) ->
     callTyping ctx, call
     assignCompile ctx, call, macroFn args...
 
-for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call']
+for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method']
   do (jsMethod) ->
     ms["Js.#{jsMethod}"] = (ctx, call) ->
       call.tea = toConstrained typeConstant "JS"
@@ -2753,10 +2753,17 @@ jsFunctionTranslate = ({name, params, body}) ->
 
 
 jsMalformed = (message) ->
-  {js: jsMalformedTranslate, message: message}
+  {js: jsMalformedTranslate, message}
 
 jsMalformedTranslate = ({message}) ->
   message
+
+
+jsMethod = (object, method, args) ->
+  {js: jsMethodTranslate, object, method, args}
+
+jsMethodTranslate = ({object, method, args}) ->
+  translateToJs (jsCall (jsAccess object, method), args)
 
 
 jsNew = (classFun, args) ->
