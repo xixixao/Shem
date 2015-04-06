@@ -393,7 +393,7 @@ class Context
         return classDeclaration
 
   addInstance: (name, type) ->
-    (@classNamed type.type.className).instances.push {name, type}
+    (@classNamed type.type.type.className).instances.push {name, type}
 
   isMethod: (name, type) ->
     any (for {className} in type.constraints
@@ -1551,7 +1551,7 @@ ms.instance = ms_instance = (ctx, call) ->
       jsNoop()
     else
       freshConstraints = freshInstanceType.constraints
-      instance = (new Constrained freshConstraints,
+      instance = quantifyAll (new Constrained freshConstraints,
         (new ClassConstraint instanceType.className, freshInstanceType.type))
       ## if overlaps ctx, instance
       ##   malformed 'instance overlaps with another', instance
@@ -2006,11 +2006,13 @@ constraintsFromSuperClasses = (ctx, constraint) ->
 constraintsFromInstance = (ctx, constraint) ->
   {className, type} = constraint
   for instance in (ctx.classNamed className).instances
+    freshed = freshInstance ctx, instance.type
     # log "trying to find the instance", (printType instance.type.type), (printType constraint)
-    substitution = toMatchTypes instance.type.type.types, constraint.types
+    substitution = toMatchTypes freshed.type.types, constraint.types
     if substitution
+      # log substitution
       ctx.extendSubstitution substitution
-      return map ((c) -> substitute substitution, c), instance.type.constraints
+      return map ((c) -> substitute substitution, c), freshed.constraints
   null
 
 _names = (list) ->
@@ -2425,7 +2427,7 @@ isAlreadyParametrized = (ctx, constraint) ->
 instanceDictFor = (ctx, constraint) ->
   for {name, type} in (ctx.classNamed constraint.className).instances
     # TODO: support lookup of composite types, by traversing left depth-first
-    if toMatchTypes type.type.types, constraint.types
+    if toMatchTypes (freshInstance ctx, type).type.types, constraint.types
       return validIdentifier name
   throw new Error "no instance for #{safePrintType constraint}"
 
