@@ -937,9 +937,10 @@ typeNameCompile = (ctx, atom, expectedKind) ->
     labelOperator atom
   else
     atom.label = 'typename' unless isFake atom
-  if expectedKind and (not kindsEq expectedKind, finalKind)
-    malformed atom, "The kind of the type operator doesn't match the
-                  supplied number of arguments"
+  # if expectedKind and (not kindsEq expectedKind, finalKind)
+  #   log expectedKind, finalKind
+  #   malformed atom, "The kind of the type operator doesn't match the
+  #                 supplied number of arguments"
   # log type
   type
 
@@ -2251,7 +2252,7 @@ literalPattern = (ctx, translation) ->
     precs: [cond_  (jsBinary "===", ctx.assignTo(), translation)]
 
 deferredExpression = ->
-  {js: 'deferred'}
+  jsNoop()
 
 # type expressions syntax
 # or
@@ -2511,7 +2512,7 @@ irJsCompatibleTranslate = (ctx, {type, expression}) ->
   finalType = substitute ctx.substitution, type
   translated = translateIr ctx, expression
   if isCustomCollectionType finalType
-    (jsCall (jsAccess translated, 'toJS'), [])
+    (jsCall (jsAccess translated, 'toArray'), [])
   else
     translated
 
@@ -5197,6 +5198,36 @@ tests = [
   """
   "x", 2
 
+  'curried type constructor'
+  """
+  + (macro [x y]
+    (: (Fn Num Num Num))
+    (Js.binary "+" x y))
+
+  get (macro [key from]
+    (: (Fn k (Map k v) v))
+    (Js.method from "get" {key}))
+
+  put (macro [key value into]
+    (: (Fn k v (Map k v) (Map k v)))
+    (Js.method into "set" {key value}))
+
+  Mappable (class [wrapper]
+    map (fn [what onto]
+      (: (Fn (Fn a b) (wrapper a) (wrapper b)))
+      (# Apply what to every value inside onto .)))
+
+  reduce-map (macro [with initial over]
+    (: (Fn (Fn a v k a) a (Map k v) a))
+    (Js.method over "reduce" {with initial}))
+
+  map-mappable (instance (Mappable (Map k))
+    map (fn [what onto]
+      (reduce-map helper (Map) onto)
+      helper (fn [acc value key]
+        (put key (what value) acc))))
+  """
+  """(get "c" (map (+ 1) {a: 3 b: 2 c: 4}))""", 5
 
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
