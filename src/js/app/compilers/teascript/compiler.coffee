@@ -1482,12 +1482,15 @@ ms.class = ms_class = (ctx, call) ->
 
 quantifyConstraintFor = (names) -> (constraint) ->
   new ClassConstraint constraint.className,
-    new Types (for {name} in constraint.types.types
-      index = names.indexOf name
-      # TODO: attach to the syntax
-      # if index is -1
-      #   malformed param, 'Superclass param must occur in class\'s params'
-      new QuantifiedVar index)
+    new Types (for type in constraint.types.types
+      if type.TypeVariable
+        index = names.indexOf type.name
+        # TODO: attach to the syntax
+        # if index is -1
+        #   malformed param, 'Superclass param must occur in class\'s params'
+        new QuantifiedVar index
+      else
+        type)
 
 findClassType = (ctx, params, className, paramNames, methods) ->
   kinds = mapMap (-> undefined), (arrayToSet paramNames)
