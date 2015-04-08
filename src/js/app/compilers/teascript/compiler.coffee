@@ -987,7 +987,7 @@ typeConstraintCompile = (ctx, expression) ->
 
 typeConstraintsCompile = (ctx, expressions) ->
   filter ((t) -> t instanceof ClassConstraint),
-    (typeConstraintCompile ctx, e for e in expressions)
+    (typeConstraintCompile ctx, e for e in expressions when not isFake e)
 
 # Inside definition, we call assignCompile with its RHS
 #   whether to call it and with what expression is left to the RHS expression
