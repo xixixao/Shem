@@ -547,7 +547,7 @@ expressionCompile = (ctx, expression) ->
     else if isCall expression
       callCompile
   if not compileFn
-    malformed expression, 'not a valid expression'
+    malformed ctx, expression, 'not a valid expression'
   else
     compileFn ctx, expression
 
@@ -604,7 +604,7 @@ callKnownCompile = (ctx, call) ->
   labeledArgs = labeledToMap args
 
   if tagFreeLabels args
-    return malformed call, 'labels without values inside call'
+    return malformed ctx, call, 'labels without values inside call'
 
   paramNames = ctx.arity operator.symbol
   if not paramNames
@@ -615,7 +615,7 @@ callKnownCompile = (ctx, call) ->
   nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
 
   if nonLabeledArgs.length > positionalParams.length
-    malformed call, 'Too many arguments'
+    malformed ctx, call, 'Too many arguments'
   else
     extraParamNames = positionalParams[nonLabeledArgs.length..]
     extraParams = map token_, extraParamNames
@@ -630,13 +630,13 @@ callKnownCompile = (ctx, call) ->
     if ctx.assignTo()
       if isCapital operator
         if args.length < paramNames.length and nonLabeledArgs.length > 0
-          malformed call, "curried constructor pattern"
+          malformed ctx, call, "curried constructor pattern"
         else
           compiled = callConstructorPattern ctx, sortedCall, extraParamNames
           retrieve call, sortedCall
           compiled
       else
-        malformed call, "function patterns not supported"
+        malformed ctx, call, "function patterns not supported"
     else
       if nonLabeledArgs.length < positionalParams.length
         # log "currying known call"
@@ -731,7 +731,7 @@ callTyping = (ctx, call) ->
   return if ctx.shouldDefer()
   terms = _terms call
   if terms.length is 1
-    malformed call, 'Missing an argument (for now)'
+    malformed ctx, call, 'Missing an argument (for now)'
     terms = join terms, [tea: toConstrained ctx.freshTypeVariable star]
   call.tea = callInfer ctx, terms
 
@@ -817,7 +817,7 @@ seqCompile = (ctx, form) ->
         requiredElems++
 
     if hasSplat and requiredElems is 0
-      return malformed form, 'Matching with splat requires at least one element name'
+      return malformed ctx, form, 'Matching with splat requires at least one element name'
 
     compiledArgs = (for elem, i in elems
       [lhs, rhs] =
@@ -911,7 +911,7 @@ typeCompile = (ctx, expression) ->
   else if isCall expression
     typeConstructorCompile
   else
-    malformed expression, 'not a valid type'
+    malformed ctx, expression, 'not a valid type'
   )? ctx, expression
 
 typesCompile = (ctx, expressions) ->
@@ -930,7 +930,7 @@ typeNameCompile = (ctx, atom, expectedKind) ->
         kindOfType = expectedKind
       if not kindOfType
         # throw new Error "type name #{atom.symbol} was not defined" unless kind
-        malformed atom, "This type name has not been defined"
+        malformed ctx, atom, "This type name has not been defined"
         kindOfType = star
       atomicType atom.symbol, kindOfType
     else
@@ -942,7 +942,7 @@ typeNameCompile = (ctx, atom, expectedKind) ->
     atom.label = 'typename' unless isFake atom
   # if expectedKind and (not kindsEq expectedKind, finalKind)
   #   log expectedKind, finalKind
-  #   malformed atom, "The kind of the type operator doesn't match the
+  #   malformed ctx, atom, "The kind of the type operator doesn't match the
   #                 supplied number of arguments"
   # log type
   type
@@ -967,7 +967,7 @@ typeConstructorCompile = (ctx, call) ->
       operatorType = typeNameCompile ctx, op, (kindFn arity)
       applyKindFn operatorType, compiledArgs...
   else
-    malformed op, 'Expected a type constructor instead'
+    malformed ctx, op, 'Expected a type constructor instead'
 
 typeConstraintCompile = (ctx, expression) ->
   op = _operator expression
@@ -977,9 +977,9 @@ typeConstraintCompile = (ctx, expression) ->
       (labelOperator op)
       new ClassConstraint op.symbol, new Types (typesCompile ctx, args)
     else
-      malformed expression, 'Class name required in a constraint'
+      malformed ctx, expression, 'Class name required in a constraint'
   else
-    malformed expression, 'Class constraint expected'
+    malformed ctx, expression, 'Class constraint expected'
 
 typeConstraintsCompile = (ctx, expressions) ->
   filter ((t) -> t instanceof ClassConstraint),
@@ -1009,7 +1009,7 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
       return deferCurrentDefinition ctx, expression
 
     if assigns.length is 0
-      return malformed to, 'Not an assignable pattern'
+      return malformed ctx, to, 'Not an assignable pattern'
     map compileVariableAssignment, (join translationCache, assigns)
   else
     if ctx.isAtBareDefinition()
@@ -1089,7 +1089,7 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
   # The problem is I don't know which are impricise, because the names are done inside the
   # pattern. I can use the context to know which types where added in the current assignment.
 
-  # TODO: malformed "LHS\'s type doesn\'t match the RHS in assignment", pattern
+  # TODO: malformed ctx, "LHS\'s type doesn\'t match the RHS in assignment", pattern
 
   precs: precs ? []
   assigns: assigns ? []
@@ -1101,7 +1101,7 @@ topLevelExpression = (ctx, expression) ->
   ctx.leaveDefinition()
   if deferred
     [expression, dependencyName] = deferred
-    malformed expression, "#{dependencyName} is not defined"
+    malformed ctx, expression, "#{dependencyName} is not defined"
     undefined
   else
     (irDefinition expression.tea, compiled)
@@ -1117,7 +1117,7 @@ definitionList = (ctx, pairs) ->
     if rhs
       definitionPairCompile ctx, lhs, rhs
     else
-      malformed lhs, 'missing value in definition'
+      malformed ctx, lhs, 'missing value in definition'
       undefined)
 
   compiledPairs = join compiledPairs, compileDeferred ctx
@@ -1174,7 +1174,7 @@ deferDeferred = (ctx) ->
   if _notEmpty ctx.deferred()
     for [expression, dependencyName, lhs, rhs] in ctx.deferred()
       if ctx.isInTopScope()
-        malformed expression, "#{dependencyName} is not defined"
+        malformed ctx, expression, "#{dependencyName} is not defined"
       else
         ctx.doDefer expression, dependencyName
 
@@ -1196,10 +1196,10 @@ ms.fn = ms_fn = (ctx, call) ->
     # For now expect the curried constructor call
     args = _arguments call
     [paramList, defs...] = args
-    params = paramTupleIn call, paramList
+    params = paramTupleIn ctx, call, paramList
     defs ?= []
     if defs.length is 0
-      malformed call, 'Missing function result'
+      malformed ctx, call, 'Missing function result'
     else
       [docs, defs] = partition isComment, defs
       map labelComments, docs
@@ -1241,11 +1241,8 @@ ms.fn = ms_fn = (ctx, call) ->
       isUsedParam = (expression) ->
         (isName expression) and (_symbol expression) in paramNames
       labelUsedParams = (expression) ->
-        map (syntaxNameAs '', 'param'), filterAst isUsedParam, expression
+        map (syntaxNameAs ctx, '', 'param'), filterAst isUsedParam, expression
       map labelUsedParams, join docs, (if body then join [body], wheres else wheres)
-
-      if body and not isWellformed body
-        return 'malformed'
 
       polymorphicAssignCompile ctx, call,
         if ctx.shouldDefer()
@@ -1253,7 +1250,7 @@ ms.fn = ms_fn = (ctx, call) ->
         else
           # Typing
           if body and not body.tea
-            malformed body, 'Expression failed to type check'
+            malformed ctx, body, 'Expression failed to type check'
             #throw new Error "Body not typed"
           call.tea =
             if body
@@ -1280,7 +1277,7 @@ assignExplicitType = (ctx, type) ->
   explicitType = quantifyUnbound ctx, type
   name = ctx.definitionName()
   if ctx.isTyped name
-    malformed ctx.definitionPattern(), 'This name is already taken'
+    malformed ctx, ctx.definitionPattern(), 'This name is already taken'
   else
     ctx.assignType name, explicitType
   explicitType
@@ -1289,7 +1286,7 @@ ms.type = ms_type = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare new type alias'
   alias = ctx.definitionName()
   if not (isCapital symbol: alias)
-    malformed ctx.definitionPattern(), 'Type aliases must start with a capital letter'
+    malformed ctx, ctx.definitionPattern(), 'Type aliases must start with a capital letter'
   [type] = _arguments call
   ctx.addTypeAlias alias, typeCompile ctx, type
   jsNoop()
@@ -1306,12 +1303,12 @@ ms.data = ms_data = (ctx, call) ->
     args = _arguments call
     if isTuple args[0]
       [typeParamTuple, args...] = args
-      typeParams = paramTupleIn call, typeParamTuple
+      typeParams = paramTupleIn ctx, call, typeParamTuple
     typeParams ?= []
     defs = pairsLeft isAtom, args
     # Syntax
     [names, typeArgLists] = unzip defs
-    map (syntaxNewName 'Type constructor name required'), names
+    map (syntaxNewName ctx, 'Type constructor name required'), names
     if not hasName
       return 'malformed'
 
@@ -1373,24 +1370,24 @@ findDataType = (ctx, typeArgLists, typeParams, dataName) ->
           type = typeCompile ctx, type
           for name, kind of values findFree type
             if not inSet varNameSet, name
-              malformed type, "Type variable #{name} not declared"
+              malformed ctx, type, "Type variable #{name} not declared"
               throw new Error "Type variable #{name} not declared"
             else
               if foundKind = lookupInMap kinds, name
                 if not kindsEq foundKind, kind
-                  malformed type, "Type variable #{name} must have the same kind"
+                  malformed ctx, type, "Type variable #{name} must have the same kind"
               else
                 addToMap kinds, name, kind
           type
       else
-        malformed typeArgs, 'Required a record of types'
+        malformed ctx, typeArgs, 'Required a record of types'
         null
     else
       null
 
   for typeParam in typeParams
     if not lookupInMap kinds, (_symbol typeParam)
-      malformed typeParam, 'Data type parameter not used'
+      malformed ctx, typeParam, 'Data type parameter not used'
       throw new Error 'Data type parameter not used'
 
   freshingSub = mapMap ((kind) -> ctx.freshTypeVariable kind), kinds
@@ -1410,13 +1407,13 @@ ms.record = ms_record = (ctx, call) ->
       typeParamTuple = (tuple_ [])
     for [name, type] in _labeled args
       if not name
-        malformed type, 'Label is required'
+        malformed ctx, type, 'Label is required'
       if not type
-        malformed name, 'Missing type'
+        malformed ctx, name, 'Missing type'
       if name and type
         syntaxType type
     if args.length is 0
-      malformed call, 'Missing field declarations'
+      malformed ctx, call, 'Missing field declarations'
     # TS: (data #{ctx.definitionName()} [#{_arguments form}])
     if not hasName
       return 'malformed'
@@ -1447,7 +1444,7 @@ ms[':'] = ms_typed = (ctx, call) ->
 ms.class = ms_class = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new class'
     [paramList, defs...] = _validArguments call
-    params = paramTupleIn call, paramList
+    params = paramTupleIn ctx, call, paramList
     paramNames = _names params
     [docs, defs] = partition isComment, defs
 
@@ -1477,7 +1474,7 @@ ms.class = ms_class = (ctx, call) ->
     if hasName
       name = ctx.definitionName()
       if ctx.isClassDefined name
-        malformed 'class already defined', ctx.definitionPattern()
+        malformed ctx, 'class already defined', ctx.definitionPattern()
       else
         {classConstraint, freshedDeclarations} = findClassType ctx, params,
           name, paramNames, declarations
@@ -1498,7 +1495,7 @@ quantifyConstraintFor = (names) -> (constraint) ->
         index = names.indexOf type.name
         # TODO: attach to the syntax
         # if index is -1
-        #   malformed param, 'Superclass param must occur in class\'s params'
+        #   malformed ctx, param, 'Superclass param must occur in class\'s params'
         new QuantifiedVar index
       else
         type)
@@ -1512,15 +1509,15 @@ findClassType = (ctx, params, className, paramNames, methods) ->
       foundKind = lookupInMap vars, param
       # if not foundKind
         # TODO: attach error to the type expression
-        # malformed def, 'Method must include class parameter in its type'
+        # malformed ctx, def, 'Method must include class parameter in its type'
       if kindSoFar and foundKind and not kindsEq foundKind, kindSoFar
         # TODO: attach error to the type expression instead
         # TODO: better error message
-        malformed def, 'All methods must use the class paramater of the same kind'
+        malformed ctx, def, 'All methods must use the class paramater of the same kind'
       if foundKind
         replaceInMap kinds, param, foundKind
   if not all (for param in params when not lookupInMap kinds, _symbol param
-      malformed param, 'A class paramater must occur in at least one method\'s type'
+      malformed ctx, param, 'A class paramater must occur in at least one method\'s type'
       false)
     return {}
   freshingSub = mapMap ((kind) -> ctx.freshTypeVariable kind), kinds
@@ -1543,7 +1540,7 @@ ms.instance = ms_instance = (ctx, call) ->
 
     [instanceConstraint, defs...] = _validArguments call
     if not isCall instanceConstraint
-      return malformed call, 'Instance requires a class constraint'
+      return malformed ctx, call, 'Instance requires a class constraint'
     else
       instanceType = typeConstraintCompile ctx, instanceConstraint
     [constraintSeq, wheres...] = defs
@@ -1557,13 +1554,13 @@ ms.instance = ms_instance = (ctx, call) ->
     className = instanceType.className
     classDefinition = ctx.classNamed className
     if not classDefinition
-      return malformed (_operator instanceConstraint), 'Class doesn\'t exist'
+      return malformed ctx, (_operator instanceConstraint), 'Class doesn\'t exist'
 
     # TODO: defer if super class instances don't exist yet
     superClassInstances = findSuperClassInstances ctx, instanceType.types, classDefinition
 
     if not hasName
-      return malformed call, "An instance requires a name"
+      return malformed ctx, call, "An instance requires a name"
     instanceName = ctx.definitionName()
 
     ctx.newScope()
@@ -1571,7 +1568,7 @@ ms.instance = ms_instance = (ctx, call) ->
       classDefinition, instanceType, constraints
     definitions = pairs wheres
     methodsDeclarations = definitionList ctx,
-      (prefixWithInstanceName definitions, instanceName)
+      (prefixWithInstanceName ctx, definitions, instanceName)
     ctx.closeScope()
     if ctx.shouldDefer()
       return deferCurrentDefinition ctx, call
@@ -1591,7 +1588,7 @@ ms.instance = ms_instance = (ctx, call) ->
       instance = quantifyAll (new Constrained freshConstraints,
         (new ClassConstraint instanceType.className, freshInstanceType.type))
       ## if overlaps ctx, instance
-      ##   malformed 'instance overlaps with another', instance
+      ##   malformed ctx, 'instance overlaps with another', instance
       ## else
       ctx.addInstance instanceName, instance
 
@@ -1611,7 +1608,7 @@ assignMethodTypes = (ctx, typeExpression, instanceName, classDeclaration, instan
   # log "mguing", classDeclaration.constraint.types, freshInstanceType.type
   sub = mostGeneralUnifier classDeclaration.constraint.types, freshInstanceType.type
   if isFailed sub
-    malformed typeExpression, 'Type doesn\'t match class type'
+    malformed ctx, typeExpression, 'Type doesn\'t match class type'
     return null
 
   ctx.bindTypeVariables setToArray (findFree freshInstanceType)
@@ -1624,9 +1621,9 @@ assignMethodTypes = (ctx, typeExpression, instanceName, classDeclaration, instan
     ctx.assignType prefixedName, quantifiedType
   freshInstanceType
 
-prefixWithInstanceName = (definitionPairs, instanceName) ->
+prefixWithInstanceName = (ctx, definitionPairs, instanceName) ->
   for [lhs, rhs] in definitionPairs
-    if (syntaxNewName 'Method name required', lhs) is true
+    if (syntaxNewName ctx, 'Method name required', lhs) is true
       [(token_ instancePrefix instanceName, lhs.symbol), rhs]
     else
       [lhs, rhs]
@@ -1645,9 +1642,9 @@ findSuperClassInstances = (ctx, instanceTypes, classDefinition) ->
   # macro: (ctx, call) ->
   #   args = _arguments call
   #   [paramList, body] = args
-  #   paramTupleIn paramList
+  #   paramTupleIn ctx, paramList
   #   if not body
-  #     malformed call, 'Missing macro definition'
+  #     malformed ctx, call, 'Missing macro definition'
 
   #   ctx.
   #   # then in assign compile:
@@ -1663,9 +1660,9 @@ findSuperClassInstances = (ctx, instanceTypes, classDefinition) ->
 ms.match = ms_match = (ctx, call) ->
     [subject, cases...] = _arguments call
     if not subject
-      return malformed call, 'match `subject` missing'
+      return malformed ctx, call, 'match `subject` missing'
     if cases.length % 2 != 0
-      return malformed call, 'match missing result for last pattern'
+      return malformed ctx, call, 'match missing result for last pattern'
     subjectCompiled = termCompile ctx, subject
 
     # To make sure all results have the same type
@@ -1721,7 +1718,7 @@ ms.format = ms_format = (ctx, call) ->
   compiledArgs = termsCompile ctx, args
   call.tea = new Constrained (concatMap (__ _constraints, _tea), args), stringType
   if not all map _tea, args
-    return malformed call, "Argument not typed"
+    return malformed ctx, call, "Argument not typed"
   types = []
   formatString = _stringValue formatStringToken
   while formatString.length > 0
@@ -1734,10 +1731,10 @@ ms.format = ms_format = (ctx, call) ->
         symbol: symbol
         prefix: prefix
     else
-      malformed formatString, "Found an unsupported control character #{symbol}"
+      malformed ctx, formatString, "Found an unsupported control character #{symbol}"
     formatString = formatString[matched.length...]
   if args.length > types.length
-    malformed call, "Too many arguments to format"
+    malformed ctx, call, "Too many arguments to format"
   # TODO: curry
   formattedArgs = for {type, symbol, prefix}, i in types when args[i]
     compiled = compiledArgs[i]
@@ -1827,7 +1824,7 @@ ms.macro = ms_macro = (ctx, call) ->
     params = _terms paramTuple
     paramNames = map _symbol, params
     if not type or not isTypeAnnotation type
-      malformed call, "Type annotation required"
+      malformed ctx, call, "Type annotation required"
       rest = join [type], rest
     else if not redefining
       ctx.declare macroName,
@@ -1836,7 +1833,7 @@ ms.macro = ms_macro = (ctx, call) ->
       call.tea = type
 
     if not rest.length > 0
-      return malformed call, "Macro body missing"
+      return malformed ctx, call, "Macro body missing"
 
     #macroFn = transform call
     compiledMacro = translateToJs translateIr ctx,
@@ -1845,7 +1842,7 @@ ms.macro = ms_macro = (ctx, call) ->
     params = (map token_, paramNames) # freshen
 
     if redefining
-      malformed ctx.definitionPattern(), "Macro with this name already defined"
+      malformed ctx, ctx.definitionPattern(), "Macro with this name already defined"
     else
       ctx.addMacro ctx.definitionPattern(), simpleMacro eval compiledMacro
       fn_ params, call_ (token_ macroName), params
@@ -1901,7 +1898,7 @@ ms.Map = ms_Map = (ctx, call) ->
   else
     args = _arguments call
     if args.length % 2 != 0
-      return malformed args[args.length - 1], 'Missing value for key'
+      return malformed ctx, args[args.length - 1], 'Missing value for key'
     [labels, items] = unzip pairs args
     compiledLabels = uniformCollectionItemsCompile ctx, labels
     keyType = applyKindFn hashmapType, compiledLabels.itemType
@@ -1961,13 +1958,13 @@ conditional = (condCasePairs, elseCase) ->
   #       #{elseCase}
   #     }"""
 
-paramTupleIn = (call, expression) ->
+paramTupleIn = (ctx, call, expression) ->
   if not expression or not isTuple expression
-    malformed call, 'Missing paramater list'
+    malformed ctx, call, 'Missing paramater list'
     params = []
   else
     params = _validTerms expression
-    map (syntaxNewName 'Parameter name expected'), params
+    map (syntaxNewName ctx, 'Parameter name expected'), params
   params
 
 quantifyUnbound = (ctx, type) ->
@@ -2096,16 +2093,6 @@ malformed = (expression, message) ->
   expression.malformed = message
   jsNoop()
 
-isWellformed = (expression) ->
-  if expression.malformed
-    no
-  else
-    if isForm expression
-      for term in _terms expression
-        unless isWellformed term
-          return no
-    yes
-
 translateDict = (dictName, fieldNames, additionalFields = []) ->
   allFieldNames = (join additionalFields, fieldNames)
   paramAssigns = allFieldNames.map (name) ->
@@ -2123,9 +2110,9 @@ translateDict = (dictName, fieldNames, additionalFields = []) ->
 
 requireName = (ctx, message) ->
   if ctx.isAtDefinition()
-    syntaxNewName message, ctx.definitionPattern()
+    syntaxNewName ctx, message, ctx.definitionPattern()
   else
-    malformed call, message
+    malformed ctx, call, message
     false
 
 fakeCompile = (ctx, token) ->
@@ -2258,7 +2245,7 @@ charCompile = (ctx, atom, symbol) ->
     else if /^\\u[a-fA-F0-9]{4}/.test symbol
       '"' + symbol + '"'
     else
-      malformed atom, 'Unrecognized character'
+      malformed ctx, atom, 'Unrecognized character'
       ''
   type: toConstrained charType
   translation: translation
@@ -2293,21 +2280,21 @@ syntaxType = (expression) ->
   else if isTuple expression
     map syntaxType, (_terms expression)
   else if isCall expression
-    syntaxNameAs 'Constructor name required', 'typecons', (_operator expression)
+    syntaxNameAs ctx, 'Constructor name required', 'typecons', (_operator expression)
     map syntaxType, (_arguments expression)
 
-syntaxNewName = (message, atom) ->
+syntaxNewName = (ctx, message, atom) ->
   curried = (atom) ->
-    syntaxNameAs message, 'name', atom
+    syntaxNameAs ctx, message, 'name', atom
   if atom then curried atom else curried
 
-syntaxNameAs = (message, label, atom) ->
+syntaxNameAs = (ctx, message, label, atom) ->
   curried = (atom) ->
     if isName atom
       atom.label = label
       true
     else
-      malformed atom, message
+      malformed ctx, atom, message
   if atom then curried atom else curried
 
 call_ = (op, args) ->
