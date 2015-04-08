@@ -265,6 +265,9 @@ class Context
   isAtDefinition: ->
     (definition = @_currentDefinition()) and definition.pattern and definition.inside is 0
 
+  isAtBareDefinition: ->
+    (definition = @_currentDefinition()) and definition.inside is 0
+
   isAtSimpleDefinition: ->
     @isAtDefinition() and @definitionName()
 
@@ -1009,6 +1012,13 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
       return malformed to, 'Not an assignable pattern'
     map compileVariableAssignment, (join translationCache, assigns)
   else
+    if ctx.isAtBareDefinition()
+      # Force context reduction
+      inferredType = (substitute ctx.substitution, expression.tea)
+      deferConstraints ctx,
+        ctx.allBoundTypeVariables(),
+        (findFree inferredType),
+        inferredType.constraints
     translatedExpression
 
 # Pushes the deferring to the parent scope
@@ -5246,12 +5256,13 @@ tests = [
     empty (: bag)
 
     fold (fn [with initial over]
-      (: (Fn (Fn item a a) a bag a))
-      (# Fold over with using initial ...))
+      (: (Fn (Fn item a a) a bag a)))
 
     append (fn [what to]
-      (: (Fn bag bag bag))
-      (# Fold over with using initial ...)))
+      (: (Fn bag bag bag)))
+
+    first (fn [of]
+      (: (Fn bag item))))
 
   array-bag (instance (Bag (Array a) a)
     empty {}
@@ -5263,11 +5274,11 @@ tests = [
 
     append (macro [what to]
       (: (Fn (Array a) (Array a) (Array a)))
-      (Js.method to "concat" {what})))
+      (Js.method to "concat" {what}))
 
-  first (macro [list]
-    (: (Fn (Array a) a))
-    (Js.method list "first" {}))
+    first (macro [list]
+      (: (Fn (Array a) a))
+      (Js.method list "first" {})))
 
   concat (fn [bag-of-bags]
     (fold append empty bag-of-bags))
