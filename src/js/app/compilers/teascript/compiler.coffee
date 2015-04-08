@@ -198,6 +198,7 @@ class Context
     @scopes = [topScope]
     @savedScopes = []
     @classParams = newMap()
+    @isMalformed = no
 
   macros: ->
     @_macros
@@ -205,6 +206,9 @@ class Context
   addMacro: (name, macro) ->
     @_macros[name.symbol] = macro
     name.id = macro.id = @freshId()
+
+  markMalformed: ->
+    @isMalformed = yes
 
   # Creates a deferrable definition to be associated with given pattern
   definePattern: (pattern) ->
@@ -2088,8 +2092,9 @@ cache_ = (x) ->
 cond_ = (x) ->
   cond: x
 
-malformed = (expression, message) ->
+malformed = (ctx, expression, message) ->
   # TODO support multiple malformations
+  ctx.markMalformed()
   expression.malformed = message
   jsNoop()
 
@@ -2121,6 +2126,7 @@ fakeCompile = (ctx, token) ->
   else
     token.tea = toConstrained ctx.freshTypeVariable star
     token.scope = ctx.currentScopeIndex()
+    ctx.markMalformed()
     jsNoop()
 
 atomCompile = (ctx, atom) ->
