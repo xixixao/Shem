@@ -2023,13 +2023,20 @@ simplifyConstraints = (ctx, constraints) ->
 entail = (ctx, constraints, constraint) ->
   for c in constraints
     for superClassConstraint in constraintsFromSuperClasses ctx, c
-      if typeEq superClassConstraint, constraint
+      # if typeEq superClassConstraint, constraint
+      if (sub = constraintsEqual superClassConstraint, constraint)
+        ctx.extendSubstitution sub
         return yes
   instanceContraints = constraintsFromInstance ctx, constraint
   if instanceContraints
     allMap ((c) -> entail ctx, constraints, c), instanceContraints
   else
     no
+
+constraintsEqual = (c1, c2) ->
+  c1.className is c2.className and
+    (typeEq c1.types.types[0], c2.types.types[0]) and
+      unifyImpliedParams c1.types, c2.types
 
 constraintsFromSuperClasses = (ctx, constraint) ->
   {className, types} = constraint
@@ -3652,7 +3659,8 @@ matchType = (t1, t2) ->
       s1 = matchType t1.types[0], t2.types[0]
       # log "after matching", s1
       # I will imply functional dependency of the form A a b c | a -> b c
-      s2 = mostGeneralUnifier (new Types (substituteList s1, t1.types[1...])), (new Types t2.types[1...])
+      # s2 = mostGeneralUnifier (new Types (substituteList s1, t1.types[1...])), (new Types t2.types[1...])
+      s2 = unifyImpliedParams (substitute s1, t1), t2
       s3 = mergeSubs s1, s2
       s3 or
         unifyFail t1, t2
@@ -3662,6 +3670,9 @@ matchType = (t1, t2) ->
   else
     unifyFail t1, t2
     # newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
+
+unifyImpliedParams = (t1, t2) ->
+  mostGeneralUnifier (new Types t1.types[1...]), (new Types t2.types[1...])
 
 joinSubs = (s1,s2) ->
   subUnion s1, (mapSub ((type) -> substitute s1, type), s2)
@@ -5228,6 +5239,40 @@ tests = [
         (put key (what value) acc))))
   """
   """(get "c" (map (+ 1) {a: 3 b: 2 c: 4}))""", 5
+
+  'reduced call context'
+  """
+  Bag (class [bag item]
+    empty (: bag)
+
+    fold (fn [with initial over]
+      (: (Fn (Fn item a a) a bag a))
+      (# Fold over with using initial ...))
+
+    append (fn [what to]
+      (: (Fn bag bag bag))
+      (# Fold over with using initial ...)))
+
+  array-bag (instance (Bag (Array a) a)
+    empty {}
+
+    fold (macro [with initial list]
+      (: (Fn (Fn a b b) b (Array a) b))
+      (Js.method list "reduce"
+        {(fn [acc x] (with x acc)) initial}))
+
+    append (macro [what to]
+      (: (Fn (Array a) (Array a) (Array a)))
+      (Js.method to "concat" {what})))
+
+  first (macro [list]
+    (: (Fn (Array a) a))
+    (Js.method list "first" {}))
+
+  concat (fn [bag-of-bags]
+    (fold append empty bag-of-bags))
+  """
+  "(first (concat {{1} {2} {3}}))", 1
 
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
