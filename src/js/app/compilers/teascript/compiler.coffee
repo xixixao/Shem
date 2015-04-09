@@ -622,7 +622,7 @@ callKnownCompile = (ctx, call) ->
     malformed ctx, call, 'Too many arguments'
   else
     extraParamNames = positionalParams[nonLabeledArgs.length..]
-    extraParams = map token_, extraParamNames
+    extraParams = map token_, ("_#{n}" for n in extraParamNames)
     positionalArgs = map id, nonLabeledArgs # copy
     extraArgs = map id, extraParams
     argsInOrder = (for param in paramNames
