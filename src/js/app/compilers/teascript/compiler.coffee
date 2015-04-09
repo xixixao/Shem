@@ -388,7 +388,7 @@ class Context
       scope.boundTypeVariables)...
 
   isClassDefined: (name) ->
-    !!@classNamed name
+    !!@_classNamed name
 
   addClass: (name, classConstraint, superClasses, declarations) ->
     addToMap @_scope().classes, name,
@@ -398,6 +398,9 @@ class Context
       declarations: declarations
 
   classNamed: (name) ->
+    (@_classNamed name) or throw new Error "Class #{name} is not defined"
+
+  _classNamed: (name) ->
     for scope in (reverse @scopes)
       if classDeclaration = lookupInMap scope.classes, name
         return classDeclaration
@@ -2449,10 +2452,11 @@ findSubClassParam = (ctx, constraint) ->
 
 findSuperClassChain = (ctx, className, targetClassName) ->
   for s in (ctx.classNamed className).supers
-    if s.className is targetClassName
-      return [s.className]
-    else if chain = findSuperClassChain ctx, s, targetClassName
-      return join [s], chain
+    name = s.className
+    if name is targetClassName
+      return [name]
+    else if chain = findSuperClassChain ctx, name, targetClassName
+      return join [name], chain
   undefined
 
 typeNamesOfNormalized = (constraint) ->
