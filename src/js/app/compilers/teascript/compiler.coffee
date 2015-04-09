@@ -906,7 +906,7 @@ typeConstrainedCompile = (ctx, call) ->
   [type, constraints...] = _arguments call
   new Constrained (typeConstraintsCompile ctx, constraints), (typeCompile ctx, type)
 
-typeCompile = (ctx, expression) ->
+typeCompile = (ctx, expression, expectedKind) ->
   throw new Error "invalid typeCompile args" unless expression
   (if isAtom expression
     typeNameCompile
@@ -916,10 +916,10 @@ typeCompile = (ctx, expression) ->
     typeConstructorCompile
   else
     malformed ctx, expression, 'not a valid type'
-  )? ctx, expression
+  )? ctx, expression, expectedKind
 
-typesCompile = (ctx, expressions) ->
-  typeCompile ctx, e for e in expressions
+typesCompile = (ctx, expressions, expectedKinds = []) ->
+  typeCompile ctx, e, expectedKinds[i] for e, i in expressions
 
 typeNameCompile = (ctx, atom, expectedKind) ->
   expanded = ctx.resolveTypeAliases atom.symbol
@@ -973,13 +973,17 @@ typeConstructorCompile = (ctx, call) ->
   else
     malformed ctx, op, 'Expected a type constructor instead'
 
+# Will have to defer if class doesn't exist yet
 typeConstraintCompile = (ctx, expression) ->
   op = _operator expression
   args = _arguments expression
   if isCall expression
     if isAtom op
       (labelOperator op)
-      new ClassConstraint op.symbol, new Types (typesCompile ctx, args)
+      className = op.symbol
+      {constraint} = ctx.classNamed className
+      paramKinds = (map kind, constraint.types.types)
+      new ClassConstraint op.symbol, new Types (typesCompile ctx, args, paramKinds)
     else
       malformed ctx, expression, 'Class name required in a constraint'
   else
@@ -1034,7 +1038,6 @@ polymorphicAssignCompile = (ctx, expression, translatedExpression) ->
   assignCompileAs ctx, expression, translatedExpression, yes
 
 patternCompile = (ctx, pattern, matched, polymorphic) ->
-
   # caching can occur while compiling the pattern
   # precs are {cond}s and {cache}s, sorted in order they need to be executed
   {precs, assigns} = expressionCompile ctx, pattern
@@ -1414,8 +1417,6 @@ ms.record = ms_record = (ctx, call) ->
         malformed ctx, type, 'Label is required'
       if not type
         malformed ctx, name, 'Missing type'
-      if name and type
-        syntaxType type
     if args.length is 0
       malformed ctx, call, 'Missing field declarations'
     # TS: (data #{ctx.definitionName()} [#{_arguments form}])
@@ -2286,7 +2287,7 @@ syntaxType = (expression) ->
   else if isTuple expression
     map syntaxType, (_terms expression)
   else if isCall expression
-    syntaxNameAs ctx, 'Constructor name required', 'typecons', (_operator expression)
+    (_operator expression).label = 'typecons'
     map syntaxType, (_arguments expression)
 
 syntaxNewName = (ctx, message, atom) ->
@@ -2351,16 +2352,16 @@ irDefinitionTranslate = (ctx, {type, expression}) ->
   # TODO: what about the class dictionaries order?
   counter = {}
   classParams = newMap()
-  for constraint in reducedConstraints when not isAlreadyParametrized ctx, constraint
+  classParamNames = for constraint in reducedConstraints when not isAlreadyParametrized ctx, constraint
     {className} = constraint
     names = typeNamesOfNormalized constraint
     typeMap = nestedLookupInMap classParams, names
     if not typeMap
       nestedAddToMap classParams, names, (typeMap = newMap())
-    addToMap typeMap, className,
-      "_#{className}_#{counter[className] ?= 0; ++counter[className]}"
+    dictName = "_#{className}_#{counter[className] ?= 0; ++counter[className]}"
+    addToMap typeMap, className, dictName
+    dictName
   ctx.addClassParams classParams
-  classParamNames = concatMap mapToArray, (mapToArray classParams)
   if _notEmpty classParamNames
     if expression.ir is irFunctionTranslate
       (irFunctionTranslate ctx,
@@ -2456,7 +2457,7 @@ findSuperClassChain = (ctx, className, targetClassName) ->
 
 typeNamesOfNormalized = (constraint) ->
   #map (({name}) -> name), constraint.types.types
-  [constraint.types.types[0].name]
+  [printType constraint.types.types[0]]
 
 accessList = (what, list) ->
   [first, rest...] = list
@@ -3810,7 +3811,7 @@ isNormalizedConstraintArgument = (type) ->
     else if type.TypeConstr
       no
     else if type.TypeApp
-      isNormalizedConstraintArgument type.op.type
+      isNormalizedConstraintArgument type.op
 
 
 typeEq = (a, b) ->
@@ -5277,6 +5278,58 @@ tests = [
     (fold append empty bag-of-bags))
   """
   "(first (concat {{1} {2} {3}}))", 1
+
+  'mixing constructor classes with fundeps'
+  """
+  Mappable (class [wrapper]
+    map (fn [what onto]
+      (: (Fn (Fn a b) (wrapper a) (wrapper b)))
+      (# Apply what to every value inside onto .)))
+
+  Bag (class [bag item]
+    size (fn [bag]
+      (: (Fn bag Num))
+      (# The number of items in the bag .))
+
+    empty (: bag)
+
+    fold (fn [with initial over]
+      (: (Fn (Fn item a a) a bag a))
+      (# Fold over with using initial ...))
+
+    join (fn [what with]
+      (: (Fn bag bag bag))
+      (# Fold over with using initial ...)))
+
+  array-mappable (instance (Mappable Array)
+    map (macro [what over]
+      (: (Fn (Fn a b) (Array a) (Array b)))
+      (Js.method over "map" {what})))
+
+  array-bag (instance (Bag (Array a) a)
+    size (macro [list]
+      (: (Fn (List a) Num))
+      (Js.access list "size"))
+
+    empty {}
+
+    fold (macro [with initial list]
+      (: (Fn (Fn a b b) b (Array a) b))
+      (Js.method list "reduce"
+        {(fn [acc x] (with x acc)) initial}))
+
+    join (macro [what with]
+      (: (Fn (Array a) (Array a) (Array a)))
+      (Js.method what "concat" {with})))
+
+  concat (fn [bag-of-bags]
+    (fold join empty bag-of-bags))
+
+  concat-map (fn [what over]
+    (concat (map what over)))
+
+  """
+  "(size (concat-map (fn [x] {}) {1 2 3}))", 0
 
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
