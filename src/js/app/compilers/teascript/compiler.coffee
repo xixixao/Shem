@@ -198,6 +198,7 @@ class Context
     @scopes = [topScope]
     @savedScopes = []
     @classParams = newMap()
+    @types = []
     @isMalformed = no
 
   macros: ->
@@ -438,29 +439,15 @@ class Context
       if declaration.type and declaration.type not instanceof TempType
         throw new Error "assignType: #{name} already has a type"
       declaration.type = type
+      @types[declaration.id] = type
     else
       throw new Error "assignType: #{name} is not declared"
 
+  typeForId: (id) ->
+    @types[id]
+
   currentDeclarations: ->
     cloneMap @_scope()
-
-  addToDeferredNames: (binding) ->
-    @_deferrableDefinition().deferredBindings.push binding
-
-  addToDeferred: (binding) ->
-    @_scope().deferredBindings.push binding
-
-  addToDefinedNames: (binding) ->
-    @_currentDefinition()?.definedNames?.push binding
-
-  definedNames: ->
-    @_currentDefinition()?.definedNames ? []
-
-  deferredNames: ->
-    @_definition().deferredBindings
-
-  deferredBindings: ->
-    @_scope().deferredBindings
 
   declareArity: (name, arity) ->
     @declare name, arity: arity
@@ -486,6 +473,24 @@ class Context
 
   actualType: (name) ->
     (type = @type name) and (type not instanceof TempType) and type
+
+  addToDeferredNames: (binding) ->
+    @_deferrableDefinition().deferredBindings.push binding
+
+  addToDeferred: (binding) ->
+    @_scope().deferredBindings.push binding
+
+  addToDefinedNames: (binding) ->
+    @_currentDefinition()?.definedNames?.push binding
+
+  definedNames: ->
+    @_currentDefinition()?.definedNames ? []
+
+  deferredNames: ->
+    @_definition().deferredBindings
+
+  deferredBindings: ->
+    @_scope().deferredBindings
 
   declarationId: (name) ->
     (@_declaration name)?.id
@@ -2216,21 +2221,13 @@ nameCompile = (ctx, atom, symbol) ->
     # log symbol, contextType
     if contextType and contextType not instanceof TempType
       type = freshInstance ctx, contextType
-      {
-        id: ctx.declarationId symbol
-        type: type
-        translation: nameTranslate ctx, atom, symbol, type, ctx.arity symbol
-      }
+      nameTranslate ctx, atom, symbol, type
     # Inside function only defer compilation if we don't know arity
     else if ctx.isInsideLateScope() and (ctx.isDeclared symbol) or contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
       ctx.addToDeferredNames {name: symbol, type: type}
-      {
-        id: ctx.declarationId symbol
-        type: type
-        translation: nameTranslate ctx, atom, symbol, type, ctx.arity symbol
-      }
+      nameTranslate ctx, atom, symbol, type
     else
       # log "deferring in rhs for #{symbol}"
       ctx.doDefer atom, symbol
@@ -2244,15 +2241,19 @@ constPattern = (ctx, symbol) ->
       else
         (jsBinary "instanceof", exp, (validIdentifier symbol)))]
 
-nameTranslate = (ctx, atom, symbol, type, arity) ->
-  if atom.label is 'const'
-    switch symbol
-      when 'True' then 'true'
-      when 'False' then 'false'
-      else
-        (jsAccess (validIdentifier symbol), "_value")
-  else
-    (irReference symbol, type, arity)
+nameTranslate = (ctx, atom, symbol, type) ->
+  id = ctx.declarationId symbol
+  arity = ctx.arity symbol
+  translation =
+    if atom.label is 'const'
+      switch symbol
+        when 'True' then 'true'
+        when 'False' then 'false'
+        else
+          (jsAccess (validIdentifier symbol), "_value")
+    else
+      (irReference symbol, id, type, arity)
+  {id, type, translation}
 
 numericalCompile = (ctx, symbol) ->
   translation = if symbol[0] is '~' then (jsUnary "-", symbol[1...]) else symbol
@@ -2423,8 +2424,8 @@ irCallTranslate = (ctx, {type, op, args}) ->
       translateIr ctx, op
   (jsCall op, (join classParams, (translateIr ctx, args)))
 
-addConstraintsFrom = (ctx, {name, type}, to) ->
-  typed = ctx.type name
+addConstraintsFrom = (ctx, {id, type}, to) ->
+  typed = ctx.typeForId id
   if typed and (_empty to.constraints) and _notEmpty typed.type.constraints
     inferredType = freshInstance ctx, typed
     sub = matchType inferredType.type, (substitute ctx.substitution, type).type
@@ -2432,14 +2433,14 @@ addConstraintsFrom = (ctx, {name, type}, to) ->
   else
     to
 
-irReference = (name, type, arity) ->
-  {ir: irReferenceTranslate, name, type, arity}
+irReference = (name, id, type, arity) ->
+  {ir: irReferenceTranslate, name, id, type, arity}
 
-irReferenceTranslate = (ctx, {name, type, arity}) ->
+irReferenceTranslate = (ctx, {name, id, type, arity}) ->
   if ctx.isMethod name, type
     translateIr ctx, (irMethod type, name)
   else
-    finalType = addConstraintsFrom ctx, {name, type}, substitute ctx.substitution, type
+    finalType = addConstraintsFrom ctx, {id, type}, substitute ctx.substitution, type
     classParams = dictsForConstraint ctx, finalType.constraints
     if classParams.length > 0
       (irFunctionTranslate ctx,
