@@ -445,7 +445,7 @@ class Context
     cloneMap @_scope()
 
   addToDeferredNames: (binding) ->
-    @_definition().deferredBindings.push binding
+    @_deferrableDefinition().deferredBindings.push binding
 
   addToDeferred: (binding) ->
     @_scope().deferredBindings.push binding
@@ -1056,7 +1056,6 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
     #log "exiting pattern early", pattern, "for", ctx.shouldDefer()
     return {}
 
-
   # Properly bind types according to the pattern
   if pattern.tea
     # log "pattern", matched.tea, pattern.tea
@@ -1064,7 +1063,6 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
 
   # log "pattern compiel", definedNames, pattern
   for {name, id, type} in definedNames
-    currentType = substitute ctx.substitution, type
     deps = ctx.deferredNames()
 
     # TODO: this is because functions might declare arity before being declared
@@ -1072,37 +1070,48 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
       ctx.declare name, id: id
     if deps.length > 0
       # log "adding top level lhs to deferred #{name}", deps
-      ctx.addToDeferred {name, type, deps: (map (({name}) -> name), deps)}
+      currentType = substitute ctx.substitution, type
+      ctx.addToDeferred
+        name: name
+        type: currentType
+        deps: (map (({name}) -> name), deps)
       for dep in deps
-        ctx.addToDeferred {name: dep.name, type: dep.type, deps: [name]}
+        ctx.addToDeferred {name: dep.name, type: dep.type, reversed: name}
       ctx.assignType name, (new TempType type)
     else
-      # For explicitly typed bindings, we need to check that the inferred type
-      #   corresponds to the annotated
-      if ctx.isTyped name
-        # TODO: check class constraints
-        unify ctx, currentType.type, (freshInstance ctx, ctx.type name).type
-      else
-        [deferredConstraints, retainedConstraints] = deferConstraints ctx,
-          ctx.allBoundTypeVariables(),
-          (findFree currentType),
-          (substituteList ctx.substitution, matched.tea.constraints)
-        # log "assign type", name, (printType currentType), retainedConstraints
-        # Finalizing type again after possibly added substitution when defer constraints
-        currentType = substitute ctx.substitution, type
-        ctx.assignType name,
-          if polymorphic
-            quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
-          else
-            toForAll currentType
-  # here I will create type schemes for all definitions
-  # The problem is I don't know which are impricise, because the names are done inside the
-  # pattern. I can use the context to know which types where added in the current assignment.
-
-  # TODO: malformed ctx, "LHS\'s type doesn\'t match the RHS in assignment", pattern
+      # Ready for typing since there are no missing dependencies
+      inferType ctx, name, type, matched.tea.constraints, polymorphic
 
   precs: precs ? []
   assigns: assigns ? []
+
+inferType = (ctx, name, type, constraints, polymorphic) ->
+  # For explicitly typed bindings, we need to check that the inferred type
+  #   corresponds to the annotated
+  currentType = substitute ctx.substitution, type
+  if ctx.isTyped name
+    # TODO: check class constraints
+    unify ctx, currentType.type, (freshInstance ctx, ctx.type name).type
+  else
+    [deferredConstraints, retainedConstraints] = deferConstraints ctx,
+      ctx.allBoundTypeVariables(),
+      (findFree currentType),
+      (substituteList ctx.substitution, constraints)
+    # Finalizing type again after possibly added substitution when defer constraints
+    currentType = substitute ctx.substitution, type
+    # log "assign type", name, (printType currentType), retainedConstraints
+    ctx.assignType name,
+      if polymorphic
+        quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
+      else
+        toForAll currentType
+
+# Old comment:
+# here I will create type schemes for all definitions
+# The problem is I don't know which are impricise, because the names are done inside the
+# pattern. I can use the context to know which types where added in the current assignment.
+
+# TODO: malformed ctx, "LHS\'s type doesn\'t match the RHS in assignment", pattern
 
 topLevelExpression = (ctx, expression) ->
   ctx.bareDefine()
@@ -1142,26 +1151,34 @@ definitionList = (ctx, pairs) ->
 # This function resolves the types of mutually recursive functions
 resolveDeferredTypes = (ctx) ->
   if _notEmpty ctx.deferredBindings()
-    # TODO: proper dependency analysis to get the smallest circular deps
-    #       now we are just compiling as if they were all mutually recursive
-    names = concatConcatMaps map (({name, type}) -> newMapWith name, type), ctx.deferredBindings()
-    # First get rid of instances of already resolved types
-    unresolvedNames = newMap()
-    for name, types of values names
-      if canonicalType = ctx.actualType name
-        for type in types
-          unify ctx, type.type, (freshInstance ctx, canonicalType).type
-      else
-        addToMap unresolvedNames, name, types
+    groups = toNameSets sortedStronglyConnectedComponents deferredToGraph ctx.deferredBindings()
+    for group in groups
+      groupBindings = (binding for binding in ctx.deferredBindings() when inSet group, binding.reversed or binding.name)
+      names = concatConcatMaps map (({name, type}) -> newMapWith name, type), groupBindings
+      # First get rid of instances of already resolved types
+      unresolvedNames = newMap()
+      for name, types of values names
+        if canonicalType = ctx.actualType name
+          for type in types
+            unify ctx, type.type, (freshInstance ctx, canonicalType).type
+        else
+          addToMap unresolvedNames, name, types
 
-    # Now assign the same type to all occurences of the given type and unify
-    for name, types of values unresolvedNames
-      canonicalType = toConstrained ctx.freshTypeVariable star
-      for type in types
-        #log type.constructor
-        unify ctx, canonicalType.type, type.type
-        # log "done unifying one"
-      ctx.assignType name, quantifyAll substitute ctx.substitution, canonicalType
+      # Now assign the same type to all occurences of the given type and unify
+      for name, types of values unresolvedNames
+        canonicalType = toConstrained ctx.freshTypeVariable star
+        definitionConstraints = []
+        for type in types
+          #log type.constructor
+          if _notEmpty type.constraints
+            definitionConstraints = type.constraints
+          unify ctx, canonicalType.type, type.type
+          # log "done unifying one"
+        # TODO: this treatment of constraints won't be enough, we will probably
+        # have to redefer them or at least unify somehow
+        unifiedType = (substitute ctx.substitution, canonicalType)
+        ctx.assignType name,
+          quantifyAll (addConstraints unifiedType, definitionConstraints)
 
 compileDeferred = (ctx) ->
   compiledPairs = []
@@ -2962,6 +2979,65 @@ validIdentifier = (name) ->
     .replace(/\&/g, 'and_')
     .replace(/\|/g, 'or_')
     .replace(/\?/g, 'p_')
+
+deferredToGraph = (deferred) ->
+  nodes = newMap()
+  findOrAdd = (name) ->
+    (lookupInMap nodes, name) or
+      (addToMap nodes, name, node = {name: name, edges: []}) and node
+  for {name, deps, reversed} in deferred when not reversed
+    node = findOrAdd name
+    for dep in deps
+      node.edges.push findOrAdd dep
+  (mapToArray nodes)
+
+toNameSets = (vertexGroups) ->
+  for group in vertexGroups
+    arrayToSet (name for {name} in group)
+
+# The input is a list of vertices, which are mutable objects with "edges" field
+# of a list of some of the vertices
+# The output is a list of lists of those vertices where former lists don't
+# depend on the latter ones
+sortedStronglyConnectedComponents = (graph) ->
+  index = 0
+  S = []
+  groups = []
+
+  visit = (v) ->
+    # Set the depth index for v to the smallest unused index
+    v.index = index
+    v.lowlink = index
+    index = index + 1
+    S.push v
+    v.onStack = true
+
+    # Consider successors of v
+    for w in v.edges
+      if w.index is undefined
+        # Successor w has not yet been visited; recurse on it
+        visit w
+        v.lowlink = Math.min(v.lowlink, w.lowlink)
+      else if w.onStack
+        # Successor w is in stack S and hence in the current component
+        v.lowlink = Math.min(v.lowlink, w.index)
+
+    # If v is a root node, pop the stack and generate an component
+    if v.lowlink is v.index
+      group = []
+      loop
+        w = S.pop()
+        w.onStack = false
+        group.push w
+        break if w is v
+      groups.push group
+
+  for v in graph
+    if v.index is undefined
+      visit v
+
+  groups
+
 
 
 # graphToWheres = (graph) ->
@@ -5334,6 +5410,46 @@ tests = [
 
   """
   "(size (concat-map (fn [x] {}) {1 2 3}))", 0
+
+  """recursive overloaded functions"""
+  """
+  Show (class [a]
+    show (fn [x] (: (Fn a String))))
+
+  show-string (instance (Show String)
+    show (fn [x] x))
+
+  show-bool (instance (Show Bool)
+    show (fn [x] "Bool"))
+
+  aliased-show (fn [something b]
+    (match b
+      True (aliased-show something False)
+      False (show something)))
+  """
+  "(== 1 2)", yes
+
+  """recursive overloaded functions safe"""
+  """
+  Show (class [a]
+    show (fn [x] (: (Fn a String))))
+
+  show-string (instance (Show String)
+    show (fn [x] x))
+
+  show-bool (instance (Show Bool)
+    show (fn [x] "Bool"))
+
+  aliased-show (fn [something b]
+    (match b
+      True (aliased-show something False)
+      False (show something)))
+
+  x (aliased-show "Bool" True)
+  y (aliased-show True True)
+  """
+  "(== x y)", yes
+
 
   # The following doesn't work because the Collection type class specifies
   # that the constructor takes only one argument.
