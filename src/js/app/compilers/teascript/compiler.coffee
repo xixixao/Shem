@@ -2425,7 +2425,7 @@ irCallTranslate = (ctx, {type, op, args}) ->
 
 addConstraintsFrom = (ctx, {name, type}, to) ->
   typed = ctx.type name
-  if typed and _empty to.constraints
+  if typed and (_empty to.constraints) and _notEmpty typed.type.constraints
     inferredType = freshInstance ctx, typed
     sub = matchType inferredType.type, (substitute ctx.substitution, type).type
     addConstraints to, (substitute sub, inferredType).constraints
@@ -2439,7 +2439,7 @@ irReferenceTranslate = (ctx, {name, type, arity}) ->
   if ctx.isMethod name, type
     translateIr ctx, (irMethod type, name)
   else
-    finalType = substitute ctx.substitution, type
+    finalType = addConstraintsFrom ctx, {name, type}, substitute ctx.substitution, type
     classParams = dictsForConstraint ctx, finalType.constraints
     if classParams.length > 0
       (irFunctionTranslate ctx,
