@@ -1061,6 +1061,7 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
     # log "pattern", matched.tea, pattern.tea
     unify ctx, matched.tea.type, pattern.tea.type
 
+  constraints = matched.tea.constraints
   # log "pattern compiel", definedNames, pattern
   for {name, id, type} in definedNames
     deps = ctx.deferredNames()
@@ -1074,13 +1075,15 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
       ctx.addToDeferred
         name: name
         type: currentType
-        deps: (map (({name}) -> name), deps)
-      for dep in deps
-        ctx.addToDeferred {name: dep.name, type: dep.type, reversed: name}
+        constraints: constraints
+        polymorphic: polymorphic
+        deps: deps#(map (({name}) -> name), deps)
+      # for dep in deps
+      #   ctx.addToDeferred {name: dep.name, type: dep.type, reversed: name}
       ctx.assignType name, (new TempType type)
     else
       # Ready for typing since there are no missing dependencies
-      inferType ctx, name, type, matched.tea.constraints, polymorphic
+      inferType ctx, name, type, constraints, polymorphic
 
   precs: precs ? []
   assigns: assigns ? []
@@ -1089,7 +1092,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
   # For explicitly typed bindings, we need to check that the inferred type
   #   corresponds to the annotated
   currentType = substitute ctx.substitution, type
-  if ctx.isTyped name
+  if ctx.isActuallyTyped name
     # TODO: check class constraints
     unify ctx, currentType.type, (freshInstance ctx, ctx.type name).type
   else
@@ -1153,32 +1156,39 @@ resolveDeferredTypes = (ctx) ->
   if _notEmpty ctx.deferredBindings()
     groups = toNameSets sortedStronglyConnectedComponents deferredToGraph ctx.deferredBindings()
     for group in groups
-      groupBindings = (binding for binding in ctx.deferredBindings() when inSet group, binding.reversed or binding.name)
-      names = concatConcatMaps map (({name, type}) -> newMapWith name, type), groupBindings
+      bindings = newMap()
+      for binding in ctx.deferredBindings() when inSet group, binding.name
+        added = (lookupOrAdd bindings, binding.name, (types: []))
+        added.types.push binding.type
+        added.constraints = binding.constraints
+        added.polymorphic = binding.polymorphic
+        for dep in binding.deps
+          (lookupOrAdd bindings, dep.name, (types: [])).types.push dep.type
+
+      # names = concatConcatMaps map (({name, type}) -> newMapWith name, type), groupBindings
       # First get rid of instances of already resolved types
       unresolvedNames = newMap()
-      for name, types of values names
+      for name, binding of values bindings
         if canonicalType = ctx.actualType name
-          for type in types
+          for type in binding.types
             unify ctx, type.type, (freshInstance ctx, canonicalType).type
         else
-          addToMap unresolvedNames, name, types
+          addToMap unresolvedNames, name, binding
 
       # Now assign the same type to all occurences of the given type and unify
-      for name, types of values unresolvedNames
+      for name, binding of values unresolvedNames
         canonicalType = toConstrained ctx.freshTypeVariable star
         definitionConstraints = []
-        for type in types
+        for type in binding.types
           #log type.constructor
-          if _notEmpty type.constraints
-            definitionConstraints = type.constraints
           unify ctx, canonicalType.type, type.type
           # log "done unifying one"
         # TODO: this treatment of constraints won't be enough, we will probably
         # have to redefer them or at least unify somehow
-        unifiedType = (substitute ctx.substitution, canonicalType)
-        ctx.assignType name,
-          quantifyAll (addConstraints unifiedType, definitionConstraints)
+        inferType ctx, name, canonicalType, binding.constraints, binding.polymorphic
+        # unifiedType = (substitute ctx.substitution, canonicalType)
+        # ctx.assignType name,
+        #   quantifyAll (addConstraints unifiedType, definitionConstraints)
 
 compileDeferred = (ctx) ->
   compiledPairs = []
@@ -2399,7 +2409,7 @@ irCall = (type, op, args) ->
   {ir: irCallTranslate, type, op, args}
 
 irCallTranslate = (ctx, {type, op, args}) ->
-  finalType = substitute ctx.substitution, type
+  finalType = addConstraintsFrom ctx, op, (substitute ctx.substitution, type)
   # log op, (printType type), printType finalType
   classParams =
     if op.ir is irReferenceTranslate and ctx.isMethod op.name, op.type
@@ -2413,6 +2423,14 @@ irCallTranslate = (ctx, {type, op, args}) ->
       translateIr ctx, op
   (jsCall op, (join classParams, (translateIr ctx, args)))
 
+addConstraintsFrom = (ctx, {name, type}, to) ->
+  typed = ctx.type name
+  if typed and _empty to.constraints
+    inferredType = freshInstance ctx, typed
+    sub = matchType inferredType.type, (substitute ctx.substitution, type).type
+    addConstraints to, (substitute sub, inferredType).constraints
+  else
+    to
 
 irReference = (name, type, arity) ->
   {ir: irReferenceTranslate, name, type, arity}
@@ -2983,12 +3001,11 @@ validIdentifier = (name) ->
 deferredToGraph = (deferred) ->
   nodes = newMap()
   findOrAdd = (name) ->
-    (lookupInMap nodes, name) or
-      (addToMap nodes, name, node = {name: name, edges: []}) and node
-  for {name, deps, reversed} in deferred when not reversed
+    lookupOrAdd nodes, name, {name: name, edges: []}
+  for {name, deps} in deferred
     node = findOrAdd name
     for dep in deps
-      node.edges.push findOrAdd dep
+      node.edges.push findOrAdd dep.name
   (mapToArray nodes)
 
 toNameSets = (vertexGroups) ->
@@ -3499,6 +3516,14 @@ replaceOrAddToMap = (map, key, value) ->
   map.size++ unless map.values[key]
   map.values[key] = value
   map
+
+lookupOrAdd = (map, key, value) ->
+  if existing = map.values[key]
+    existing
+  else
+    map.size++
+    map.values[key] = value
+    value
 
 removeFromSet =
 removeFromMap = (set, key) ->
@@ -5412,24 +5437,6 @@ tests = [
   "(size (concat-map (fn [x] {}) {1 2 3}))", 0
 
   """recursive overloaded functions"""
-  """
-  Show (class [a]
-    show (fn [x] (: (Fn a String))))
-
-  show-string (instance (Show String)
-    show (fn [x] x))
-
-  show-bool (instance (Show Bool)
-    show (fn [x] "Bool"))
-
-  aliased-show (fn [something b]
-    (match b
-      True (aliased-show something False)
-      False (show something)))
-  """
-  "(== 1 2)", yes
-
-  """recursive overloaded functions safe"""
   """
   Show (class [a]
     show (fn [x] (: (Fn a String))))
