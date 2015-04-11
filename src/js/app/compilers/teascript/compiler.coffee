@@ -217,6 +217,7 @@ class Context
       throw new Error "already defining, forgot to leaveDefinition?"
     @_scope().definition =
       name: pattern?.symbol
+      id: pattern?.symbol and @freshId()
       pattern: pattern
       inside: 0
       late: no
@@ -244,6 +245,9 @@ class Context
   # If the current definition's pattern is a name, returns it
   definitionName: ->
     @_definition().name
+
+  definitionId: ->
+    @_definition().id
 
   definitionPattern: ->
     @_definition().pattern
@@ -449,8 +453,8 @@ class Context
   currentDeclarations: ->
     cloneMap @_scope()
 
-  declareArity: (name, arity) ->
-    @declare name, arity: arity
+  declareArity: (name, arity, id) ->
+    @declare name, {arity, id}
 
   # Returns whether the declaration was successful (not redundant)
   declare: (name, declaration = {}) ->
@@ -1016,7 +1020,7 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
   # if not translatedExpression # TODO: throw here?
   if ctx.isAtDefinition()
     to = ctx.definitionPattern()
-    ctx.setAssignTo (irDefinition expression.tea, translatedExpression)
+    ctx.setAssignTo (irDefinition expression.tea, translatedExpression, ctx.definitionId())
     {precs, assigns} = patternCompile ctx, to, expression, polymorphic
     translationCache = ctx.resetAssignTo()
 
@@ -1167,6 +1171,7 @@ resolveDeferredTypes = (ctx) ->
         added.types.push binding.type
         added.constraints = binding.constraints
         added.polymorphic = binding.polymorphic
+        added.deps = binding.deps
         for dep in binding.deps
           (lookupOrAdd bindings, dep.name, (types: [])).types.push dep.type
 
@@ -1188,9 +1193,12 @@ resolveDeferredTypes = (ctx) ->
           #log type.constructor
           unify ctx, canonicalType.type, type.type
           # log "done unifying one"
-        # TODO: this treatment of constraints won't be enough, we will probably
-        # have to redefer them or at least unify somehow
-        inferType ctx, name, canonicalType, binding.constraints, binding.polymorphic
+        # have to promote constraints from just compiled dependencies
+        depConstraints = concat (for dep in binding.deps when cononicalType = ctx.actualType dep.name
+          constraintsFromCanonicalType ctx, cononicalType, dep.type)
+        # log binding.constraints, depConstraints
+        inferType ctx, name, canonicalType,
+          (join binding.constraints, depConstraints), binding.polymorphic
         # unifiedType = (substitute ctx.substitution, canonicalType)
         # ctx.assignType name,
         #   quantifyAll (addConstraints unifiedType, definitionConstraints)
@@ -1254,7 +1262,7 @@ ms.fn = ms_fn = (ctx, call) ->
       # Arity - before deferring instead? put to assignCompile, because this makes the naming of functions special
       if name = ctx.isAtSimpleDefinition()
         #log "adding arity for #{ctx.definitionName()}", paramNames
-        ctx.declareArity name, paramNames
+        ctx.declareArity name, paramNames, ctx.definitionId()
         # Explicit typing
         if type
           explicitType = assignExplicitType ctx, typeConstrainedCompile ctx, type
@@ -2207,7 +2215,7 @@ nameCompile = (ctx, atom, symbol) ->
         pattern: []
     else
       atom.label = 'name'
-      id = (ctx.declarationId symbol) ? ctx.freshId()
+      id = (ctx.definitionId()) ? (ctx.declarationId symbol) ? ctx.freshId()
       type = toConstrained ctx.freshTypeVariable star
       ctx.bindTypeVariables [type.type.name]
       ctx.addToDefinedNames {name: symbol, id: id, type: type}
@@ -2370,14 +2378,14 @@ translateIr = (ctx, irAst) ->
       walked.js = ast.js
       walked
 
-irDefinition = (type, expression) ->
-  {ir: irDefinitionTranslate, type, expression}
+irDefinition = (type, expression, id) ->
+  {ir: irDefinitionTranslate, type, expression, id}
 
 # TODO: This must always wrap a function, because if the expression
 #       is not a function then it can't need type class dictionaries
 #       ^.___ not necessarily, we could have a tuple of functions or similar
-irDefinitionTranslate = (ctx, {type, expression}) ->
-  finalType = substitute ctx.substitution, type
+irDefinitionTranslate = (ctx, {type, expression, id}) ->
+  finalType = addConstraintsFrom ctx, {id, type}, substitute ctx.substitution, type
   reducedConstraints = reduceConstraints ctx, finalType.constraints
   ctx.updateClassParams()
   # TODO: what about the class dictionaries order?
@@ -2411,7 +2419,6 @@ irCall = (type, op, args) ->
 
 irCallTranslate = (ctx, {type, op, args}) ->
   finalType = addConstraintsFrom ctx, op, (substitute ctx.substitution, type)
-  # log op, (printType type), printType finalType
   classParams =
     if op.ir is irReferenceTranslate and ctx.isMethod op.name, op.type
       []
@@ -2425,13 +2432,17 @@ irCallTranslate = (ctx, {type, op, args}) ->
   (jsCall op, (join classParams, (translateIr ctx, args)))
 
 addConstraintsFrom = (ctx, {id, type}, to) ->
-  typed = ctx.typeForId id
-  if typed and (_empty to.constraints) and _notEmpty typed.type.constraints
-    inferredType = freshInstance ctx, typed
-    sub = matchType inferredType.type, (substitute ctx.substitution, type).type
-    addConstraints to, (substitute sub, inferredType).constraints
+  if id and (typed = ctx.typeForId id) and
+      (_empty to.constraints) and
+      (_notEmpty typed.type.constraints)
+    addConstraints to, constraintsFromCanonicalType ctx, typed, type
   else
     to
+
+constraintsFromCanonicalType = (ctx, canonicalType, type) ->
+  inferredType = freshInstance ctx, canonicalType
+  sub = matchType inferredType.type, (substitute ctx.substitution, type).type
+  (substitute sub, inferredType).constraints
 
 irReference = (name, id, type, arity) ->
   {ir: irReferenceTranslate, name, id, type, arity}
@@ -5389,23 +5400,19 @@ tests = [
   """
   Mappable (class [wrapper]
     map (fn [what onto]
-      (: (Fn (Fn a b) (wrapper a) (wrapper b)))
-      (# Apply what to every value inside onto .)))
+      (: (Fn (Fn a b) (wrapper a) (wrapper b)))))
 
   Bag (class [bag item]
     size (fn [bag]
-      (: (Fn bag Num))
-      (# The number of items in the bag .))
+      (: (Fn bag Num)))
 
     empty (: bag)
 
     fold (fn [with initial over]
-      (: (Fn (Fn item a a) a bag a))
-      (# Fold over with using initial ...))
+      (: (Fn (Fn item a a) a bag a)))
 
     join (fn [what with]
-      (: (Fn bag bag bag))
-      (# Fold over with using initial ...)))
+      (: (Fn bag bag bag))))
 
   array-mappable (instance (Mappable Array)
     map (macro [what over]
@@ -5454,41 +5461,10 @@ tests = [
       False (show something)))
 
   x (aliased-show "Bool" True)
-  y (aliased-show True True)
+  y (fn [x] (aliased-show x True))
   """
-  "(== x y)", yes
+  "(== x (y True))", yes
 
-
-  # The following doesn't work because the Collection type class specifies
-  # that the constructor takes only one argument.
-  #
-  # 'map as collection'
-  # """
-  # Collection (class [collection]
-  #   elem? (fn [what in]
-  #     (: (Fn item (collection item) Bool))
-  #     (# Whether in contains what .)))
-  #
-  # map-elem? (macro [what in]
-  #   (: (Fn item (Map key item) Bool))
-  #   (Js.call (Js.access in "contains") {what}))
-  #
-  # collection-map (instance (Collection Map)
-  #   elem? (fn [what in]
-  #     (map-elem? what in)))
-  # """
-  # "(elem? 1 {a: 1})", yes
-
-
-  # bag-list (instance (Bag List)
-  #   fold (fn [with initial over]
-  #     (fold-list with initial over))
-
-  #   fold (fn [with initial over]
-  #     (fold-list with initial over))
-
-  #   fold (fn [with initial over]
-  #     (fold-list with initial over)))
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
