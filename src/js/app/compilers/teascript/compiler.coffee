@@ -2385,8 +2385,12 @@ irDefinition = (type, expression, id) ->
 #       is not a function then it can't need type class dictionaries
 #       ^.___ not necessarily, we could have a tuple of functions or similar
 irDefinitionTranslate = (ctx, {type, expression, id}) ->
-  finalType = addConstraintsFrom ctx, {id, type}, substitute ctx.substitution, type
-  reducedConstraints = reduceConstraints ctx, finalType.constraints
+  finalType = substitute ctx.substitution, type
+  reducedConstraints = 
+    # if declaredType = ctx.typeForId id
+    #   constraintsFromCanonicalType ctx, declaredType, finalType
+    # else
+      reduceConstraints ctx, (addConstraintsFrom ctx, {id, type}, finalType).constraints
   ctx.updateClassParams()
   # TODO: what about the class dictionaries order?
   counter = {}
@@ -2453,10 +2457,11 @@ irReferenceTranslate = (ctx, {name, id, type, arity}) ->
   else
     finalType = addConstraintsFrom ctx, {id, type}, substitute ctx.substitution, type
     classParams = dictsForConstraint ctx, finalType.constraints
+    params = map validIdentifier, arity
     if classParams.length > 0
       (irFunctionTranslate ctx,
-        params: arity
-        body: [(jsReturn (jsCall (validIdentifier name), (join classParams, arity)))])
+        params: params
+        body: [(jsReturn (jsCall (validIdentifier name), (join classParams, params)))])
     else
       validIdentifier name
 
@@ -2492,7 +2497,9 @@ dictForConstraint = (ctx, constraint) ->
 
 findSubClassParam = (ctx, constraint) ->
   toClassName = (c) -> c.className
-  for className, dict of values ctx.classParamsForType constraint
+  classParams = ctx.classParamsForType constraint
+  throw new Error "No params for #{safePrintType constraint}" unless classParams
+  for className, dict of values classParams
     if chain = findSuperClassChain ctx, className, constraint.className
       return accessList dict, chain
   throw new Error "Couldn't find dict for #{safePrintType constraint}"
@@ -4070,6 +4077,9 @@ class ClassConstraint
 addConstraints = ({constraints, type}, addedConstraints) ->
   new Constrained (join constraints, addedConstraints), type
 
+replaceConstraints = ({type}, constraints) ->
+  new Constrained constraints, type
+
 toConstrained = (type) ->
   new Constrained [], type
 
@@ -4104,13 +4114,19 @@ safePrintType = (type) ->
     return "#{type}"
 
 prettyPrint = (type) ->
+  prettyPrintWith highlightType, type
+
+plainPrettyPrint = (type) ->
+  prettyPrintWith printType, type
+
+prettyPrintWith = (printer, type) ->
   if type.ForAll
-    prettyPrint type.type
+    prettyPrintWith printer, type.type
   else if type.Constrained
     if _notEmpty type.constraints
-      (map highlightType, join [type.type], type.constraints).join ' '
+      (map printer, join [type.type], type.constraints).join ' '
     else
-      highlightType type.type
+      printer type.type
 
 printType = (type) ->
   if type.TypeVariable
@@ -4471,7 +4487,7 @@ findMatchingDefinitionsOnType = (type, definitions) ->
   [typed, notTyped] = partitionMap typesUnify, validDefinitions
   # allDefs = join (setToArray typed), (setToArray notTyped)
   allDefs = concatMaps typed, notTyped # TODO: don't use object key ordering for ordering
-  values mapMap (__ prettyPrint, _type), allDefs
+  values mapMap (__ plainPrettyPrint, _type), allDefs
 
 # API
 
@@ -5443,6 +5459,10 @@ tests = [
   concat-map (fn [what over]
     (concat (map what over)))
 
+  concat-with (fn [with what]
+    (fold join-with empty what)
+    join-with (fn [x joined]
+      (concat {joined with x})))
   """
   "(size (concat-map (fn [x] {}) {1 2 3}))", 0
 
