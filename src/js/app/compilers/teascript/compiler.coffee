@@ -579,7 +579,10 @@ callCompile = (ctx, call) ->
   operator = _operator call
   operatorName = _symbol operator
   if isName operator
-    (if operatorName of ctx.macros() and not ctx.arity operatorName
+
+    (if isDotAccess operator
+      callJsMethodCompile
+    else if operatorName of ctx.macros() and not ctx.arity operatorName
       callMacroCompile
     else if (isFake operator) or (ctx.isDeclared operatorName) and not ctx.arity operatorName
       callUnknownCompile
@@ -1103,7 +1106,8 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
   currentType = substitute ctx.substitution, type
   if ctx.isActuallyTyped name
     # TODO: check class constraints
-    unify ctx, currentType.type, (freshInstance ctx, ctx.type name).type
+    if not includesJsType currentType.type
+      unify ctx, currentType.type, (freshInstance ctx, ctx.type name).type
   else
     [deferredConstraints, retainedConstraints] = deferConstraints ctx,
       ctx.allBoundTypeVariables(),
@@ -1487,6 +1491,15 @@ ms[':'] = ms_typed = (ctx, call) ->
     #watch out of definition patterns without a name
     jsNoop()
 
+ms.global = ms_global = (ctx, call) ->
+  call.tea = typeConstant 'JS'
+  assignCompile ctx, call, (jsValue "window")
+
+callJsMethodCompile = (ctx, call) ->
+  [dotMethod, object, args...] = _validTerms call
+  labelOperator dotMethod
+  call.tea = toConstrained jsType
+  (jsMethod (termCompile ctx, object), dotMethod.symbol[1...], (termsCompile ctx, args))
 
 # Adds a class to the scope or defers if superclass doesn't exist
 ms.class = ms_class = (ctx, call) ->
@@ -1796,7 +1809,7 @@ ms.format = ms_format = (ctx, call) ->
     (jsBinaryMulti "+", join (concat formattedArgs), [string_ formatString])
 
 ms.syntax = ms_syntax = (ctx, call) ->
-  hasName = requireName ctx, 'Name required to declare new algebraic data'
+  hasName = requireName ctx, 'Name required to declare a new syntax macro'
   [paramTuple, rest...] = _arguments call
   [body] = rest
 
@@ -2620,6 +2633,9 @@ isEmptyForm = (form) ->
 
 isForm = (expression) ->
   Array.isArray expression
+
+isDotAccess = (atom) ->
+  /^\.\w+/.test atom.symbol
 
 isLabel = (atom) ->
   /[^\\]:$/.test atom.symbol
@@ -3450,6 +3466,7 @@ builtInTypeNames = ->
     charType
     boolType
     numType
+    jsType
   ]
 
 builtInDefinitions = ->
@@ -3940,6 +3957,12 @@ isNormalizedConstraintArgument = (type) ->
       isNormalizedConstraintArgument type.op
 
 
+includesJsType = (type) ->
+  if type.TypeConstr
+    typeEq type, jsType
+  else if type.TypeApp
+    (includesJsType type.op) or (includesJsType type.arg)
+
 typeEq = (a, b) ->
   if a.TypeVariable and b.TypeVariable or
       a.TypeConstr and b.TypeConstr
@@ -4108,6 +4131,7 @@ stringType = typeConstant 'String'
 charType = typeConstant 'Char'
 boolType = typeConstant 'Bool'
 numType = typeConstant 'Num'
+jsType = typeConstant 'JS'
 
 safePrintType = (type) ->
   try
@@ -5489,6 +5513,17 @@ tests = [
   """
   "(== x (y True))", yes
 
+  "ffi function"
+  """
+    upper-case (fn [x]
+      (: (Fn String String))
+      (.toUpperCase x))
+  """
+  """(upper-case "Hello")""", "HELLO"
+
+  "ffi expression"
+  """"""
+  """(.toUpperCase "x")""", "X"
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
