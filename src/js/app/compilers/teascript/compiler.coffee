@@ -2385,11 +2385,12 @@ irDefinition = (type, expression, id) ->
 #       ^.___ not necessarily, we could have a tuple of functions or similar
 irDefinitionTranslate = (ctx, {type, expression, id}) ->
   finalType = substitute ctx.substitution, type
-  reducedConstraints = 
+  allConstraints = (addConstraintsFrom ctx, {id, type}, finalType).constraints
+  reducedConstraints =
     # if declaredType = ctx.typeForId id
     #   constraintsFromCanonicalType ctx, declaredType, finalType
     # else
-      reduceConstraints ctx, (addConstraintsFrom ctx, {id, type}, finalType).constraints
+      reduceConstraints ctx, allConstraints
   ctx.updateClassParams()
   # TODO: what about the class dictionaries order?
   counter = {}
@@ -2455,7 +2456,8 @@ irReferenceTranslate = (ctx, {name, id, type, arity}) ->
     translateIr ctx, (irMethod type, name)
   else
     finalType = addConstraintsFrom ctx, {id, type}, substitute ctx.substitution, type
-    classParams = dictsForConstraint ctx, finalType.constraints
+    additionalConstraints = filter ((c) -> not isAlreadyParametrized ctx, c), finalType.constraints
+    classParams = dictsForConstraint ctx, additionalConstraints
     params = map validIdentifier, arity
     if classParams.length > 0
       (irFunctionTranslate ctx,
@@ -5458,12 +5460,12 @@ tests = [
   concat-map (fn [what over]
     (concat (map what over)))
 
-  concat-with (fn [with what]
-    (fold join-with empty what)
-    join-with (fn [x joined]
-      (concat {joined with x})))
+  concat-suffix (fn [suffix what]
+    (fold join-suffix empty what)
+    join-suffix (fn [x joined]
+      (concat {joined suffix x})))
   """
-  "(size (concat-map (fn [x] {}) {1 2 3}))", 0
+  """(size (concat-suffix {1} (concat-map (fn [x] {{1}}) {1 2 3})))""", 6
 
   """recursive overloaded functions"""
   """
