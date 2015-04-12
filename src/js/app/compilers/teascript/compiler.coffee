@@ -389,7 +389,7 @@ class Context
     addAllToSet @_scope().boundTypeVariables, vars
 
   allBoundTypeVariables: ->
-    concatSets (for scope in @scopes
+    substituteVarNames this, concatSets (for scope in @scopes
       scope.boundTypeVariables)...
 
   isClassDefined: (name) ->
@@ -2030,10 +2030,9 @@ substituteVarNames = (ctx, varNames) ->
 deferConstraints = (ctx, fixedVars, quantifiedVars, constraints) ->
   reducedConstraints = reduceConstraints ctx, constraints
   throw new Error "could not reduce constraints in deferConstraints" unless reducedConstraints
-  subbedFixedVars = substituteVarNames ctx, fixedVars
   isFixed = (constraint) ->
-    # log subbedFixedVars, constraint, (findFree constraint)
-    isSubset subbedFixedVars, (findFree constraint)
+    # log fixedVars, constraint, (findFree constraint)
+    isSubset fixedVars, (findFree constraint)
   [deferred, retained] = partition isFixed, reducedConstraints
   # TODO: handle ambiguity when reducedConstraints include variables not in
   # fixedVars or quantifiedVars
