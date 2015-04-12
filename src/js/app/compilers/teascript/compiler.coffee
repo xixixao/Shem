@@ -3894,7 +3894,7 @@ findFree = (type) ->
   else if type.TypeApp
     concatMaps (findFree type.op), (findFree type.arg)
   else if type.Constrained
-    concatMaps (findFreeInList type.constraints), (findFree type.type)
+    concatMaps (findFree type.type), (findFreeInList type.constraints)
   else if type.ClassConstraint
     findFree type.types
   else if type.Types
@@ -4108,9 +4108,9 @@ prettyPrint = (type) ->
     prettyPrint type.type
   else if type.Constrained
     if _notEmpty type.constraints
-      (map printType, join [type.type], type.constraints).join ' '
+      (map highlightType, join [type.type], type.constraints).join ' '
     else
-      printType type.type
+      highlightType type.type
 
 printType = (type) ->
   if type.TypeVariable
@@ -4538,7 +4538,9 @@ astizeExpressionWithWrapper = (source) ->
 
 finalizeTypes = (ctx, ast) ->
   visitExpressions ast, (expression) ->
-    if expression.tea
+    if expression?.label is 'name' and (type = ctx.actualType expression.symbol)
+      expression.tea = type
+    else if expression.tea
       expression.tea = substitute ctx.substitution, expression.tea
     return
   for scope in ctx.savedScopes when scope?
