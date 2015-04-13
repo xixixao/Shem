@@ -1107,7 +1107,12 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
   if ctx.isActuallyTyped name
     # TODO: check class constraints
     if not includesJsType currentType.type
-      unify ctx, currentType.type, (freshInstance ctx, ctx.type name).type
+      declaredType = ctx.type name
+      explicitType = freshInstance ctx, declaredType
+      unify ctx, currentType.type, explicitType.type
+      inferredType = (quantifyUnbound ctx, (substitute ctx.substitution, explicitType))
+      if not typeEq inferredType, declaredType
+        ctx.extendSubstitution substituionFail "#{name}'s declared type is too general, inferred #{plainPrettyPrint inferredType}"
   else
     [deferredConstraints, retainedConstraints] = deferConstraints ctx,
       ctx.allBoundTypeVariables(),
