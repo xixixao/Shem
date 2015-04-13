@@ -1139,7 +1139,7 @@ topLevelExpression = (ctx, expression) ->
     malformed ctx, expression, "#{dependencyName} is not defined"
     undefined
   else
-    (irDefinition expression.tea, compiled)
+    (irDefinition expression.tea, compiled, null, yes)
 
 topLevel = (ctx, form) ->
   if (terms = _validTerms form).length % 2 == 0
@@ -2412,13 +2412,13 @@ translateIr = (ctx, irAst) ->
       walked.js = ast.js
       walked
 
-irDefinition = (type, expression, id) ->
-  {ir: irDefinitionTranslate, type, expression, id}
+irDefinition = (type, expression, id, bare) ->
+  {ir: irDefinitionTranslate, type, expression, id, bare}
 
 # TODO: This must always wrap a function, because if the expression
 #       is not a function then it can't need type class dictionaries
 #       ^.___ not necessarily, we could have a tuple of functions or similar
-irDefinitionTranslate = (ctx, {type, expression, id}) ->
+irDefinitionTranslate = (ctx, {type, expression, id, bare}) ->
   finalType = substitute ctx.substitution, type
   allConstraints = (addConstraintsFrom ctx, {id, type}, finalType).constraints
   reducedConstraints =
@@ -2426,6 +2426,9 @@ irDefinitionTranslate = (ctx, {type, expression, id}) ->
     #   constraintsFromCanonicalType ctx, declaredType, finalType
     # else
       reduceConstraints ctx, allConstraints
+  if bare and _notEmpty reducedConstraints
+    malformed ctx, expression, "Ambiguous class constraints: #{map safePrintType, reducedConstraints}"
+    return "null";
   ctx.updateClassParams()
   # TODO: what about the class dictionaries order?
   counter = {}
@@ -5467,7 +5470,7 @@ tests = [
   "(first (concat {{1} {2} {3}}))", 1
 
   'mixing constructor classes with fundeps'
-  """
+  concatTest = """
   Mappable (class [wrapper]
     map (fn [what onto]
       (: (Fn (Fn a b) (wrapper a) (wrapper b)))))
@@ -5510,15 +5513,32 @@ tests = [
 
   concat-map (fn [what over]
     (concat (map what over)))
+  """
+  """(size (concat-map (fn [x] {1}) {1 2 3}))""", 3
+
+  'overloaded subfunctions'
+  """
+  #{concatTest}
 
   concat-suffix (fn [suffix what]
     (fold join-suffix empty what)
     join-suffix (fn [x joined]
       (concat {joined suffix x})))
   """
-  """(size (concat-suffix {1} (concat-map (fn [x] {{1}}) {1 2 3})))""", 6
+  "(size (concat-suffix {1} (concat-map (fn [x] {{1}}) {1 2 3})))", 6
 
-  """recursive overloaded functions"""
+  'overloaded subterms'
+  """
+  #{concatTest}
+
+  concat-suffix (fn [suffix what]
+    (fold join-suffix e what)
+    join-suffix (fn [x joined]
+      (concat {joined suffix x})))
+  """
+  "(size (concat-suffix {1} (concat-map (fn [x] {{1}}) {1 2 3})))", 6
+
+  'recursive overloaded functions'
   """
   Show (class [a]
     show (fn [x] (: (Fn a String))))
@@ -5539,7 +5559,7 @@ tests = [
   """
   "(== x (y True))", yes
 
-  "ffi function"
+  'ffi function'
   """
     upper-case (fn [x]
       (: (Fn String String))
@@ -5547,15 +5567,15 @@ tests = [
   """
   """(upper-case "Hello")""", "HELLO"
 
-  "ffi expression"
+  'ffi expression'
   """"""
   """(.toUpperCase "x")""", "X"
 
-  "ffi access"
+  'ffi access'
   """"""
   "Math.PI", Math.PI
 
-  "ffi access on global"
+  'ffi access on global'
   """"""
   "global.Math.PI", Math.PI
 
