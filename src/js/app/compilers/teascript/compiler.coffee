@@ -1385,7 +1385,7 @@ ms.data = ms_data = (ctx, call) ->
 
       # Declare getters
       for label, i in paramLabels
-        ctx.declare "#{constr.symbol}.#{label}",
+        ctx.declare "#{constr.symbol}-#{label}",
           arity: ["#{constr.symbol[0].toLowerCase()}#{constr.symbol[1...]}"]
           type: quantifyUnbound ctx, toConstrained typeFn dataType, paramTypes[i]
 
@@ -2193,19 +2193,20 @@ atomCompile = (ctx, atom) ->
   {symbol, label} = atom
   # Typing and Translation
   {type, id, translation, pattern} =
-    switch label
+    (switch label
       when 'numerical'
-        numericalCompile ctx, symbol
+        numericalCompile
       when 'regex'
-        regexCompile ctx, symbol
+        regexCompile
       when 'char'
-        charCompile ctx, atom, symbol
+        charCompile
       when 'string'
-        type: toConstrained stringType
-        translation: symbol
-        pattern: literalPattern ctx, symbol
+        stringCompile
       else
-        nameCompile ctx, atom, symbol
+        if isModuleAccess atom
+          namespacedNameCompile
+        else
+          nameCompile) ctx, atom, symbol
   atom.tea = type if type
   atom.id = id if id?
   atom.scope = ctx.currentScopeIndex()
@@ -2279,14 +2280,26 @@ nameTranslate = (ctx, atom, symbol, type) ->
       (irReference symbol, id, type, arity)
   {id, type, translation}
 
-numericalCompile = (ctx, symbol) ->
+namespacedNameCompile = (ctx, atom, symbol) ->
+  # For now only used in FFI
+  if ctx.assignTo()
+    malformed ctx, atom, 'Matching on namespaced not supported'
+  translation:
+    if /^global./.test symbol
+      "window.#{symbol['global.'.length...]}"
+    else
+      symbol
+  type: toConstrained jsType
+  pattern: precs: []
+
+numericalCompile = (ctx, atom, symbol) ->
   translation = if symbol[0] is '~' then (jsUnary "-", symbol[1...]) else symbol
-  type: toConstrained typeConstant 'Num'
+  type: toConstrained numType
   translation: translation
   pattern: literalPattern ctx, translation
 
-regexCompile = (ctx, symbol) ->
-  type: toConstrained typeConstant 'Regex'
+regexCompile = (ctx, atom, symbol) ->
+  type: toConstrained regexType
   translation: symbol
   pattern:
     if ctx.assignTo()
@@ -2312,6 +2325,11 @@ charCompile = (ctx, atom, symbol) ->
   type: toConstrained charType
   translation: translation
   pattern: literalPattern ctx, translation
+
+stringCompile = (ctx, atom, symbol) ->
+  type: toConstrained stringType
+  translation: symbol
+  pattern: literalPattern ctx, symbol
 
 literalPattern = (ctx, translation) ->
   if ctx.assignTo()
@@ -2637,6 +2655,9 @@ isEmptyForm = (form) ->
 
 isForm = (expression) ->
   Array.isArray expression
+
+isModuleAccess = (atom) ->
+  /^\w+\./.test atom.symbol
 
 isDotAccess = (atom) ->
   /^\.\w+/.test atom.symbol
@@ -4135,6 +4156,7 @@ stringType = typeConstant 'String'
 charType = typeConstant 'Char'
 boolType = typeConstant 'Bool'
 numType = typeConstant 'Num'
+regexType = typeConstant 'Regex'
 jsType = typeConstant 'JS'
 
 safePrintType = (type) ->
@@ -4998,7 +5020,7 @@ tests = [
 
     jack (Person "Jack" "Jack")
   """
-  "(== (Person.first jack) (Person.last jack))", yes
+  "(== (Person-first jack) (Person-last jack))", yes
 
   'macros in instances'
   """
@@ -5528,6 +5550,14 @@ tests = [
   "ffi expression"
   """"""
   """(.toUpperCase "x")""", "X"
+
+  "ffi access"
+  """"""
+  "Math.PI", Math.PI
+
+  "ffi access on global"
+  """"""
+  "global.Math.PI", Math.PI
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
