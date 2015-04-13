@@ -1117,17 +1117,27 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
         ctx.extendSubstitution substituionFail "#{name}'s declared type is too general, inferred #{plainPrettyPrint inferredType}"
       # Context reduction
       isDeclaredConstraint = (c) ->
-        entail ctx, unifiedType.constraints, c
-      ps = filter (__ _not, isDeclaredConstraint), (substituteList ctx.substitution, constraints)
+        entailed = entail ctx, unifiedType.constraints, c
+      notDeclared = filter (__ _not, isDeclaredConstraint), checked = (substituteList ctx.substitution, constraints)
       try
         [deferredConstraints, retainedConstraints] = deferConstraints ctx,
           ctx.allBoundTypeVariables(),
           (findFree unifiedType),
-          (substituteList ctx.substitution, constraints)
+          notDeclared
       catch e
         throw new Error "Error when deferring #{name} #{e.message}"
       if _notEmpty retainedConstraints
-        ctx.extendSubstitution substituionFail "#{name}'s context is too weak, missing #{map plainPrettyPrint, retainedConstraints}"
+        ctx.extendSubstitution substituionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
+        console.log "unfiied", map printType, unifiedType.constraints
+        console.log "checked", map printType, checked
+        console.log "not declared", (map printType, notDeclared)
+        # console.log "reduced checked", map printType, substituteList ctx.substitution, reduceConstraints ctx, checked
+        console.log name,
+          "declared", (map printType, (substituteList ctx.substitution, unifiedType.constraints))
+          "inferred", (map printType, (substituteList ctx.substitution, constraints))
+          "not declared", (map printType, (substituteList ctx.substitution, notDeclared))
+          "retaineed", (map printType, retainedConstraints)
+          
   else
     [deferredConstraints, retainedConstraints] = deferConstraints ctx,
       ctx.allBoundTypeVariables(),
@@ -2114,6 +2124,7 @@ simplifyConstraints = (ctx, constraints) ->
 
 # Whether constraints entail constraint
 entail = (ctx, constraints, constraint) ->
+  constraints = substituteList ctx.substitution, constraints
   for c in constraints
     for superClassConstraint in constraintsFromSuperClasses ctx, c
       # if typeEq superClassConstraint, constraint
