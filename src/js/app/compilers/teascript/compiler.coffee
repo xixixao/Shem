@@ -1492,7 +1492,7 @@ ms[':'] = ms_typed = (ctx, call) ->
     jsNoop()
 
 ms.global = ms_global = (ctx, call) ->
-  call.tea = typeConstant 'JS'
+  call.tea = toConstrained typeConstant 'JS'
   assignCompile ctx, call, (jsValue "window")
 
 callJsMethodCompile = (ctx, call) ->
