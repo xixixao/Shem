@@ -1107,12 +1107,27 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
   if ctx.isActuallyTyped name
     # TODO: check class constraints
     if not includesJsType currentType.type
+      # Check the declared type
       declaredType = ctx.type name
       explicitType = freshInstance ctx, declaredType
       unify ctx, currentType.type, explicitType.type
-      inferredType = (quantifyUnbound ctx, (substitute ctx.substitution, explicitType))
+      unifiedType = substitute ctx.substitution, explicitType
+      inferredType = quantifyUnbound ctx, unifiedType
       if not typeEq inferredType, declaredType
         ctx.extendSubstitution substituionFail "#{name}'s declared type is too general, inferred #{plainPrettyPrint inferredType}"
+      # Context reduction
+      isDeclaredConstraint = (c) ->
+        entail ctx, unifiedType.constraints, c
+      ps = filter (__ _not, isDeclaredConstraint), (substituteList ctx.substitution, constraints)
+      try
+        [deferredConstraints, retainedConstraints] = deferConstraints ctx,
+          ctx.allBoundTypeVariables(),
+          (findFree unifiedType),
+          (substituteList ctx.substitution, constraints)
+      catch e
+        throw new Error "Error when deferring #{name} #{e.message}"
+      if _notEmpty retainedConstraints
+        ctx.extendSubstitution substituionFail "#{name}'s context is too weak, missing #{map plainPrettyPrint, retainedConstraints}"
   else
     [deferredConstraints, retainedConstraints] = deferConstraints ctx,
       ctx.allBoundTypeVariables(),
@@ -1633,21 +1648,10 @@ ms.instance = ms_instance = (ctx, call) ->
       return malformed ctx, call, "An instance requires a name"
     instanceName = ctx.definitionName()
 
-    ctx.newScope()
-    freshInstanceType = assignMethodTypes ctx, instanceConstraint, instanceName,
-      classDefinition, instanceType, constraints
-    definitions = pairs wheres
-    methodsDeclarations = definitionList ctx,
-      (prefixWithInstanceName ctx, definitions, instanceName)
-    ctx.closeScope()
-    if ctx.shouldDefer()
-      return deferCurrentDefinition ctx, call
-
-    methods = map (({rhs}) -> rhs), methodsDeclarations
-    # log "methods", methods
-    methodTypes = (rhs.tea for [lhs, rhs] in definitions)
-    if not all methodTypes
-      return (jsMalformed "missing type of a method")
+    # First we must freshen the instance type, to avoid name clashes of type vars
+    freshInstanceType = freshInstance ctx,
+      (quantifyUnbound ctx,
+        (new Constrained constraints, instanceType.types))
 
     # TODO: defer for class declaration if not defined
     ## if not ctx.isClassDefined className    ...
@@ -1657,10 +1661,28 @@ ms.instance = ms_instance = (ctx, call) ->
       freshConstraints = freshInstanceType.constraints
       instance = quantifyAll (new Constrained freshConstraints,
         (new ClassConstraint instanceType.className, freshInstanceType.type))
+
       ## if overlaps ctx, instance
       ##   malformed ctx, 'instance overlaps with another', instance
       ## else
       ctx.addInstance instanceName, instance
+
+      ctx.newScope()
+      assignMethodTypes ctx, instanceConstraint, freshInstanceType, instanceName,
+        classDefinition, instanceType, constraints
+      definitions = pairs wheres
+      methodsDeclarations = definitionList ctx,
+        (prefixWithInstanceName ctx, definitions, instanceName)
+      ctx.closeScope()
+      if ctx.shouldDefer()
+        return deferCurrentDefinition ctx, call
+
+      methods = map (({rhs}) -> rhs), methodsDeclarations
+      # log "methods", methods
+      methodTypes = (rhs.tea for [lhs, rhs] in definitions)
+      if not all methodTypes
+        malformed ctx, call, "missing type of a method"
+        return jsNoop()
 
       # """var #{instanceName} = new #{className}(#{listOf methods});"""
       (jsVarDeclaration (validIdentifier instanceName),
@@ -1669,12 +1691,7 @@ ms.instance = ms_instance = (ctx, call) ->
 
 # Makes sure methods are typed explicitly and returns the instance constraint
 # with renamed type variables to avoid clashes
-assignMethodTypes = (ctx, typeExpression, instanceName, classDeclaration, instanceType, instanceConstraints) ->
-  # First we must freshen the instance type, to avoid name clashes of type vars
-  freshInstanceType = freshInstance ctx,
-    (quantifyUnbound ctx,
-      (new Constrained instanceConstraints, instanceType.types))
-
+assignMethodTypes = (ctx, typeExpression, freshInstanceType, instanceName, classDeclaration) ->
   # log "mguing", classDeclaration.constraint.types, freshInstanceType.type
   sub = mostGeneralUnifier classDeclaration.constraint.types, freshInstanceType.type
   if isFailed sub
@@ -4688,11 +4705,13 @@ filter = (fn, list) ->
   list.filter fn
 
 partition = (fn, list) ->
-  [(filter fn, list), (filter ((x) -> not (fn x)), list)]
+  [(filter fn, list), (filter (__ _not, fn), list)]
 
 _notEmpty = (x) -> x.length > 0
 
 _empty = (x) -> x.length is 0
+
+_not = (x) -> !x
 
 _is = (x) -> !!x
 
