@@ -2182,7 +2182,7 @@ requireName = (ctx, message) ->
 
 fakeCompile = (ctx, token) ->
   if ctx.assignTo()
-    # ???
+    precs: []
   else
     token.tea = toConstrained ctx.freshTypeVariable star
     token.scope = ctx.currentScopeIndex()
