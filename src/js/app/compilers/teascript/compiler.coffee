@@ -1035,7 +1035,7 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
       return malformed ctx, to, 'Not an assignable pattern'
     map compileVariableAssignment, (join translationCache, assigns)
   else
-    if ctx.isAtBareDefinition()
+    if ctx.isAtBareDefinition() and expression.tea
       # Force context reduction
       inferredType = (substitute ctx.substitution, expression.tea)
       deferConstraints ctx,
@@ -1499,7 +1499,11 @@ callJsMethodCompile = (ctx, call) ->
   [dotMethod, object, args...] = _validTerms call
   labelOperator dotMethod
   call.tea = toConstrained jsType
-  (jsMethod (termCompile ctx, object), dotMethod.symbol[1...], (termsCompile ctx, args))
+  if object
+    (jsMethod (termCompile ctx, object), dotMethod.symbol[1...], (termsCompile ctx, args))
+  else
+    malformed ctx, call, 'Missing an object'
+    jsNoop()
 
 # Adds a class to the scope or defers if superclass doesn't exist
 ms.class = ms_class = (ctx, call) ->
