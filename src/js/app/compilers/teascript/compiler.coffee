@@ -1816,9 +1816,10 @@ ms.format = ms_format = (ctx, call) ->
     c: charType
   [formatStringToken, args...] = _arguments call
   compiledArgs = termsCompile ctx, args
-  call.tea = new Constrained (concatMap (__ _constraints, _tea), args), stringType
   if not all map _tea, args
+    call.tea = toConstrained stringType
     return malformed ctx, call, "Argument not typed"
+  call.tea = new Constrained (concatMap (__ _constraints, _tea), args), stringType
   types = []
   formatString = _stringValue formatStringToken
   while formatString.length > 0
