@@ -1039,8 +1039,6 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
       # Force context reduction
       inferredType = (substitute ctx.substitution, expression.tea)
       deferConstraints ctx,
-        ctx.allBoundTypeVariables(),
-        (findFree inferredType),
         inferredType.constraints
     translatedExpression
 
@@ -1122,8 +1120,6 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
       notDeclared = filter (__ _not, isDeclaredConstraint), checked = (substituteList ctx.substitution, constraints)
       try
         [deferredConstraints, retainedConstraints] = deferConstraints ctx,
-          ctx.allBoundTypeVariables(),
-          (findFree unifiedType),
           notDeclared
       catch e
         throw new Error "Error when deferring #{name} #{e.message}"
@@ -1131,12 +1127,10 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
         ctx.extendSubstitution substituionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
   else
     [deferredConstraints, retainedConstraints] = deferConstraints ctx,
-      ctx.allBoundTypeVariables(),
-      (findFree currentType),
       (substituteList ctx.substitution, constraints)
     # Finalizing type again after possibly added substitution when defer constraints
     currentType = substitute ctx.substitution, type
-    # log "assign type", name, (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
+    # log "assign type", name, ctx.allBoundTypeVariables(), (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
     ctx.assignType name,
       if polymorphic
         quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
@@ -2069,15 +2063,14 @@ substituteVarNames = (ctx, varNames) ->
     (inSub ctx.substitution, name) or new TypeVariable name
   findFreeInList map subbed, setToArray varNames
 
-# Takes a set of fixed type variables, a set of type variables which
-# should be quantified and a list of constraints
-# returns deferred and retained constraints
-deferConstraints = (ctx, fixedVars, quantifiedVars, constraints) ->
+# Returns deferred and retained constraints
+deferConstraints = (ctx, constraints) ->
   reducedConstraints = reduceConstraints ctx, constraints
   throw new Error "could not reduce constraints in deferConstraints" unless reducedConstraints
+  fixedVars = ctx.allBoundTypeVariables()
   isFixed = (constraint) ->
-    # log fixedVars, constraint, (findFree constraint)
-    isSubset fixedVars, (findFree constraint)
+    # log fixedVars, (printType constraint), (findUnconstrained constraint)
+    isSubset fixedVars, (findUnconstrained constraint)
   [deferred, retained] = partition isFixed, reducedConstraints
   # TODO: handle ambiguity when reducedConstraints include variables not in
   # fixedVars or quantifiedVars
@@ -2523,8 +2516,7 @@ irReferenceTranslate = (ctx, {name, id, type, arity}) ->
     translateIr ctx, (irMethod type, name)
   else
     finalType = addConstraintsFrom ctx, {id, type}, substitute ctx.substitution, type
-    additionalConstraints = filter ((c) -> not isAlreadyParametrized ctx, c), finalType.constraints
-    classParams = dictsForConstraint ctx, additionalConstraints
+    classParams = dictsForConstraint ctx, finalType.constraints
     params = map validIdentifier, arity
     if classParams.length > 0
       (irFunctionTranslate ctx,
@@ -3987,6 +3979,10 @@ findFree = (type) ->
 
 findFreeInList = (list) ->
   concatMaps (map findFree, list)...
+
+# Free variables in LHS of implicit functional dependency
+findUnconstrained = (constraint) ->
+  findFree constraint.types.types[0]
 
 freshInstance = (ctx, type) ->
   throw new Error "not a forall in freshInstance #{safePrintType type}" unless type and type.ForAll
@@ -5560,7 +5556,7 @@ tests = [
   """
   "(size (concat-suffix {1} (concat-map (fn [x] {{1}}) {1 2 3})))", 6
 
-  'overloaded subterms'
+  'overloaded subfunctions 2'
   """
   id (fn [x] x)
 
@@ -5572,6 +5568,35 @@ tests = [
     ((fold helper id over) initial)
     helper (fn [x r acc]
       (r (with x acc))))
+  """
+  "6", 6
+
+  'overloaded subfunctions 3'
+  """
+  Deq (class [seq item]
+    && (fn [what to]
+      (: (Fn item seq seq))))
+
+  array-deq (instance (Deq (Array a) a)
+    && (macro [what to]
+      (: (Fn a (Array a) (Array a)))
+      (Js.method to "push" {what})))
+
+  Appendable (class [collection item]
+    & (fn [what to]
+      (: (Fn item collection collection))))
+
+  Bag (class [bag item]
+    empty (: bag)
+
+    fold (fn [with initial over]
+      (: (Fn (Fn item a a) a bag a))))
+
+  split (fn [bag]
+    (: (Fn ba (Array ba)) (Appendable ba a) (Bag ba a))
+    (fold wrap {} bag)
+    wrap (fn [x all]
+      (&& (& x empty) all)))
   """
   "6", 6
 
