@@ -4565,10 +4565,14 @@ findMatchingDefinitions = (moduleName, reference) ->
   {ctx} = contextWithDependencies moduleName
   {scope, type} = reference
   return [] unless scope?
-  definitions = concatMaps (while scope isnt 0
-    found = savedScopes[scope]
-    scope = found.parent
-    found.definitions)..., ctx._scope()
+  scoped =
+    if savedScopes[scope]
+      while scope isnt 0
+        scope = found.parent
+        found.definitions
+    else
+      []
+  definitions = concatMaps scoped..., ctx._scope()
   removeFromMap definitions, '=='
   findMatchingDefinitionsOnType type, definitions
 
