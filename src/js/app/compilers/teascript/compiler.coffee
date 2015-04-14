@@ -4390,9 +4390,9 @@ var from__nullable = function (jsValue) {
   first = (j) -> varNames[0...j].join ', '
   # TODO: handle A9 first branch
   """var _#{i} = function (fn, #{first i}) {
-    if (fn._ === #{i} || fn.length === #{i}) {
+    if (fn._ === #{i} || !fn._ && fn.length === #{i}) {
       return fn(#{first i});
-    } else if (fn._ > #{i} || fn.length > #{i}) {
+    } else if (fn._ > #{i} || !fn._ && fn.length > #{i}) {
       return function (#{varNames[i]}) {
         return _#{i + 1}(fn, #{first i + 1});
       };
