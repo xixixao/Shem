@@ -547,7 +547,7 @@ class Context
     nestedLookupInMap @classParams, typeNamesOfNormalized constraint
 
   updateClassParams: ->
-    @classParams = substituteVarNames this, @classParams
+    # @classParams = substituteVarNames this, @classParams
 
 expressionCompile = (ctx, expression) ->
   throw new Error "invalid expressionCompile args" unless ctx instanceof Context and expression?
@@ -1129,16 +1129,6 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
         throw new Error "Error when deferring #{name} #{e.message}"
       if _notEmpty retainedConstraints
         ctx.extendSubstitution substituionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
-        console.log "unfiied", map printType, unifiedType.constraints
-        console.log "checked", map printType, checked
-        console.log "not declared", (map printType, notDeclared)
-        # console.log "reduced checked", map printType, substituteList ctx.substitution, reduceConstraints ctx, checked
-        console.log name,
-          "declared", (map printType, (substituteList ctx.substitution, unifiedType.constraints))
-          "inferred", (map printType, (substituteList ctx.substitution, constraints))
-          "not declared", (map printType, (substituteList ctx.substitution, notDeclared))
-          "retaineed", (map printType, retainedConstraints)
-          
   else
     [deferredConstraints, retainedConstraints] = deferConstraints ctx,
       ctx.allBoundTypeVariables(),
@@ -1146,7 +1136,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
       (substituteList ctx.substitution, constraints)
     # Finalizing type again after possibly added substitution when defer constraints
     currentType = substitute ctx.substitution, type
-    # log "assign type", name, (printType currentType), retainedConstraints
+    # log "assign type", name, (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
     ctx.assignType name,
       if polymorphic
         quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
@@ -2076,8 +2066,8 @@ quantifyUnbound = (ctx, type) ->
 
 substituteVarNames = (ctx, varNames) ->
   subbed = (name) =>
-    (inSub ctx.substitution, name)?.name or name
-  rehashMap subbed, varNames
+    (inSub ctx.substitution, name) or new TypeVariable name
+  findFreeInList map subbed, setToArray varNames
 
 # Takes a set of fixed type variables, a set of type variables which
 # should be quantified and a list of constraints
@@ -2273,7 +2263,7 @@ nameCompile = (ctx, atom, symbol) ->
       atom.label = 'name'
       id = (ctx.definitionId()) ? (ctx.declarationId symbol) ? ctx.freshId()
       type = toConstrained ctx.freshTypeVariable star
-      ctx.bindTypeVariables [type.type.name]
+      # ctx.bindTypeVariables [type.type.name]
       ctx.addToDefinedNames {name: symbol, id: id, type: type}
       type: type
       id: id
@@ -5570,16 +5560,20 @@ tests = [
   """
   "(size (concat-suffix {1} (concat-map (fn [x] {{1}}) {1 2 3})))", 6
 
-  # 'overloaded subterms'
-  # """
-  # #{concatTest}
+  'overloaded subterms'
+  """
+  id (fn [x] x)
 
-  # concat-suffix (fn [suffix what]
-  #   (fold join-suffix e what)
-  #   join-suffix (fn [x joined]
-  #     (concat {joined suffix x})))
-  # """
-  # "(size (concat-suffix {1} (concat-map (fn [x] {{1}}) {1 2 3})))", 6
+  Bag (class [bag item]
+    fold (fn [with initial over]
+      (: (Fn (Fn item a a) a bag a))))
+
+  fold-right (fn [with initial over]
+    ((fold helper id over) initial)
+    helper (fn [x r acc]
+      (r (with x acc))))
+  """
+  "6", 6
 
   'recursive overloaded functions'
   """
