@@ -2649,7 +2649,7 @@ irSet = (items) ->
   {ir: irSetTranslate, items}
 
 irSetTranslate = (ctx, {items}) ->
-  (jsCall "Immutable.Set.of", items)
+  (jsCall "Immutable.Set.of", (translateIr ctx, items))
 
 
 irJsCompatible = (type, expression) ->
@@ -2934,7 +2934,7 @@ jsNoop = ->
   {js: jsNoopTranslate}
 
 jsNoopTranslate = ->
-  ""
+  "null"
 
 
 jsReturn = (arg) ->
@@ -5621,6 +5621,16 @@ tests = [
   'ffi access on global'
   """"""
   "global.Math.PI", Math.PI
+
+  'sets'
+  """
+  first (macro [set]
+    (: (Fn (Set a) a))
+    (Js.method set "first" {}))
+  x 2
+  y (Set x 1 3)
+  """
+  '(first y)', 2
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
