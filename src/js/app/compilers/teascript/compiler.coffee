@@ -135,7 +135,7 @@ mapTyping = (fn, string) ->
   fn (ctx = new Context), ast
   expressions = []
   visitExpressions ast, (expression) ->
-    expressions.push "#{collapse toHtml expression} :: #{highlightType expression.tea}" if expression.tea
+    expressions.push "#{collapse toHtml expression} :: #{highlightType substitute ctx.substitution, expression.tea}" if expression.tea
   types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInDefinitions()
   subs: printSubstitution ctx.substitution
   fails: ctx.substitution.fails
@@ -1130,7 +1130,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
       (substituteList ctx.substitution, constraints)
     # Finalizing type again after possibly added substitution when defer constraints
     currentType = substitute ctx.substitution, type
-    # log "assign type", name, ctx.allBoundTypeVariables(), (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
+    # log "assign type", name, (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
     ctx.assignType name,
       if polymorphic
         quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
@@ -2068,10 +2068,11 @@ deferConstraints = (ctx, constraints) ->
   reducedConstraints = reduceConstraints ctx, constraints
   throw new Error "could not reduce constraints in deferConstraints" unless reducedConstraints
   fixedVars = ctx.allBoundTypeVariables()
+  impliedConstraints = substituteList ctx.substitution, reducedConstraints
   isFixed = (constraint) ->
     # log fixedVars, (printType constraint), (findUnconstrained constraint)
     isSubset fixedVars, (findUnconstrained constraint)
-  [deferred, retained] = partition isFixed, reducedConstraints
+  [deferred, retained] = partition isFixed, impliedConstraints
   # TODO: handle ambiguity when reducedConstraints include variables not in
   # fixedVars or quantifiedVars
   [deferred, retained]
@@ -5599,6 +5600,68 @@ tests = [
       (&& (& x empty) all)))
   """
   "6", 6
+
+  'overloaded subfunctions 4'
+  """
+  id (fn [x] x)
+
+  if (macro [what then else]
+    (: (Fn Bool a a a))
+    (Js.ternary what then else))
+
+  Bag (class [bag item]
+    fold (fn [with initial over]
+      (: (Fn (Fn item a a) a bag a))
+      (# Fold over using with and initial folded value .)))
+
+  Appendable (class [collection item]
+    & (fn [what to]
+      (: (Fn item collection collection))))
+
+  fold-right (fn [with initial over]
+    ((fold wrap id over) initial)
+    wrap (fn [x r acc]
+      (r (with x acc))))
+
+  array-bag (instance (Bag (Array a) a)
+    fold (macro [with initial list]
+      (: (Fn (Fn a b b) b (Array a) b))
+      (Js.method list "reduce"
+        {(fn [acc x] (with x acc)) initial})))
+
+  array-appendable (instance (Appendable (Array a) a)
+    & (macro [what to]
+      (: (Fn a (Array a) (Array a)))
+      (Js.method to "unshift" {what})))
+
+  chars (macro [string]
+    (: (Fn String (Array Char)))
+    (Js.call "Immutable.List"
+      {(Js.method string "split" {"''"})}))
+
+  string-bag (instance (Bag String Char)
+    fold (fn [with initial string]
+      (fold with initial (chars string))))
+
+  string-appendable (instance (Appendable String Char)
+    & (macro [what to]
+      (: (Fn Char String String))
+      (Js.binary "+" what to)))
+
+  my-split (fn [separators text]
+    (fold-right distinguish ["" {""}] text)
+    distinguish (fn [letter done]
+      (if True
+        [(& letter seps-in-order) (& "" words)]
+        [seps-in-order (& (& letter first-word) rest-words)])
+      {first-word ..rest-words} words
+      [seps-in-order words] done))
+
+  separators ".,:;! "
+
+  [seps words] (my-split separators "Hello, world!")
+  """
+  "seps", "Hello, world!"
 
   'recursive overloaded functions'
   """
