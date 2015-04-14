@@ -341,6 +341,7 @@ class Context
     scope.classes = newMap()
     scope.typeNames = newMap()
     scope.typeAliases = newMap()
+    scope.deferredConstraints = []
     scope
 
   newLateScope: ->
@@ -391,6 +392,12 @@ class Context
   allBoundTypeVariables: ->
     substituteVarNames this, concatSets (for scope in @scopes
       scope.boundTypeVariables)...
+
+  addToScopeConstraints: (constraints) ->
+    @_scope().deferredConstraints.push constraints...
+
+  currentScopeConstraints: ->
+    @_scope().deferredConstraints
 
   isClassDefined: (name) ->
     !!@_classNamed name
@@ -1126,6 +1133,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
       if _notEmpty retainedConstraints
         ctx.extendSubstitution substituionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
   else
+    # log name, "constraints", (substituteList ctx.substitution, constraints)
     [deferredConstraints, retainedConstraints] = deferConstraints ctx,
       (substituteList ctx.substitution, constraints)
     # Finalizing type again after possibly added substitution when defer constraints
@@ -1136,6 +1144,8 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
         quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
       else
         toForAll currentType
+  if deferredConstraints
+    ctx.addToScopeConstraints deferredConstraints
 
 # Old comment:
 # here I will create type schemes for all definitions
@@ -1302,6 +1312,8 @@ ms.fn = ms_fn = (ctx, call) ->
       # log "compiling", body
       if body
         compiledBody = termCompile ctx, body
+
+      deferredConstraints = ctx.currentScopeConstraints()
       # log "compiled", body.tea
       ctx.closeScope()
 
@@ -1323,7 +1335,7 @@ ms.fn = ms_fn = (ctx, call) ->
             #throw new Error "Body not typed"
           call.tea =
             if body
-              new Constrained body.tea.constraints,
+              new Constrained (join body.tea.constraints, deferredConstraints),
                 typeFn paramTypeVars..., body.tea?.type
             else
               freshInstance ctx, explicitType
@@ -5648,16 +5660,26 @@ tests = [
       (: (Fn Char String String))
       (Js.binary "+" what to)))
 
+  Set (class [set item]
+    elem? (fn [what in]
+      (: (Fn item set Bool))
+      (# Whether in contains what .)))
+
+  set-set (instance (Set (Set a) a)
+    elem? (macro [what in]
+      (: (Fn (Set a) a Bool))
+      (Js.method in "contains" {what})))
+
   my-split (fn [separators text]
     (fold-right distinguish ["" {""}] text)
     distinguish (fn [letter done]
-      (if True
+      (if (elem? letter separators)
         [(& letter seps-in-order) (& "" words)]
         [seps-in-order (& (& letter first-word) rest-words)])
       {first-word ..rest-words} words
       [seps-in-order words] done))
 
-  separators ".,:;! "
+  separators (Set \\space \\, \\!)
 
   [seps words] (my-split separators "Hello, world!")
   """
