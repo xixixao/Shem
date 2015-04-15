@@ -5868,6 +5868,7 @@ exports.astizeExpressionWithWrapper = astizeExpressionWithWrapper
 exports.syntaxedExpHtml = syntaxedExpHtml
 exports.syntaxedType = syntaxedType
 exports.prettyPrint = prettyPrint
+exports.plainPrettyPrint = plainPrettyPrint
 
 # exports.compileModule = (source) ->
 #   """
