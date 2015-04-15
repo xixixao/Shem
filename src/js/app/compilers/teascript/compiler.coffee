@@ -3986,15 +3986,16 @@ substitute = (substitution, type) ->
   else if type.QuantifiedVar
     substitution[type.var] or type
   else if type.TypeApp
-    new TypeApp (substitute substitution, type.op),
-      (substitute substitution, type.arg)
+    markOrigin (new TypeApp (substitute substitution, type.op),
+      (substitute substitution, type.arg)), type.origin
   else if type.ForAll
     new ForAll type.kinds, (substitute substitution, type.type)
   else if type.Constrained
     new Constrained (substituteList substitution, type.constraints),
       (substitute substitution, type.type)
   else if type.ClassConstraint
-    new ClassConstraint type.className, substitute substitution, type.types
+    markOrigin (new ClassConstraint type.className, substitute substitution, type.types),
+      type.origin
   else if type.Types
     new Types substituteList substitution, type.types
   else
