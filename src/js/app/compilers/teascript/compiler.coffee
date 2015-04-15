@@ -138,9 +138,15 @@ mapTyping = (fn, string) ->
     expressions.push "#{collapse toHtml expression} :: #{highlightType substitute ctx.substitution, expression.tea}" if expression.tea
   types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInDefinitions()
   subs: printSubstitution ctx.substitution
-  fails: ctx.substitution.fails
+  fails: map formatFail, ctx.substitution.fails
   ast: expressions
   deferred: ctx.deferredBindings()
+
+formatFail = (error) ->
+  if error.message
+    join [error.message], map (__ collapse, toHtml), (filter _is, error.conflicts)
+  else
+    error
 
 printSubstitution = (sub) ->
   subToObject mapSub highlightType, sub
@@ -771,10 +777,8 @@ callInfer = (ctx, operator, terms) ->
     callInferSingle ctx, operator, op.tea, arg.tea
 
 callInferSingle = (ctx, originalOperator, operatorTea, argTea) ->
-  returnType = ctx.freshTypeVariable star
-  returnType.origin = originalOperator
-  callType = (typeFn argTea.type, returnType)
-  callType.origin = originalOperator
+  returnType = markOrigin (ctx.freshTypeVariable star), originalOperator
+  callType = markOrigin (typeFn argTea.type, returnType), originalOperator
   unify ctx, operatorTea.type, callType
   new Constrained (join operatorTea.constraints, argTea.constraints), returnType
 
@@ -1300,9 +1304,7 @@ ms.fn = ms_fn = (ctx, call) ->
           explicitType = assignExplicitType ctx, typeConstrainedCompile ctx, type
 
       newParamType = (param) ->
-        type = ctx.freshTypeVariable star
-        type.origin = param
-        type
+        markOrigin (ctx.freshTypeVariable star), param
       paramTypeVars = map newParamType, params
       paramTypes = map (__ toForAll, toConstrained), paramTypeVars
       ctx.newLateScope()
@@ -2263,7 +2265,9 @@ atomCompile = (ctx, atom) ->
           namespacedNameCompile
         else
           nameCompile) ctx, atom, symbol
-  atom.tea = type if type
+  if type
+    atom.tea = type
+    mapOrigin type, atom
   atom.id = id if id?
   atom.scope = ctx.currentScopeIndex()
   if ctx.isOperator()
@@ -2334,7 +2338,6 @@ nameTranslate = (ctx, atom, symbol, type) ->
           (jsAccess (validIdentifier symbol), "_value")
     else
       (irReference symbol, id, type, arity)
-  type.origin = atom
   {id, type, translation}
 
 namespacedNameCompile = (ctx, atom, symbol) ->
@@ -3845,7 +3848,9 @@ mostGeneralUnifier = (t1, t2) ->
     unifyFail t1, t2
 
 unifyFail = (t1, t2) ->
-  substituionFail "could not unify #{(safePrintType t1)}, #{(safePrintType t2)}"
+  substituionFail
+    message: "could not unify #{(safePrintType t1)}, #{(safePrintType t2)}"
+    conflicts: [t1.origin, t2.origin]
 
 bindVariable = (variable, type) ->
   if type.TypeVariable and variable.name is type.name
@@ -4028,6 +4033,21 @@ freshName = (nameIndex) ->
   nameIndex
   # suffix = if nameIndex >= 25 then freshName (Math.floor nameIndex / 25) - 1 else ''
   # (String.fromCharCode 97 + nameIndex % 25) + suffix
+
+mapOrigin = (type, expression) ->
+  if type.TypeApp
+    mapOrigin type.op, expression
+    mapOrigin type.arg, expression
+  else if type.Constrained
+    mapOrigin type.type, expression
+    for c in type.constraints
+      mapOrigin c, expression
+  else
+    markOrigin type, expression
+
+markOrigin = (typeOrConstraint, expression) ->
+  typeOrConstraint.origin = expression
+  typeOrConstraint
 
 # Normalized constraint has a type which has type variable at its head
 #   that is either ordinary type variable or type variable standing for a constructor
