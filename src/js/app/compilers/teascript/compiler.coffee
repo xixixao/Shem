@@ -1230,11 +1230,11 @@ resolveDeferredTypes = (ctx) ->
           unify ctx, canonicalType.type, type.type
           # log "done unifying one"
         # have to promote constraints from just compiled dependencies
-        depConstraints = concat (for dep in binding.deps when cononicalType = ctx.actualType dep.name
+        depConstraints = concat (for dep in binding.deps or [] when cononicalType = ctx.actualType dep.name
           constraintsFromCanonicalType ctx, cononicalType, dep.type)
         # log binding.constraints, depConstraints
         inferType ctx, name, canonicalType,
-          (join binding.constraints, depConstraints), binding.polymorphic
+          (join binding.constraints or [], depConstraints), binding.polymorphic
         # unifiedType = (substitute ctx.substitution, canonicalType)
         # ctx.assignType name,
         #   quantifyAll (addConstraints unifiedType, definitionConstraints)
