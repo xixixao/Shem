@@ -4587,29 +4587,32 @@ findMatchingDefinitions = (moduleName, reference) ->
         found.definitions
     else
       []
-  definitions = concatMaps scoped..., ctx._scope()
-  removeFromMap definitions, '=='
-  addToMap definitions, '{}',
+  topScope = cloneMap ctx._scope()
+  removeFromMap topScope, '=='
+  addToMap topScope, '{}',
     type: quantifyAll toConstrained new TypeApp arrayType, (new TypeVariable 'a', star)
-  findMatchingDefinitionsOnType type, definitions
+  findMatchingDefinitionsOnType type, join scoped, [topScope]
 
-findMatchingDefinitionsOnType = (type, definitions) ->
+findMatchingDefinitionsOnType = (type, definitionLists) ->
   ctx = new Context
-  validDefinitions = filterMap ((name, def) -> def.type?), definitions # TODO: filter before
-  # typesUnify = (def) ->
-  #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
-  # [typed, notTyped] = partitionMap typesUnify, validDefinitions
-  scoreAndPrint = (def) ->
-    sub = mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
-    if isFailed sub
-      score = -Infinity
-    else
-      score = -(subMagnitude sub)
-    type: plainPrettyPrint def.type
-    score: score
+  [typed, untyped] = unzip (for definitions, i in definitionLists
+    validDefinitions = filterMap ((name, def) -> def.type?), definitions # TODO: filter before
+    # typesUnify = (def) ->
+    #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
+    # [typed, notTyped] = partitionMap typesUnify, validDefinitions
+    scoreAndPrint = (def) ->
+      sub = mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
+      if isFailed sub
+        score = -Infinity
+      else
+        score = -((subMagnitude sub) + i * 100)
+      type: plainPrettyPrint def.type
+      score: score
+    isTyped = (completion) ->
+      completion.score isnt -Infinity
 
-  values mapMap scoreAndPrint, validDefinitions
-  # allDefs = join (setToArray typed), (setToArray notTyped)
+    partitionMap isTyped, (mapMap scoreAndPrint, validDefinitions))
+  values concatMaps typed..., untyped...
   # allDefs = concatMaps typed, notTyped # TODO: don't use object key ordering for ordering
   # values mapMap (__ plainPrettyPrint, _type), allDefs
 
