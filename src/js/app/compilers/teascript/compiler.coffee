@@ -3848,9 +3848,14 @@ mostGeneralUnifier = (t1, t2) ->
     unifyFail t1, t2
 
 unifyFail = (t1, t2) ->
+  [first, second] =
+    if t1.origin?.start > t2.origin?.start
+      [t2, t1]
+    else
+      [t1, t2]
   substituionFail
-    message: "could not unify #{(safePrintType t1)}, #{(safePrintType t2)}"
-    conflicts: [t1.origin, t2.origin]
+    message: "could not unify #{(safePrintType first)}, #{(safePrintType second)}"
+    conflicts: [first.origin, second.origin]
 
 bindVariable = (variable, type) ->
   if type.TypeVariable and variable.name is type.name
