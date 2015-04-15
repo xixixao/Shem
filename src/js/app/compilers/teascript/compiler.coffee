@@ -4582,6 +4582,7 @@ findMatchingDefinitions = (moduleName, reference) ->
   scoped =
     if savedScopes[scope]
       while scope isnt 0
+        found = savedScopes[scope]
         scope = found.parent
         found.definitions
     else
