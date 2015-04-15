@@ -1902,7 +1902,7 @@ ms.cond = ms_cond = (ctx, call) ->
   args = _arguments call
   [conds, results] = unzip pairs args
   doneConds = termsCompileExpectingType ctx, boolType, conds
-  doneResults = termsCompileExpectingSameType ctx, results
+  doneResults = termsCompileExpectingSameType ctx, (filter _is, results)
 
   errorMessage =
     if ctx.definitionName()?
@@ -1914,7 +1914,7 @@ ms.cond = ms_cond = (ctx, call) ->
   branches = for res in doneResults.compiled
     [(jsReturn res)]
   assignCompile ctx, call,
-    (iife [(jsConditional (zip doneConds.compiled, branches),
+    (iife [(jsConditional (zip doneConds.compiled[0...branches.length], branches),
         "throw new Error('cond failed to match#{errorMessage}');")])
 
 
