@@ -1518,6 +1518,20 @@ ms[':'] = ms_typed = (ctx, call) ->
     #watch out of definition patterns without a name
     jsNoop()
 
+ms['::'] = ms_typed_expression = (ctx, call) ->
+  [type, constraintSeq, expression] = _arguments call
+  if isSeq constraintSeq
+    constraints = typeConstraintsCompile ctx, _terms constraintSeq
+  else
+    constraints = []
+    expression = constraintSeq
+  compiledType = new Constrained constraints, typeCompile ctx, type
+  if name = ctx.definitionName()
+    ctx.declare ctx.definitionName()
+    assignExplicitType ctx, compiledType
+  call.tea = compiledType
+  assignCompile ctx, call, (termCompile ctx, expression)
+
 ms.global = ms_global = (ctx, call) ->
   call.tea = toConstrained typeConstant 'JS'
   assignCompile ctx, call, (jsValue "window")
