@@ -909,14 +909,17 @@ hashmapCompile = (ctx, form) ->
 
 
 uniformCollectionCompile = (ctx, form, items, collectionType, moreConstraints = []) ->
-  {constraints, itemType, compiled} = uniformCollectionItemsCompile ctx, items
+  {constraints, itemType, compiled} = termsCompileExpectingSameType ctx, items
   (labelOperator form) if not isCall form
   form.tea = new Constrained (join moreConstraints, constraints),
       new TypeApp collectionType, itemType
   compiled
 
-uniformCollectionItemsCompile = (ctx, items) ->
+termsCompileExpectingSameType = (ctx, items) ->
   itemType = ctx.freshTypeVariable star
+  termsCompileExpectingType ctx, itemType, items
+
+termsCompileExpectingType = (ctx, itemType, items) ->
   compiledItems = termsCompile ctx, items
   for item in items when item.tea
     unify ctx, itemType, item.tea.type
@@ -1895,6 +1898,25 @@ ms.syntax = ms_syntax = (ctx, call) ->
 
     jsNoop()
 
+ms.cond = ms_cond = (ctx, call) ->
+  args = _arguments call
+  [conds, results] = unzip pairs args
+  doneConds = termsCompileExpectingType ctx, boolType, conds
+  doneResults = termsCompileExpectingSameType ctx, results
+
+  errorMessage =
+    if ctx.definitionName()?
+      " in #{ctx.definitionName()}"
+    else
+      ""
+  call.tea = new Constrained (join doneConds.constraints, doneResults.constraints),
+      doneResults.itemType
+  branches = for res in doneResults.compiled
+    [(jsReturn res)]
+  assignCompile ctx, call,
+    (iife [(jsConditional (zip doneConds.compiled, branches),
+        "throw new Error('cond failed to match#{errorMessage}');")])
+
 
 ms['`'] = ms_quote = (ctx, call) ->
   [res] = _arguments call
@@ -2022,7 +2044,7 @@ ms.Map = ms_Map = (ctx, call) ->
     if args.length % 2 != 0
       return malformed ctx, args[args.length - 1], 'Missing value for key'
     [labels, items] = unzip pairs args
-    compiledLabels = uniformCollectionItemsCompile ctx, labels
+    compiledLabels = termsCompileExpectingSameType ctx, labels
     keyType = applyKindFn hashmapType, compiledLabels.itemType
     compiledItems = uniformCollectionCompile ctx, call, items, keyType,
       compiledLabels.constraints
