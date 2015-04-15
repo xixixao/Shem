@@ -4588,17 +4588,39 @@ findMatchingDefinitions = (moduleName, reference) ->
       []
   definitions = concatMaps scoped..., ctx._scope()
   removeFromMap definitions, '=='
+  addToMap definitions, '{}',
+    type: quantifyAll toConstrained new TypeApp arrayType, (new TypeVariable 'a', star)
   findMatchingDefinitionsOnType type, definitions
 
 findMatchingDefinitionsOnType = (type, definitions) ->
   ctx = new Context
   validDefinitions = filterMap ((name, def) -> def.type?), definitions # TODO: filter before
-  typesUnify = (def) ->
-    not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
-  [typed, notTyped] = partitionMap typesUnify, validDefinitions
+  # typesUnify = (def) ->
+  #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
+  # [typed, notTyped] = partitionMap typesUnify, validDefinitions
+  scoreAndPrint = (def) ->
+    sub = mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
+    if isFailed sub
+      score = -Infinity
+    else
+      score = -(subMagnitude sub)
+    type: score + ' ' + plainPrettyPrint def.type
+    score: score
+
+  values mapMap scoreAndPrint, validDefinitions
   # allDefs = join (setToArray typed), (setToArray notTyped)
-  allDefs = concatMaps typed, notTyped # TODO: don't use object key ordering for ordering
-  values mapMap (__ plainPrettyPrint, _type), allDefs
+  # allDefs = concatMaps typed, notTyped # TODO: don't use object key ordering for ordering
+  # values mapMap (__ plainPrettyPrint, _type), allDefs
+
+subMagnitude = (sub) ->
+  magnitude = 0
+  for s in sub.vars when s
+    magnitude +=
+      if s.TypeApp
+        4
+      else
+        1
+  magnitude
 
 # API
 
