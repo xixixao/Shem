@@ -764,7 +764,7 @@ callTyping = (ctx, call) ->
   terms = _terms call
   if terms.length is 1
     malformed ctx, call, 'Missing an argument (for now)'
-    terms = join terms, [tea: toConstrained ctx.freshTypeVariable star]
+    terms = join terms, [tea: toConstrained (markOrigin (ctx.freshTypeVariable star), call)]
   call.tea = callInfer ctx, (_operator call), terms
 
 callInfer = (ctx, operator, terms) ->
@@ -1345,7 +1345,7 @@ ms.fn = ms_fn = (ctx, call) ->
           call.tea =
             if body
               new Constrained (join body.tea.constraints, deferredConstraints),
-                typeFn paramTypeVars..., body.tea?.type
+                markOrigin (typeFn paramTypeVars..., body.tea?.type), call
             else
               freshInstance ctx, explicitType
           # """λ#{paramNames.length}(function (#{listOf paramNames}) {
@@ -2806,6 +2806,8 @@ replicate = (expression, newForm) ->
 retrieve = (expression, newForm) ->
   expression.tea = newForm.tea
   expression.malformed = newForm.malformed
+  if newForm.tea?.type.origin is newForm
+    markOrigin newForm.tea.type, expression
 
 filterAst = (test, expression) ->
   join (filter test, [expression]),
