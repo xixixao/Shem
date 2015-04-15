@@ -3850,26 +3850,30 @@ mostGeneralUnifier = (t1, t2) ->
     unifyFail t1, t2
 
 unifyFail = (t1, t2) ->
+  typeFail "Types don't match: ", t1, t2
+
+bindVariable = (variable, type) ->
+  if type.TypeVariable and variable.name is type.name
+    emptySubstitution()
+  else if inSet (findFree type), variable.name
+    typeFail "Types cannot match: ", variable, type
+    # newMapWith variable.name, "occurs check failed"
+  else if not kindsEq (kind variable), (kind type)
+    # newMapWith variable.name, "kinds don't match for #{variable.name} and #{safePrintType type}"
+    typeFail "Kinds of types don't match: ", variable, type
+  else
+    newSubstitution variable.name, type
+
+typeFail = (message, t1, t2) ->
   [first, second] =
     if t1.origin?.start > t2.origin?.start
       [t2, t1]
     else
       [t1, t2]
   substituionFail
-    message: "could not unify #{(safePrintType first)}, #{(safePrintType second)}"
+    message: "#{message} #{(safePrintType first)}, #{(safePrintType second)}"
     conflicts: [first.origin, second.origin]
 
-bindVariable = (variable, type) ->
-  if type.TypeVariable and variable.name is type.name
-    emptySubstitution()
-  else if inSet (findFree type), variable.name
-    substituionFail "occurs check failed for #{variable.name}"
-    # newMapWith variable.name, "occurs check failed"
-  else if not kindsEq (kind variable), (kind type)
-    # newMapWith variable.name, "kinds don't match for #{variable.name} and #{safePrintType type}"
-    substituionFail "kinds don't match for #{variable.name} and #{safePrintType type}"
-  else
-    newSubstitution variable.name, type
 
 # Maybe substitution if the types match
 # t1 can be more general than t2
