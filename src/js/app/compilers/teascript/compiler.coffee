@@ -4269,6 +4269,12 @@ prettyPrintWith = (printer, type) ->
     else
       printer type.type
 
+humanPrintType = (type) ->
+  index = 0
+  nextName = ->
+    (String.fromCharCode 97 + index++ % 25)
+  safePrintType substitute (mapMap nextName, (findFree type)), type
+
 printType = (type) ->
   if type.TypeVariable
     "_#{type.name}"
