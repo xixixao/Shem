@@ -4605,7 +4605,7 @@ findMatchingDefinitionsOnType = (type, definitions) ->
       score = -Infinity
     else
       score = -(subMagnitude sub)
-    type: score + ' ' + plainPrettyPrint def.type
+    type: plainPrettyPrint def.type
     score: score
 
   values mapMap scoreAndPrint, validDefinitions
