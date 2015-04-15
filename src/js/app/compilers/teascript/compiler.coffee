@@ -4606,7 +4606,7 @@ findMatchingDefinitionsOnType = (type, definitionLists) ->
         score = -Infinity
       else
         score = -((subMagnitude sub) + i * 100)
-      type: plainPrettyPrint def.type
+      type: plainPrettyPrint def.type#score + ' ' +
       score: score
     isTyped = (completion) ->
       completion.score isnt -Infinity
@@ -4621,10 +4621,17 @@ subMagnitude = (sub) ->
   for s in sub.vars when s
     magnitude +=
       if s.TypeApp
-        4
+        opName = actualOpName s.op
+        if opName is 'Fn'
+          6
+        else
+          3
       else
-        1
+        2
   magnitude
+
+actualOpName = (type) ->
+  type.name or actualOpName type.op
 
 # API
 
