@@ -759,20 +759,23 @@ callTyping = (ctx, call) ->
   if terms.length is 1
     malformed ctx, call, 'Missing an argument (for now)'
     terms = join terms, [tea: toConstrained ctx.freshTypeVariable star]
-  call.tea = callInfer ctx, terms
+  call.tea = callInfer ctx, (_operator call), terms
 
-callInfer = (ctx, terms) ->
+callInfer = (ctx, operator, terms) ->
   # Curry the call
   if terms.length > 2
     [subTerms..., lastArg] = terms
-    callInferSingle ctx, (callInfer ctx, subTerms), lastArg.tea
+    callInferSingle ctx, operator, (callInfer ctx, operator, subTerms), lastArg.tea
   else
     [op, arg] = terms
-    callInferSingle ctx, op.tea, arg.tea
+    callInferSingle ctx, operator, op.tea, arg.tea
 
-callInferSingle = (ctx, operatorTea, argTea) ->
+callInferSingle = (ctx, originalOperator, operatorTea, argTea) ->
   returnType = ctx.freshTypeVariable star
-  unify ctx, operatorTea.type, (typeFn argTea.type, returnType)
+  returnType.origin = originalOperator
+  callType = (typeFn argTea.type, returnType)
+  callType.origin = originalOperator
+  unify ctx, operatorTea.type, callType
   new Constrained (join operatorTea.constraints, argTea.constraints), returnType
 
 termsCompile = (ctx, list) ->
@@ -1296,7 +1299,11 @@ ms.fn = ms_fn = (ctx, call) ->
         if type
           explicitType = assignExplicitType ctx, typeConstrainedCompile ctx, type
 
-      paramTypeVars = map (-> ctx.freshTypeVariable star), params
+      newParamType = (param) ->
+        type = ctx.freshTypeVariable star
+        type.origin = param
+        type
+      paramTypeVars = map newParamType, params
       paramTypes = map (__ toForAll, toConstrained), paramTypeVars
       ctx.newLateScope()
       ctx.bindTypeVariables (map (({name}) -> name), paramTypeVars)
@@ -2327,6 +2334,7 @@ nameTranslate = (ctx, atom, symbol, type) ->
           (jsAccess (validIdentifier symbol), "_value")
     else
       (irReference symbol, id, type, arity)
+  type.origin = atom
   {id, type, translation}
 
 namespacedNameCompile = (ctx, atom, symbol) ->
@@ -2361,7 +2369,7 @@ charCompile = (ctx, atom, symbol) ->
     if symbol.length is 2
       '"' + symbol[1] + '"'
     else if symbol is "\\space"
-      ' '
+      '" "'
     else if symbol in specialCharacters
       "\"\\#{symbol[1]}\""
     else if /^\\x[a-fA-F0-9]{2}/.test symbol
@@ -5734,7 +5742,7 @@ tests = [
 
   [seps words] (my-split separators "Hello, world!")
   """
-  "seps", "Hello, world!"
+  "seps", ", !"
 
   'recursive overloaded functions'
   """
