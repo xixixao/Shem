@@ -333,7 +333,7 @@ class Context
   _scope: ->
     @scopes[@scopes.length - 1]
 
-  _parentScope: ->
+  _outerScope: ->
     @scopes[@scopes.length - 2]
 
   newScope: ->
@@ -1232,15 +1232,29 @@ resolveDeferredTypes = (ctx) ->
           #log type.constructor
           unify ctx, canonicalType.type, type.type
           # log "done unifying one"
+
         # have to promote constraints from just compiled dependencies
         depConstraints = concat (for dep in binding.deps or [] when cononicalType = ctx.actualType dep.name
           constraintsFromCanonicalType ctx, cononicalType, dep.type)
-        # log binding.constraints, depConstraints
-        inferType ctx, name, canonicalType,
-          (join binding.constraints or [], depConstraints), binding.polymorphic
-        # unifiedType = (substitute ctx.substitution, canonicalType)
-        # ctx.assignType name,
-        #   quantifyAll (addConstraints unifiedType, definitionConstraints)
+        allConstraints = (join binding.constraints or [], depConstraints)
+
+        # If the thing is not declared it must be coming from an outer scope
+        # add it as a missing name to the current definition
+
+        if (not ctx.isCurrentlyDeclared name)
+          if ctx.isInTopScope()
+            # TODO: error missing name
+          else
+            ctx.addToDeferredNames
+              name: name
+              type: addConstraints canonicalType, allConstraints
+        else
+          # log binding.constraints, depConstraints
+          inferType ctx, name, canonicalType,
+            allConstraints, binding.polymorphic
+          # unifiedType = (substitute ctx.substitution, canonicalType)
+          # ctx.assignType name,
+          #   quantifyAll (addConstraints unifiedType, definitionConstraints)
 
 compileDeferred = (ctx) ->
   compiledPairs = []
@@ -2330,7 +2344,8 @@ nameCompile = (ctx, atom, symbol) ->
       type = freshInstance ctx, contextType
       nameTranslate ctx, atom, symbol, type
     # Inside function only defer compilation if we don't know arity
-    else if ctx.isInsideLateScope() and (ctx.isDeclared symbol) or contextType instanceof TempType
+    else if (ctx.isInsideLateScope() or not ctx.isCurrentlyDeclared symbol) and
+        (ctx.isDeclared symbol) or contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
       ctx.addToDeferredNames {name: symbol, type: type}
@@ -4865,7 +4880,7 @@ test = (testName, teaSource, result) ->
   try
     log (collapse toHtml compiled.ast)
     if _notEmpty compiled.subs
-      log compiled.subs
+      log map formatFail, compiled.subs
     if result isnt (got = eval compiled.compiled)
       log "'#{testName}' expected", result, "got", got
   catch e
@@ -5854,6 +5869,16 @@ tests = [
   y (Set x 1 3)
   """
   '(first y)', 2
+
+  'recursion in subfunction'
+  """
+  f (fn [x]
+    (match x
+      True False
+      False g)
+    g (f True))
+  """
+  '(f False)', no
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
