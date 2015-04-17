@@ -1983,7 +1983,6 @@ ms.cond = ms_cond = (ctx, call) ->
   [usedNames] = unzip compiledResults
   lifting = map (findDeps ctx), usedNames
   jointlyUsed = intersectSets lifting
-  console.log lifting
 
   branches = for [used, res], i in compiledResults
     lifted = lifting[i]
@@ -4321,7 +4320,6 @@ kind = (type) ->
   else if type.TypeApp
     (kind type.op).to
   else
-    console.log "invalid", type
     throw new Error "Invalid type in kind"
 
 kindsEq = (k1, k2) ->
