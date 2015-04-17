@@ -229,6 +229,7 @@ class Context
       late: no
       deferredBindings: []
       definedNames: []
+      usedNames: []
       deferrable: yes
       _defer: undefined
 
@@ -260,6 +261,9 @@ class Context
 
   _currentDefinition: ->
     @_scope().definition
+
+  _currentDeferrableDefinition: ->
+    (def = @_scope().definition) and def.deferrable and def
 
   _definition: ->
     @_definitionAtScope @scopes.length - 1
@@ -348,6 +352,7 @@ class Context
     scope.typeNames = newMap()
     scope.typeAliases = newMap()
     scope.deferredConstraints = []
+    scope.usedNames = []
     scope
 
   newLateScope: ->
@@ -357,7 +362,7 @@ class Context
   closeScope: ->
     closedScope = @scopes.pop()
     @savedScopes[closedScope.index] =
-      parent: @scopes[@scopes.length - 1].index
+      parent: @currentScopeIndex()
       definitions: cloneMap closedScope
 
   currentScopeIndex: ->
@@ -447,6 +452,11 @@ class Context
       i > 0 and (@_declarationInScope i - 1, name) or
       undefined # throw "Could not find declaration for #{name}"
 
+  _scopeOfDeclared: (i, name) ->
+    (lookupInMap @scopes[i], name) and @scopes[i] or
+      i > 0 and (@_scopeOfDeclared i - 1, name) or
+      undefined
+
   isCurrentlyDeclared: (name) ->
     !!(lookupInMap @_scope(), name)
 
@@ -500,8 +510,30 @@ class Context
   addToDefinedNames: (binding) ->
     @_currentDefinition()?.definedNames?.push binding
 
+  addToUsedNames: (name) ->
+    (@_currentDeferrableDefinition() or
+      (@_scopeOfDeclared @scopes.length - 1, name)).usedNames?.push name
+
   definedNames: ->
     @_currentDefinition()?.definedNames ? []
+
+  usedNames: ->
+    (@_currentDefinition() or @_scope()).usedNames ? []
+
+  setUsedNames: (usedNames) ->
+    @_scope().usedNames = usedNames
+
+  setAuxiliaryDefinitions: (compiledDefinitions) ->
+    auxiliaries = newMap()
+    for def in compiledDefinitions
+      for defined in def.definedNames
+        addToMap auxiliaries, defined,
+          deps: def.usedNames
+          definition: def
+    @_scope().auxiliaries = auxiliaries
+
+  auxiliaries: ->
+    @_scope().auxiliaries
 
   deferredNames: ->
     @_definition().deferredBindings
@@ -919,13 +951,20 @@ termsCompileExpectingSameType = (ctx, items) ->
   itemType = ctx.freshTypeVariable star
   termsCompileExpectingType ctx, itemType, items
 
-termsCompileExpectingType = (ctx, itemType, items) ->
-  compiledItems = termsCompile ctx, items
-  for item in items when item.tea
-    unify ctx, itemType, item.tea.type
-  constraints: (concatMap _constraints, (tea for {tea} in items when tea))
-  itemType: itemType
-  compiled: compiledItems
+termsCompileExpectingType = (ctx, itemType, terms) ->
+  compiled = termsCompile ctx, terms
+  constraints = unifyTypesOfTermsWithType ctx, itemType, terms
+  {constraints, itemType, compiled}
+
+unifyTypesOfTerms = (ctx, terms) ->
+  itemType = ctx.freshTypeVariable star
+  constraints = unifyTypesOfTermsWithType ctx, itemType, terms
+  {itemType, constraints}
+
+unifyTypesOfTermsWithType = (ctx, canonicalType, terms) ->
+  for term in terms when term.tea
+    unify ctx, canonicalType, term.tea.type
+  (concatMap _constraints, (tea for {tea} in terms when tea))
 
 # arrayToConses = (elems) ->
 #   if elems.length is 0
@@ -1050,7 +1089,10 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
 
     if assigns.length is 0
       return malformed ctx, to, 'Not an assignable pattern'
-    map compileVariableAssignment, (join translationCache, assigns)
+    translation = map compileVariableAssignment, (join translationCache, assigns)
+    translation.usedNames = ctx.usedNames()
+    translation.definedNames = (name for {name} in ctx.definedNames())
+    translation
   else
     if ctx.isAtBareDefinition() and expression.tea
       # Force context reduction
@@ -1183,21 +1225,24 @@ topLevel = (ctx, form) ->
     throw new Error "Missing definition at top level"
 
 definitionList = (ctx, pairs) ->
+  # log "yay"
+  concat (definitionListCompile ctx, pairs)
+
+definitionListCompile = (ctx, pairs) ->
   compiledPairs = (for [lhs, rhs] in pairs
-    if rhs
-      definitionPairCompile ctx, lhs, rhs
-    else
+    if not rhs
       malformed ctx, lhs, 'missing value in definition'
-      undefined)
+      # TODO: take into account fakes (using better pairs function) and new lines
+      rhs = fake_()
+    definitionPairCompile ctx, lhs, rhs)
 
   compiledPairs = join compiledPairs, compileDeferred ctx
   resolveDeferredTypes ctx
   compiledPairs = join compiledPairs, compileDeferred ctx
   deferDeferred ctx
 
+  filter _is, compiledPairs
 
-  # log "yay"
-  concat filter _is, compiledPairs
 
 # This function resolves the types of mutually recursive functions
 resolveDeferredTypes = (ctx) ->
@@ -1270,7 +1315,7 @@ compileDeferred = (ctx) ->
         # If can't compile, defer further
         ctx.addDeferredDefinition deferred
         deferredCount++
-  concat compiledPairs
+  compiledPairs
 
 deferDeferred = (ctx) ->
   # defer completely current scope
@@ -1332,12 +1377,18 @@ ms.fn = ms_fn = (ctx, call) ->
         param.id = ctx.declarationId _symbol param
 
       #log "compiling wheres", pairs wheres
-      compiledWheres = definitionList ctx, pairs wheres
+      compiledWheres = definitionListCompile ctx, pairs wheres
+      # 1. Construct dependency graph
+      # 2. Add to context
 
-      # log "types added"
-      # log "compiling", body
+      ctx.setAuxiliaryDefinitions compiledWheres
+      # compiledWheres = concat filter _is, compiledWheres
+
       if body
         compiledBody = termCompile ctx, body
+
+      nonLiftedWheres = concat findDefinitionsIncludingDeps ctx, ctx.usedNames()
+      ctx.setUsedNames []
 
       deferredConstraints = ctx.currentScopeConstraints()
       # log "compiled", body.tea
@@ -1372,7 +1423,7 @@ ms.fn = ms_fn = (ctx, call) ->
           (irFunction
             name: (ctx.definitionName() if ctx.isAtSimpleDefinition())
             params: paramNames
-            body: (join compiledWheres, [(jsReturn compiledBody)]))
+            body: (join nonLiftedWheres, [(jsReturn compiledBody)]))
             # (jsCall "λ#{paramNames.length}", [
             #   (jsFunction
             #     name: (ctx.definitionName() if ctx.isAtSimpleDefinition())
@@ -1914,9 +1965,32 @@ ms.syntax = ms_syntax = (ctx, call) ->
 
 ms.cond = ms_cond = (ctx, call) ->
   args = _arguments call
-  [conds, results] = unzip pairs args
+  [conds, someResults] = unzip pairs args
+  results = (filter _is, someResults)
+
   doneConds = termsCompileExpectingType ctx, boolType, conds
-  doneResults = termsCompileExpectingSameType ctx, (filter _is, results)
+
+  # mark all used as used (or remember them)
+  oldUsed = ctx.usedNames()
+
+  compiledResults = for result in results
+    ctx.setUsedNames []
+    compiled = termCompile ctx, result
+    [ctx.usedNames(), compiled]
+
+  doneResults = unifyTypesOfTerms ctx, results
+
+  [usedNames] = unzip compiledResults
+  lifting = map (findDeps ctx), usedNames
+  jointlyUsed = intersectSets lifting
+  console.log lifting
+
+  branches = for [used, res], i in compiledResults
+    lifted = lifting[i]
+    join (findDefinitions ctx, (setToArray (subtractSets lifted, jointlyUsed))),
+      [(jsReturn res)]
+
+  ctx.setUsedNames join oldUsed, setToArray jointlyUsed
 
   errorMessage =
     if ctx.definitionName()?
@@ -1925,12 +1999,26 @@ ms.cond = ms_cond = (ctx, call) ->
       ""
   call.tea = new Constrained (join doneConds.constraints, doneResults.constraints),
       doneResults.itemType
-  branches = for res in doneResults.compiled
-    [(jsReturn res)]
   assignCompile ctx, call,
     (iife [(jsConditional (zip doneConds.compiled[0...branches.length], branches),
         "throw new Error('cond failed to match#{errorMessage}');")])
 
+findDefinitionsIncludingDeps = (ctx, names) ->
+  findDefinitions ctx, setToArray (findDeps ctx) names
+
+findDefinitions = (ctx, names) ->
+  auxiliaries = ctx.auxiliaries()
+  concat (for name in names
+    (lookupInMap auxiliaries, name)?.definition or [])
+
+findDeps = (ctx) -> (names) ->
+  auxiliaries = ctx.auxiliaries()
+  arrayToSet reverse join names, auxiliaryDependencies auxiliaries, names
+
+auxiliaryDependencies = (graph, names) ->
+  concat (for name in names
+    join (deps = ((lookupInMap graph, name)?.deps or [])),
+      auxiliaryDependencies graph, deps)
 
 ms['`'] = ms_quote = (ctx, call) ->
   [res] = _arguments call
@@ -2366,6 +2454,7 @@ constPattern = (ctx, symbol) ->
 nameTranslate = (ctx, atom, symbol, type) ->
   id = ctx.declarationId symbol
   arity = ctx.arity symbol
+  ctx.addToUsedNames symbol
   translation =
     if atom.label is 'const'
       switch symbol
@@ -2495,8 +2584,14 @@ fn_ = (params, body) ->
 token_ = (string) ->
   (tokenize string)[0]
 
+fake_ = ->
+  fake: yes
+
 string_ = (string) ->
   "\"#{string}\""
+
+ps = (string) ->
+  "(#{string})"
 
 translateIr = (ctx, irAst) ->
   walkIr irAst, (ast) ->
@@ -3837,6 +3932,16 @@ intersectRight = (mapA, mapB) ->
   for k, v of mapB.values when k of mapA.values
     addToMap intersection, k, v
   intersection
+
+intersectMaps =
+intersectSets = (maps) ->
+  [x, xs...] = maps
+  if _empty maps
+    newMap()
+  else if _empty xs
+    x
+  else
+    intersectRight x, intersectMaps xs
 
 nestedAddToMap = (map, keys, value) ->
   [nestedKeys..., finalKey] = keys
@@ -5878,7 +5983,51 @@ tests = [
       False g)
     g (f True))
   """
+  'False', no
+
+  'lifting into conditionals'
+  """
+  f (fn [x]
+    (cond
+      x False
+      True g)
+    g (f True))
+  """
   '(f False)', no
+
+  'lifting with nested functions'
+  """
+  f (fn [x]
+    ((fn [y]
+        g) 2)
+    g 3)
+  """
+  '(f False)', 3
+
+  'lifting into match conditional'
+  """
+  f (fn [x]
+    (match x
+      True False
+      False g)
+    g (f h)
+    h True)
+  """
+  '(f False)', no
+
+  'lifting into match'
+  """
+  Maybe (data [a]
+    None
+    Just [value: a])
+
+  f (fn [x]
+    (match x
+      None 0
+      (Just y) g)
+    g y)
+  """
+  '(f (Just 4))', 4
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
