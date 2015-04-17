@@ -1999,9 +1999,13 @@ ms.cond = ms_cond = (ctx, call) ->
       ""
   call.tea = new Constrained (join doneConds.constraints, doneResults.constraints),
       doneResults.itemType
+
   assignCompile ctx, call,
-    (iife [(jsConditional (zip doneConds.compiled[0...branches.length], branches),
-        "throw new Error('cond failed to match#{errorMessage}');")])
+    if branches.length > 0
+      (iife [(jsConditional (zip doneConds.compiled[0...branches.length], branches),
+          "throw new Error('cond failed to match#{errorMessage}');")])
+    else
+      jsNoop()
 
 findDefinitionsIncludingDeps = (ctx, names) ->
   findDefinitions ctx, setToArray (findDeps ctx) names
