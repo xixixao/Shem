@@ -1239,6 +1239,7 @@ definitionListCompile = (ctx, pairs) ->
   compiledPairs = join compiledPairs, compileDeferred ctx
   resolveDeferredTypes ctx
   compiledPairs = join compiledPairs, compileDeferred ctx
+  resolveDeferredTypes ctx
   deferDeferred ctx
 
   filter _is, compiledPairs
@@ -1300,6 +1301,7 @@ resolveDeferredTypes = (ctx) ->
           # unifiedType = (substitute ctx.substitution, canonicalType)
           # ctx.assignType name,
           #   quantifyAll (addConstraints unifiedType, definitionConstraints)
+  ctx.deferredBindings().length = 0 # clear
 
 compileDeferred = (ctx) ->
   compiledPairs = []
@@ -2435,14 +2437,14 @@ nameCompile = (ctx, atom, symbol) ->
       type = freshInstance ctx, contextType
       nameTranslate ctx, atom, symbol, type
     # Inside function only defer compilation if we don't know arity
-    else if (ctx.isInsideLateScope() or not ctx.isCurrentlyDeclared symbol) and
+    else if (not ctx.isCurrentlyDeclared symbol) and
         (ctx.isDeclared symbol) or contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
       ctx.addToDeferredNames {name: symbol, type: type}
       nameTranslate ctx, atom, symbol, type
     else
-      # log "deferring in rhs for #{symbol}"
+      console.log "deferring in rhs for #{symbol}"
       ctx.doDefer atom, symbol
       translation: deferredExpression()
 
@@ -4786,7 +4788,9 @@ findMatchingDefinitions = (moduleName, reference) ->
 findMatchingDefinitionsOnType = (type, definitionLists) ->
   ctx = new Context
   [typed, untyped] = unzip (for definitions, i in definitionLists
-    validDefinitions = filterMap ((name, def) -> def.type?), definitions # TODO: filter before
+    isValid = (name, def) ->
+      def.type? and not def.type.TempType
+    validDefinitions = filterMap isValid, definitions # TODO: filter before
     # typesUnify = (def) ->
     #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
     # [typed, notTyped] = partitionMap typesUnify, validDefinitions
