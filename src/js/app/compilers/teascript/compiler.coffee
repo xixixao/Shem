@@ -1236,10 +1236,11 @@ definitionListCompile = (ctx, pairs) ->
       rhs = fake_()
     definitionPairCompile ctx, lhs, rhs)
 
-  compiledPairs = join compiledPairs, compileDeferred ctx
-  resolveDeferredTypes ctx
-  compiledPairs = join compiledPairs, compileDeferred ctx
-  resolveDeferredTypes ctx
+  shouldRecompile = yes
+  while shouldRecompile
+    compiledPairs = join compiledPairs, compileDeferred ctx
+    shouldRecompile = _notEmpty ctx.deferredBindings()
+    resolveDeferredTypes ctx
   deferDeferred ctx
 
   filter _is, compiledPairs
@@ -2444,7 +2445,7 @@ nameCompile = (ctx, atom, symbol) ->
       ctx.addToDeferredNames {name: symbol, type: type}
       nameTranslate ctx, atom, symbol, type
     else
-      console.log "deferring in rhs for #{symbol}"
+      # log "deferring in rhs for #{symbol}", ctx.definitionName()
       ctx.doDefer atom, symbol
       translation: deferredExpression()
 
@@ -3196,13 +3197,16 @@ labelComments = (call) ->
 # Syntax printing to HTML
 
 toHtml = (highlighted) ->
-  crawl highlighted, (word, symbol, parent) ->
-    (word.ws or '') + colorize(theme[labelOf word, parent], symbol)
+  crawl highlighted, (node, symbol, parent) ->
+    colorize(theme[labelOf node, parent], symbol)
 
-labelOf = (word, parent) ->
-  word.malformed and 'malformed' or
-    parent?.malformed and word.symbol in allDelims and 'malformed' or
-      word.label or 'normal'
+print = (ast) ->
+  collapse crawl ast, (node, symbol) -> symbol
+
+labelOf = (node, parent) ->
+  node.malformed and 'malformed' or
+    parent?.malformed and node.symbol in allDelims and 'malformed' or
+      node.label or 'normal'
 
 collapse = (nodes) ->
   collapsed = ""
