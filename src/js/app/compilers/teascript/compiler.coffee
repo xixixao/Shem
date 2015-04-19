@@ -6039,6 +6039,19 @@ tests = [
   """
   '(f (Just 4))', 4
 
+  'shadowing'
+  """
+  f (macro [x]
+    (: (Fn Num Num))
+    (Js.binary "+" x 2))
+
+  g (fn [x]
+    y
+    y (f x)
+    f (fn [x] x))
+  """
+  '(g 3)', 3
+
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
   #       with the same names, since JavaScript shadows it too strongly and
