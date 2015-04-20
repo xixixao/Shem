@@ -2009,34 +2009,6 @@ ms.format = ms_format = (ctx, call) ->
   assignCompile ctx, call,
     (jsBinaryMulti "+", join (concat formattedArgs), [string_ formatString])
 
-ms.syntax = ms_syntax = (ctx, call) ->
-  hasName = requireName ctx, 'Name required to declare a new syntax macro'
-  [paramTuple, rest...] = _arguments call
-  [body] = rest
-
-  # ctx.declareMacro ctx.definitionName(), (ctx) ->
-  #   expressionCompile ctx, body
-
-  if hasName
-    macroName = ctx.definitionName()
-
-    # params = (map (__ token_, _symbol), _terms paramTuple) # freshen
-
-    compiledMacro = translateToJs translateIr ctx,
-        (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], rest))
-    macroFn = eval compiledMacro
-    ctx.declareMacro ctx.definitionPattern(), (ctx, call) ->
-      # operatorCompile ctx, call
-      # args = termsCompile ctx, (_arguments call)[0..macroFn.length]
-      #callTyping ctx, call
-      constantToSource macroFn (_arguments call)...
-
-    # ctx.declareMacro macroName, (ctx, call) ->
-    #   compiled = termCompile ctx, (fn_ params, body)
-    #   assignCompile ctx, body, compiled
-
-    jsNoop()
-
 ms.cond = ms_cond = (ctx, call) ->
   args = _arguments call
   [conds, someResults] = unzip pairs args
@@ -2097,6 +2069,22 @@ auxiliaryDependencies = (graph, names) ->
     join (deps = ((lookupInMap graph, name)?.deps or [])),
       auxiliaryDependencies graph, deps)
 
+ms.syntax = ms_syntax = (ctx, call) ->
+  hasName = requireName ctx, 'Name required to declare a new syntax macro'
+  [paramTuple, rest...] = _arguments call
+  [body] = rest
+
+  if hasName
+    macroName = ctx.definitionName()
+
+    compiledMacro = translateToJs translateIr ctx,
+        (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], rest))
+    macroFn = eval compiledMacro
+    ctx.declareMacro ctx.definitionPattern(), (ctx, call) ->
+      constantToSource macroFn (_arguments call)...
+
+  jsNoop()
+
 ms['`'] = ms_quote = (ctx, call) ->
   [res] = _arguments call
   # call.tea = toConstrained typeConstant 'Exp'
@@ -2140,35 +2128,22 @@ ms.macro = ms_macro = (ctx, call) ->
 
   if hasName
     macroName = ctx.definitionName()
-    # TODO: remove along with the below
-    redefining = ctx.isMacroDeclared macroName
 
-    # Register type
     params = _terms paramTuple
     paramNames = map _symbol, params
     if (not type or not isTypeAnnotation type)
       if (not ctx.isPreTyped macroName)
         malformed ctx, call, "Type annotation required"
       macroBody = join [type], macroBody
-    else if not redefining
-      # TODO: remove and inherit from compiled
-      call.tea = quantifyUnbound ctx, typeConstrainedCompile ctx, type
-      # if not ctx.isDeclared macroName
-      #   ctx.declare macroName,
-      #     arity: paramNames
-      #     type: type
-      # call.tea = type
 
     # if not macroBody.length > 0
     #   return malformed ctx, call, "Macro body missing"
 
-    #macroFn = transform call
     compiledMacro = translateToJs translateIr ctx,
       (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], macroBody))
-    # log compiledMacro
     params = (map token_, paramNames) # freshen
 
-    if redefining
+    if ctx.isMacroDeclared macroName
       malformed ctx, ctx.definitionPattern(), "Macro with this name already defined"
     else
       ctx.declareMacro ctx.definitionPattern(), simpleMacro eval compiledMacro
