@@ -187,7 +187,6 @@ mapSyntax = (fn, string) ->
 
 class Context
   constructor: ->
-    @_macros = builtInMacros()
     @expand = {}
     @definitions = []
     @_isOperator = []
@@ -198,7 +197,7 @@ class Context
     @statement = []
     @cacheScopes = [[]]
     @_assignTos = []
-    topScope = @_augmentScope builtInDefinitions(), @scopeIndex = 0
+    topScope = @_augmentScope builtInDefinitions(), builtInMacros(), @scopeIndex = 0
     topScope.typeNames = builtInTypeNames()
     topScope.topLevel = yes
     @scopes = [topScope]
@@ -206,13 +205,6 @@ class Context
     @classParams = newMap()
     @types = []
     @isMalformed = no
-
-  macros: ->
-    @_macros
-
-  addMacro: (name, macro) ->
-    @_macros[name.symbol] = macro
-    name.id = macro.id = @freshId()
 
   markMalformed: ->
     @isMalformed = yes
@@ -341,10 +333,11 @@ class Context
     @scopes[@scopes.length - 2]
 
   newScope: ->
-    @scopes.push @_augmentScope newMap(), ++@scopeIndex
+    @scopes.push @_augmentScope newMap(), newMap(), ++@scopeIndex
 
-  _augmentScope: (scope, index) ->
+  _augmentScope: (scope, macros, index) ->
     scope.index = index
+    scope.macros = macros
     scope.deferred = []
     scope.deferredBindings = []
     scope.boundTypeVariables = newSet()
@@ -435,34 +428,62 @@ class Context
     any (for {className} in type.constraints
       lookupInMap (@classNamed className).declarations, name)
 
+  ## Macro declarations
+
+  declareMacro: (name, macro) ->
+    name.id = macro.id = @freshId()
+    addToMap @_scope().macros, name.symbol, macro
+
+  isMacroDeclared: (name) ->
+    !!@macro name
+
+  macro: (name) ->
+    @_macroInScope @scopes.length - 1, name
+
+  _macroInScope: (i, name) ->
+    (lookupInMap @scopes[i].macros, name) or
+      (not @_declarationInScope i, name) and i > 0 and (@_macroInScope i - 1, name) or
+      undefined # throw "Could not find macro for #{name}"
+
+  ## In-scope Declarations
+  # For each name in a scope:
+  #   type: (? Type)
+  #   arity: (? [String])
+  #   id: Int
+  #   final: Bool
+
   isDeclared: (name) ->
     !!(@_declaration name)
+
+  isCurrentlyDeclared: (name) ->
+    (declaration = @_declarationInCurrentScope name) and declaration.final
 
   isTyped: (name) ->
     !!@type name
 
-  isActuallyTyped: (name) ->
-    !!@actualType name
+  isPreTyped: (name) ->
+    !!(@preDeclaredType name)
 
-  _declaration: (name) ->
-    @_declarationInScope @scopes.length - 1, name
+  isFinallyTyped: (name) ->
+    !!@finalType name
 
-  _declarationInScope: (i, name) ->
-    (lookupInMap @scopes[i], name) or
-      i > 0 and (@_declarationInScope i - 1, name) or
-      undefined # throw "Could not find declaration for #{name}"
+  typeForId: (id) ->
+    @types[id]
 
-  _scopeOfDeclared: (i, name) ->
-    (lookupInMap @scopes[i], name) and @scopes[i] or
-      i > 0 and (@_scopeOfDeclared i - 1, name) or
-      undefined
+  type: (name) ->
+    (@_declaration name)?.type
 
-  isCurrentlyDeclared: (name) ->
-    !!(lookupInMap @_scope(), name)
+  finalType: (name) ->
+    (type = @type name) and (type not instanceof TempType) and type
+
+  preDeclaredType: (name) ->
+    (@_preDeclaration name)?.type
+
+  currentDeclarations: ->
+    cloneMap @_scope()
 
   assignType: (name, type) ->
-    # log "TYPE OF #{name}", printType type
-    if declaration = (lookupInMap @_scope(), name)
+    if declaration = @_declarationInCurrentScope name
       if declaration.type and declaration.type not instanceof TempType
         throw new Error "assignType: #{name} already has a type"
       declaration.type = type
@@ -470,36 +491,51 @@ class Context
     else
       throw new Error "assignType: #{name} is not declared"
 
-  typeForId: (id) ->
-    @types[id]
+  assignArity: (name, arity) ->
+    (@_declarationInCurrentScope name).arity = arity
 
-  currentDeclarations: ->
-    cloneMap @_scope()
+  declareTyped: (names, types) ->
+    for name, i in names
+      @declare name, type: types[i]
 
-  declareArity: (name, arity, id) ->
-    @declare name, {arity, id}
+  declare: (name, declaration) ->
+    declaration.final = yes
+    @_declare name, declaration
 
-  # Returns whether the declaration was successful (not redundant)
-  declare: (name, declaration = {}) ->
-    if lookupInMap @_scope(), name
-      false
-    else
-      declaration.id ?= @freshId()
-      addToMap @_scope(), name, declaration
-      true
+  preDeclare: (name, declaration) ->
+    declaration.final = no
+    @_declare name, declaration
+
+  _declare: (name, declaration) ->
+    declaration.id ?= @freshId()
+    replaceOrAddToMap @_scope(), name, declaration
+
+  _preDeclaration: (name) ->
+    (declaration = @_declarationInCurrentScope name) and not declaration.final and declaration
+
+  _declarationInCurrentScope: (name) ->
+    lookupInMap @_scope(), name
+
+  _declaration: (name) ->
+    @_lookupDeclaration @scopes.length - 1, name
+
+  _lookupDeclaration: (i, name) ->
+    (@_declarationInScope i, name) or
+      i > 0 and (@_lookupDeclaration i - 1, name) or
+      undefined # throw "Could not find declaration for #{name}"
+
+  _scopeOfDeclared: (i, name) ->
+    (@_declarationInScope i, name) and @scopes[i] or
+      i > 0 and (@_scopeOfDeclared i - 1, name) or
+      undefined
+
+  _declarationInScope: (i, name) ->
+    lookupInMap @scopes[i], name
 
   freshId: ->
     @nameIndex++
 
-  declareTypes: (names, types) ->
-    for name, i in names
-      @declare name, type: types[i]
-
-  type: (name) ->
-    (@_declaration name)?.type
-
-  actualType: (name) ->
-    (type = @type name) and (type not instanceof TempType) and type
+  ## Deferring
 
   addToDeferredNames: (binding) ->
     @_deferrableDefinition().deferredBindings.push binding
@@ -624,10 +660,9 @@ callCompile = (ctx, call) ->
   operator = _operator call
   operatorName = _symbol operator
   if isName operator
-
     (if isDotAccess operator
       callJsMethodCompile
-    else if operatorName of ctx.macros() and not ctx.arity operatorName
+    else if (ctx.isMacroDeclared operatorName) and not ctx.isDeclared operatorName
       callMacroCompile
     else if (isFake operator) or (ctx.isDeclared operatorName) and not ctx.arity operatorName
       callUnknownCompile
@@ -644,7 +679,7 @@ callCompile = (ctx, call) ->
 callMacroCompile = (ctx, call) ->
   op = _operator call
   op.label = 'keyword'
-  macro = ctx.macros()[op.symbol]
+  macro = ctx.macro op.symbol
   op.id = macro.id
   expanded = macro ctx, call
   if isTranslated expanded
@@ -712,7 +747,7 @@ callKnownCompile = (ctx, call) ->
         compiled
       else
         compiled =
-          if operator.symbol of ctx.macros()
+          if ctx.isMacroDeclared operator.symbol
             callMacroCompile ctx, sortedCall
           else
             callSaturatedKnownCompile ctx, sortedCall
@@ -1116,12 +1151,12 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
 
   definedNames = ctx.definedNames()
 
-  # log "is deferriing", pattern, ctx.shouldDefer()
+  # log "is deferriing", (print pattern), ctx.shouldDefer()
   # Make sure deferred names are added to scope so they are compiled within functions
   if ctx.shouldDefer()
-    for {name} in definedNames
-      if not ctx.arity name
-        ctx.declare name
+    for {name, id} in definedNames
+      if not ctx.isCurrentlyDeclared name
+        ctx.declare name, id: id
     #log "exiting pattern early", pattern, "for", ctx.shouldDefer()
     return {}
 
@@ -1161,7 +1196,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
   # For explicitly typed bindings, we need to check that the inferred type
   #   corresponds to the annotated
   currentType = substitute ctx.substitution, type
-  if ctx.isActuallyTyped name
+  if ctx.isFinallyTyped name
     # TODO: check class constraints
     if not includesJsType currentType.type
       # Check the declared type
@@ -1265,7 +1300,7 @@ resolveDeferredTypes = (ctx) ->
       # First get rid of instances of already resolved types
       unresolvedNames = newMap()
       for name, binding of values bindings
-        if canonicalType = ctx.actualType name
+        if canonicalType = ctx.finalType name
           for type in binding.types
             unify ctx, type.type, (freshInstance ctx, canonicalType).type
         else
@@ -1281,7 +1316,7 @@ resolveDeferredTypes = (ctx) ->
           # log "done unifying one"
 
         # have to promote constraints from just compiled dependencies
-        depConstraints = concat (for dep in binding.deps or [] when cononicalType = ctx.actualType dep.name
+        depConstraints = concat (for dep in binding.deps or [] when cononicalType = ctx.finalType dep.name
           constraintsFromCanonicalType ctx, cononicalType, dep.type)
         allConstraints = (join binding.constraints or [], depConstraints)
 
@@ -1311,7 +1346,7 @@ compileDeferred = (ctx) ->
     while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
       prevSize = ctx.deferred().length
       [expression, dependencyName, lhs, rhs] = deferred = ctx.deferred().shift()
-      if ctx.isActuallyTyped dependencyName
+      if ctx.isFinallyTyped dependencyName
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
         deferredCount = 0
       else
@@ -1362,11 +1397,15 @@ ms.fn = ms_fn = (ctx, call) ->
 
       # Arity - before deferring instead? put to assignCompile, because this makes the naming of functions special
       if name = ctx.isAtSimpleDefinition()
-        #log "adding arity for #{ctx.definitionName()}", paramNames
-        ctx.declareArity name, paramNames, ctx.definitionId()
         # Explicit typing
         if type
-          explicitType = assignExplicitType ctx, typeConstrainedCompile ctx, type
+          explicitType = declareExplicitlyTyped ctx, typeConstrainedCompile ctx, type
+          ctx.assignArity name, paramNames
+        else
+          ctx.declare name,
+            arity: paramNames
+            id: ctx.definitionId()
+            type: ctx.preDeclaredType name # if any
 
       newParamType = (param) ->
         markOrigin (ctx.freshTypeVariable star), param
@@ -1375,9 +1414,12 @@ ms.fn = ms_fn = (ctx, call) ->
       ctx.newLateScope()
       ctx.bindTypeVariables (map (({name}) -> name), paramTypeVars)
       # log "adding types", (map _symbol, params), paramTypes
-      ctx.declareTypes paramNames, paramTypes
+      ctx.declareTyped paramNames, paramTypes
       for param in params
         param.id = ctx.declarationId _symbol param
+
+      # Declare wheres first so they properly shadow parent scope
+      preDeclarePatterns ctx, _fst unzip pairs wheres
 
       #log "compiling wheres", pairs wheres
       compiledWheres = definitionListCompile ctx, pairs wheres
@@ -1434,14 +1476,28 @@ ms.fn = ms_fn = (ctx, call) ->
             #     body: (join compiledWheres, [(jsReturn compiledBody)]))])
 
 # Assumes definition name
-assignExplicitType = (ctx, type) ->
+declareExplicitlyTyped = (ctx, type) ->
   explicitType = quantifyUnbound ctx, type
   name = ctx.definitionName()
-  if ctx.isTyped name
+  if ctx.isPreTyped name
+    # TODO: unify explicit types like in inferType
+    explicitType = ctx.preDeclaredType name
+  if ctx.isCurrentlyDeclared name
     malformed ctx, ctx.definitionPattern(), 'This name is already taken'
   else
-    ctx.assignType name, explicitType
+    ctx.declare name,
+      id: ctx.definitionId()
+      type: explicitType
   explicitType
+
+preDeclarePatterns = (ctx, patterns) ->
+  for pattern in patterns
+    ctx.definePattern pattern
+    ctx.doDefer undefined, undefined
+    ctx.setAssignTo yes
+    compiled = patternCompile ctx, pattern
+    ctx.resetAssignTo()
+    ctx.leaveDefinition()
 
 ms.type = ms_type = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare new type alias'
@@ -1592,8 +1648,7 @@ ms[':'] = ms_typed = (ctx, call) ->
       else
         typeConstrainedCompile ctx, call
     if hasName
-      ctx.declare ctx.definitionName()
-      assignExplicitType ctx, compiledType
+      declareExplicitlyTyped ctx, compiledType
     # TODO: support typing of expressions,
     #watch out of definition patterns without a name
     jsNoop()
@@ -1607,8 +1662,7 @@ ms['::'] = ms_typed_expression = (ctx, call) ->
     expression = constraintSeq
   compiledType = new Constrained constraints, typeCompile ctx, type
   if name = ctx.definitionName()
-    ctx.declare ctx.definitionName()
-    assignExplicitType ctx, compiledType
+    declareExplicitlyTyped ctx, compiledType
   call.tea = compiledType
   assignCompile ctx, call, (termCompile ctx, expression)
 
@@ -1807,8 +1861,10 @@ assignMethodTypes = (ctx, typeExpression, freshInstanceType, instanceName, class
     quantifiedType = quantifyUnbound ctx, instanceSpecificType
     # Prefix so the instance method doesn't shadow the class method
     prefixedName = instancePrefix instanceName, name
-    ctx.declareArity prefixedName, arity
-    ctx.assignType prefixedName, quantifiedType
+    # Check against redefing a method
+    ctx.preDeclare prefixedName,
+      arity: arity
+      type: quantifiedType
   freshInstanceType
 
 prefixWithInstanceName = (ctx, definitionPairs, instanceName) ->
@@ -1943,7 +1999,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
   [paramTuple, rest...] = _arguments call
   [body] = rest
 
-  # ctx.addMacro ctx.definitionName(), (ctx) ->
+  # ctx.declareMacro ctx.definitionName(), (ctx) ->
   #   expressionCompile ctx, body
 
   if hasName
@@ -1954,13 +2010,13 @@ ms.syntax = ms_syntax = (ctx, call) ->
     compiledMacro = translateToJs translateIr ctx,
         (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], rest))
     macroFn = eval compiledMacro
-    ctx.addMacro ctx.definitionPattern(), (ctx, call) ->
+    ctx.declareMacro ctx.definitionPattern(), (ctx, call) ->
       # operatorCompile ctx, call
       # args = termsCompile ctx, (_arguments call)[0..macroFn.length]
       #callTyping ctx, call
       constantToSource macroFn (_arguments call)...
 
-    # ctx.addMacro macroName, (ctx, call) ->
+    # ctx.declareMacro macroName, (ctx, call) ->
     #   compiled = termCompile ctx, (fn_ params, body)
     #   assignCompile ctx, body, compiled
 
@@ -2064,40 +2120,44 @@ constantToSource = (value) ->
 
 ms.macro = ms_macro = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare a new instance'
-  [paramTuple, type, rest...] = _arguments call
+  [paramTuple, body...] = _arguments call
+  [type, macroBody...] = body
 
   if hasName
     macroName = ctx.definitionName()
-    redefining = ctx.macros()[macroName]
+    # TODO: remove along with the below
+    redefining = ctx.isMacroDeclared macroName
 
     # Register type
     params = _terms paramTuple
     paramNames = map _symbol, params
-    if not type or not isTypeAnnotation type
-      malformed ctx, call, "Type annotation required"
-      rest = join [type], rest
+    if (not type or not isTypeAnnotation type)
+      if (not ctx.isPreTyped macroName)
+        malformed ctx, call, "Type annotation required"
+      macroBody = join [type], macroBody
     else if not redefining
-      type = quantifyUnbound ctx, typeConstrainedCompile ctx, type
-      if not ctx.isDeclared macroName
-        ctx.declare macroName,
-          arity: paramNames
-          type: type
-      call.tea = type
+      # TODO: remove and inherit from compiled
+      call.tea = quantifyUnbound ctx, typeConstrainedCompile ctx, type
+      # if not ctx.isDeclared macroName
+      #   ctx.declare macroName,
+      #     arity: paramNames
+      #     type: type
+      # call.tea = type
 
-    if not rest.length > 0
-      return malformed ctx, call, "Macro body missing"
+    # if not macroBody.length > 0
+    #   return malformed ctx, call, "Macro body missing"
 
     #macroFn = transform call
     compiledMacro = translateToJs translateIr ctx,
-      (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], rest))
+      (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], macroBody))
     # log compiledMacro
     params = (map token_, paramNames) # freshen
 
     if redefining
       malformed ctx, ctx.definitionPattern(), "Macro with this name already defined"
     else
-      ctx.addMacro ctx.definitionPattern(), simpleMacro eval compiledMacro
-      fn_ params, call_ (token_ macroName), params
+      ctx.declareMacro ctx.definitionPattern(), simpleMacro eval compiledMacro
+      typedFn_ params, type, call_ (token_ macroName), params
 
 simpleMacro = (macroFn) ->
   (ctx, call) ->
@@ -2169,10 +2229,7 @@ ms.Map = ms_Map = (ctx, call) ->
 #     assignCompile ctx, call, (jsBinary "+", compiled_x, compiled_b)
 
 builtInMacros = ->
-  copy = {}
-  for key, val of ms
-    copy[key] = val
-  copy
+  objectToMap ms
 
 
 # Creates the condition and body of a branch inside match macro
@@ -2587,6 +2644,9 @@ tuple_ = (list) ->
 fn_ = (params, body) ->
   (call_ (token_ 'fn'), [(tuple_ params), body])
 
+typedFn_ = (params, type, body) ->
+  (call_ (token_ 'fn'), [(tuple_ params), type, body])
+
 token_ = (string) ->
   (tokenize string)[0]
 
@@ -2693,8 +2753,8 @@ irReferenceTranslate = (ctx, {name, id, type, arity}) ->
   else
     finalType = addConstraintsFrom ctx, {id, type}, substitute ctx.substitution, type
     classParams = dictsForConstraint ctx, finalType.constraints
-    params = map validIdentifier, arity
     if classParams.length > 0
+      params = map validIdentifier, arity
       (irFunctionTranslate ctx,
         params: params
         body: [(jsReturn (jsCall (validIdentifier name), (join classParams, params)))])
@@ -3201,6 +3261,8 @@ toHtml = (highlighted) ->
     colorize(theme[labelOf node, parent], symbol)
 
 print = (ast) ->
+  if not ast
+    return ast
   collapse crawl ast, (node, symbol) -> symbol
 
 labelOf = (node, parent) ->
@@ -3595,88 +3657,88 @@ constructCond = (precs) ->
 # Simple macros and builtin functions
 # TODO: reimplement the simple macros
 
-macros =
-  'if': (cond, zen, elz) ->
-    """(function(){if (#{cond}) {
-      return #{zen};
-    } else {
-      return #{elz};
-    }}())"""
-  'access': (field, obj) ->
-    # TODO: use dot notation if method is valid field name
-    "(#{obj})[#{field}]"
-  'call': (method, obj, args...) ->
-    "(#{macros.access method, obj}(#{args.join ', '}))"
-  'new': (clazz, args...) ->
-    "(new #{clazz}(#{args.join ', '}))"
+# macros =
+#   'if': (cond, zen, elz) ->
+#     """(function(){if (#{cond}) {
+#       return #{zen};
+#     } else {
+#       return #{elz};
+#     }}())"""
+#   'access': (field, obj) ->
+#     # TODO: use dot notation if method is valid field name
+#     "(#{obj})[#{field}]"
+#   'call': (method, obj, args...) ->
+#     "(#{macros.access method, obj}(#{args.join ', '}))"
+#   'new': (clazz, args...) ->
+#     "(new #{clazz}(#{args.join ', '}))"
 
 
-expandBuiltings = (mapping, cb) ->
-  for op, i in mapping.from
-    macros[op] = cb mapping.to[i]
+# expandBuiltings = (mapping, cb) ->
+#   for op, i in mapping.from
+#     macros[op] = cb mapping.to[i]
 
-unaryFnMapping =
-  from: 'sqrt alert! not empty'.split ' '
-  to: 'Math.sqrt window.log ! $empty'.split ' '
+# unaryFnMapping =
+#   from: 'sqrt alert! not empty'.split ' '
+#   to: 'Math.sqrt window.log ! $empty'.split ' '
 
-expandBuiltings unaryFnMapping, (to) ->
-  (x) ->
-    if x
-      "#{to}(#{x})"
-    else
-      "function(__a){return #{to}(__a);}"
+# expandBuiltings unaryFnMapping, (to) ->
+#   (x) ->
+#     if x
+#       "#{to}(#{x})"
+#     else
+#       "function(__a){return #{to}(__a);}"
 
-binaryFnMapping =
-  from: []
-  to: []
+# binaryFnMapping =
+#   from: []
+#   to: []
 
-expandBuiltings binaryFnMapping, (to) ->
-  (x, y) ->
-    if x and y
-      "#{to}(#{x}, #{y})"
-    else if x
-      "function(__b){return #{to}(#{a}, __b);}"
-    else
-      "function(__a, __b){return #{to}(__a, __b);}"
+# expandBuiltings binaryFnMapping, (to) ->
+#   (x, y) ->
+#     if x and y
+#       "#{to}(#{x}, #{y})"
+#     else if x
+#       "function(__b){return #{to}(#{a}, __b);}"
+#     else
+#       "function(__a, __b){return #{to}(__a, __b);}"
 
-invertedBinaryFnMapping =
-  from: '^'.split ' '
-  to: 'Math.pow'.split ' '
+# invertedBinaryFnMapping =
+#   from: '^'.split ' '
+#   to: 'Math.pow'.split ' '
 
-expandBuiltings invertedBinaryFnMapping, (to) ->
-  (x, y) ->
-    if x and y
-      "#{to}(#{y}, #{x})"
-    else if x
-      "function(__b){return #{to}(__b, #{a});}"
-    else
-      "function(__a, __b){return #{to}(__b, __a);}"
+# expandBuiltings invertedBinaryFnMapping, (to) ->
+#   (x, y) ->
+#     if x and y
+#       "#{to}(#{y}, #{x})"
+#     else if x
+#       "function(__b){return #{to}(__b, #{a});}"
+#     else
+#       "function(__a, __b){return #{to}(__b, __a);}"
 
-binaryOpMapping =
-  from: '+ * = != and or'.split ' '
-  to: '+ * == != && ||'.split ' '
+# binaryOpMapping =
+#   from: '+ * = != and or'.split ' '
+#   to: '+ * == != && ||'.split ' '
 
-expandBuiltings binaryOpMapping, (to) ->
-  (x, y) ->
-    if x and y
-      "(#{x} #{to} #{y})"
-    else if x
-      "function(__b){return #{x} #{to} __b;}"
-    else
-      "function(__a, __b){return __a #{to} __b;}"
+# expandBuiltings binaryOpMapping, (to) ->
+#   (x, y) ->
+#     if x and y
+#       "(#{x} #{to} #{y})"
+#     else if x
+#       "function(__b){return #{x} #{to} __b;}"
+#     else
+#       "function(__a, __b){return __a #{to} __b;}"
 
-invertedBinaryOpMapping =
-  from: '- / rem < > <= >='.split ' '
-  to: '- / % < > <= >='.split ' '
+# invertedBinaryOpMapping =
+#   from: '- / rem < > <= >='.split ' '
+#   to: '- / % < > <= >='.split ' '
 
-expandBuiltings invertedBinaryOpMapping, (to) ->
-  (x, y) ->
-    if x and y
-      "(#{y} #{to} #{x})"
-    else if x
-      "function(__b){return __b #{to} #{x};}"
-    else
-      "function(__a, __b){return __b #{to} __a;}"
+# expandBuiltings invertedBinaryOpMapping, (to) ->
+#   (x, y) ->
+#     if x and y
+#       "(#{y} #{to} #{x})"
+#     else if x
+#       "function(__b){return __b #{to} #{x};}"
+#     else
+#       "function(__a, __b){return __b #{to} __a;}"
 
 # end of Simple macros
 
@@ -4730,7 +4792,7 @@ subtractContexts = (ctx, what) ->
   definitions = subtractMaps ctx._scope(), what._scope()
   typeNames = subtractMaps ctx._scope().typeNames, what._scope().typeNames
   classes = subtractMaps ctx._scope().classes, what._scope().classes
-  macros = subtractMaps (objectToMap ctx._macros), (objectToMap what._macros)
+  macros = subtractMaps ctx._scope().macros, what._scope().macros
   savedScopes = ctx.savedScopes
   {definitions, typeNames, classes, macros, savedScopes}
 
@@ -4742,12 +4804,12 @@ injectedContext = (modulesToInject) ->
 
 injectContext = (ctx, compiledModule) ->
   {definitions, typeNames, classes, macros} = compiledModule
+  topScope = ctx._scope()
   for name, macro of values macros
-    if ctx._macros[name]
+    if ctx.isMacroDeclared name
       throw new Error "Macro #{name} already defined"
     else
-      ctx._macros[name] = macro
-  topScope = ctx._scope()
+      addToMap topScope.macros, name, macro
   for name, definition of values definitions
     addToMap topScope, name, definition
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
@@ -4896,7 +4958,7 @@ astizeExpressionWithWrapper = (source) ->
 
 finalizeTypes = (ctx, ast) ->
   visitExpressions ast, (expression) ->
-    if expression?.label is 'name' and (type = ctx.actualType expression.symbol)
+    if expression?.label is 'name' and (type = ctx.finalType expression.symbol)
       expression.tea = type
     else if expression.tea
       expression.tea = substitute ctx.substitution, expression.tea
@@ -4955,7 +5017,7 @@ reverse = (list) ->
 id = (x) -> x
 
 map = (fn, list) ->
-  if list then list.map fn else (list) -> map fn, list
+  if list then list.map fn
 
 allMap = (fn, list) ->
   all (map fn, list)
@@ -6041,14 +6103,14 @@ tests = [
 
   'shadowing'
   """
-  f (macro [x]
+  f (macro [n]
     (: (Fn Num Num))
-    (Js.binary "+" x 2))
+    (Js.binary "+" n 2))
 
   g (fn [x]
     y
     y (f x)
-    f (fn [x] x))
+    f (fn [y] y))
   """
   '(g 3)', 3
 
