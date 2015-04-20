@@ -6153,8 +6153,12 @@ tests = [
   """
   id (syntax [x]
     x)
+
+  some (syntax [y]
+    (` (id (, y))))
   """
-  '(id 42)', 42
+  '(some 42)', 42
+
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
