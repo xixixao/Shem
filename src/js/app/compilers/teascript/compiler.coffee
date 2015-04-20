@@ -562,7 +562,7 @@ class Context
 
   setAuxiliaryDefinitions: (compiledDefinitions) ->
     auxiliaries = newMap()
-    for def in compiledDefinitions
+    for def in compiledDefinitions when def.definedNames
       for defined in def.definedNames
         addToMap auxiliaries, defined,
           deps: def.usedNames
