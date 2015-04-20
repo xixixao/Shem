@@ -4897,7 +4897,7 @@ subMagnitude = (sub) ->
   magnitude
 
 actualOpName = (type) ->
-  type.name or actualOpName type.op
+  type.name ? actualOpName type.op
 
 # API
 
