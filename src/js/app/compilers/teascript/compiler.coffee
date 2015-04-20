@@ -2235,9 +2235,9 @@ matchBranchTranslate = (precs, assigns, compiledResult) ->
 iife = (body) ->
   # """(function(){
   #     #{body}}())"""
-  (jsCall (jsFunction
-    params: []
-    body: body), [])
+  (jsWrap (jsCall (jsFunction
+      params: []
+      body: body), []))
 
 varList = (varNames) ->
   # "var #{listOf varNames};"
@@ -3187,6 +3187,13 @@ jsVarDeclarations = (names) ->
 
 jsVarDeclarationsTranslate = ({names}) ->
   "var #{listOf names};"
+
+
+jsWrap = (value) ->
+  {js: jsWrapTranslate, value}
+
+jsWrapTranslate = ({value}) ->
+  "(#{value})"
 
 blockOfLines = (lines) ->
   if lines.length is 0
@@ -4767,7 +4774,7 @@ compileExpression = (source, moduleName = '@unnamed') ->
     [expression] = _terms ast
     {js} = compileCtxAstToJs topLevelExpression, ctx, expression
     (finalizeTypes ctx, expression)
-    js: library + immutable + (listOfLines map lookupJs, (reverse modules)) + '\n' + js
+    js: library + immutable + (listOfLines map lookupJs, (reverse modules)) + '\n;' + js
     ast: ast
     errors: checkTypes ctx
 
@@ -4921,7 +4928,7 @@ topLevelAndExpression = (source) ->
   types: ctx._scope()
   subs: ctx.substitution.fails
   ast: ast
-  compiled: library + immutable + compiledDefinitions.js + '\n' + compiledExpression.js
+  compiled: library + immutable + compiledDefinitions.js + '\n;' + compiledExpression.js
 
 typeEnumaration = (ctx) ->
   values mapMap _type, ctx._scope()
