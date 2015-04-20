@@ -1226,11 +1226,14 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
     # Finalizing type again after possibly added substitution when defer constraints
     currentType = substitute ctx.substitution, type
     # log "assign type", name, (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
-    ctx.assignType name,
-      if polymorphic
-        quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
-      else
-        toForAll currentType
+    if includesJsType currentType.type
+      ctx.extendSubstitution substituionFail "#{name}'s inferred type includes JS"
+    else
+      ctx.assignType name,
+        if polymorphic
+          quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
+        else
+          toForAll currentType
   if deferredConstraints
     ctx.addToScopeConstraints deferredConstraints
 
@@ -4034,6 +4037,8 @@ nestedLookupInMap = (map, keys) ->
 
 unify = (ctx, t1, t2) ->
   throw new Error "invalid args to unify" unless ctx instanceof Context and t1 and t2
+  if (includesJsType t1) or (includesJsType t2)
+    return
   sub = ctx.substitution
   ctx.extendSubstitution mostGeneralUnifier (substitute sub, t1), (substitute sub, t2)
 
