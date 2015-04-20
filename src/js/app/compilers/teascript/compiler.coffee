@@ -981,8 +981,8 @@ hashmapCompile = (ctx, form) ->
     throw new Error "matching on hash maps not supported yet"
   else
     [labels, items] = unzip pairs _terms form
-    keyType = new TypeApp hashmapType, stringType
-    compiledItems = uniformCollectionCompile ctx, form, items, keyType
+    keyedType = markOrigin (new TypeApp hashmapType, stringType), form
+    compiledItems = uniformCollectionCompile ctx, form, items, keyedType
     keys = (map (__ string_, _labelName), labels)
     assignCompile ctx, form, (irMap keys, compiledItems)
 
@@ -991,7 +991,7 @@ uniformCollectionCompile = (ctx, form, items, collectionType, moreConstraints = 
   {constraints, itemType, compiled} = termsCompileExpectingSameType ctx, items
   (labelOperator form) if not isCall form
   form.tea = new Constrained (join moreConstraints, constraints),
-      new TypeApp collectionType, itemType
+      (markOrigin (new TypeApp collectionType, itemType), form)
   compiled
 
 termsCompileExpectingSameType = (ctx, items) ->
@@ -1054,7 +1054,7 @@ typeNameCompile = (ctx, atom, expectedKind) ->
         # throw new Error "type name #{atom.symbol} was not defined" unless kind
         malformed ctx, atom, "This type name has not been defined"
         kindOfType = star
-      atomicType atom.symbol, kindOfType
+      markOrigin (atomicType atom.symbol, kindOfType), atom
     else
       expanded
   finalKind = kind type
@@ -1072,7 +1072,8 @@ typeNameCompile = (ctx, atom, expectedKind) ->
 typeTupleCompile = (ctx, form) ->
   (labelOperator form)
   elemTypes = _terms form
-  applyKindFn (tupleType elemTypes.length), (typesCompile ctx, elemTypes)...
+  applyKindFn (markOrigin (tupleType elemTypes.length), form),
+    (typesCompile ctx, elemTypes)...
 
 typeConstructorCompile = (ctx, call) ->
   op = _operator call
@@ -1081,13 +1082,13 @@ typeConstructorCompile = (ctx, call) ->
   if isAtom op
     name = op.symbol
     compiledArgs = typesCompile ctx, args
-    if name is 'Fn'
+    markOrigin (if name is 'Fn'
       (labelOperator op)
       typeFn compiledArgs...
     else
       arity = args.length
       operatorType = typeNameCompile ctx, op, (kindFn arity)
-      applyKindFn operatorType, compiledArgs...
+      applyKindFn operatorType, compiledArgs...), call
   else
     malformed ctx, op, 'Expected a type constructor instead'
 
@@ -1101,7 +1102,8 @@ typeConstraintCompile = (ctx, expression) ->
       className = op.symbol
       {constraint} = ctx.classNamed className
       paramKinds = (map kind, constraint.types.types)
-      new ClassConstraint op.symbol, new Types (typesCompile ctx, args, paramKinds)
+      markOrigin (new ClassConstraint op.symbol,
+        new Types (typesCompile ctx, args, paramKinds)), expression
     else
       malformed ctx, expression, 'Class name required in a constraint'
   else
@@ -4031,8 +4033,9 @@ nestedLookupInMap = (map, keys) ->
 
 unify = (ctx, t1, t2) ->
   throw new Error "invalid args to unify" unless ctx instanceof Context and t1 and t2
-  if (includesJsType t1) or (includesJsType t2)
-    return
+  # TODO: need to taint the other type
+  # if (includesJsType t1) or (includesJsType t2)
+  #   return
   sub = ctx.substitution
   ctx.extendSubstitution mostGeneralUnifier (substitute sub, t1), (substitute sub, t2)
 
