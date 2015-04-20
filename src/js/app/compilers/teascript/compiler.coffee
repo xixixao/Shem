@@ -4819,6 +4819,7 @@ injectContext = (ctx, compiledModule) ->
     addToMap topScope, name, definition
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
+  ctx.scopeIndex += compiledModule.savedScopes.length
   ctx
 
 collectRequiresFor = (name) ->
