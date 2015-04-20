@@ -829,10 +829,13 @@ callUnknownTranslate = (ctx, translatedOperator, call) ->
 callTyping = (ctx, call) ->
   return if ctx.shouldDefer()
   terms = _terms call
-  if terms.length is 1
-    malformed ctx, call, 'Missing an argument (for now)'
-    terms = join terms, [tea: toConstrained (markOrigin (ctx.freshTypeVariable star), call)]
-  call.tea = callInfer ctx, (_operator call), terms
+  op = _operator call
+  call.tea =
+    if terms.length is 1
+      # terms = join terms, [tea: toConstrained (markOrigin (ctx.freshTypeVariable star), call)]
+      callZeroInfer ctx, op, op.tea
+    else
+      callInfer ctx, (_operator call), terms
 
 callInfer = (ctx, operator, terms) ->
   # Curry the call
@@ -848,6 +851,12 @@ callInferSingle = (ctx, originalOperator, operatorTea, argTea) ->
   callType = markOrigin (typeFn argTea.type, returnType), originalOperator
   unify ctx, operatorTea.type, callType
   new Constrained (join operatorTea.constraints, argTea.constraints), returnType
+
+callZeroInfer = (ctx, originalOperator, operatorTea) ->
+  returnType = markOrigin (ctx.freshTypeVariable star), originalOperator
+  callType = markOrigin (typeFn returnType), originalOperator
+  unify ctx, operatorTea.type, callType
+  new Constrained operatorTea.constraints, returnType
 
 termsCompile = (ctx, list) ->
   termCompile ctx, term for term in list
@@ -4367,14 +4376,20 @@ kindFnOfArgs = (arg, args...) ->
   else
     new KindFn arg, kindFnOfArgs args...
 
-typeFn = (from, to, args...) ->
+typeFn = (argType, args...) ->
+  if _empty args
+    new TypeApp zeroArrowType, argType
+  else
+    properTypeFn argType, args...
+
+properTypeFn = (from, to, args...) ->
   if args.length is 0
     if not to
       from
     else
       new TypeApp (new TypeApp arrowType, from), to
   else
-    typeFn from, (typeFn to, args...)
+    properTypeFn from, (properTypeFn to, args...)
 
 applyKindFn = (fn, arg, args...) ->
   if not arg
@@ -4460,6 +4475,7 @@ quantify = (vars, type) ->
 
 star = '*'
 arrowType = new TypeConstr 'Fn', kindFn 2
+zeroArrowType = new TypeConstr 'Fn0', kindFn 1
 arrayType = new TypeConstr 'Array', kindFn 1
 listType = new TypeConstr 'List', kindFn 1
 hashmapType = new TypeConstr 'Map', kindFn 2
@@ -4538,6 +4554,8 @@ collectArgs = (type) ->
 flattenType = (types) ->
   if types[0].match /^\[\d+\]$/
     "[#{types[1..].join ' '}]"
+  else if types[0] is 'Fn0'
+    "(Fn #{types[1..].join ' '})"
   else
     "(#{types.join ' '})"
 
@@ -6119,6 +6137,14 @@ tests = [
     f (fn [y] y))
   """
   '(g 3)', 3
+
+  'zero arity'
+  """
+  f (fn [] 4)
+
+  g (f)
+  """
+  'g', 4
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
