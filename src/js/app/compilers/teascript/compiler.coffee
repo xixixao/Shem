@@ -346,6 +346,7 @@ class Context
     scope.typeAliases = newMap()
     scope.deferredConstraints = []
     scope.usedNames = []
+    scope.auxiliaries = newMap()
     scope
 
   newLateScope: ->
