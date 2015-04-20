@@ -685,7 +685,9 @@ callMacroCompile = (ctx, call) ->
   if isTranslated expanded
     expanded
   else
-    expressionCompile ctx, expanded
+    compiled = expressionCompile ctx, expanded
+    retrieve call, expanded
+    compiled
 
 isTranslated = (result) ->
   (isSimpleTranslated result) or (Array.isArray result) and (isSimpleTranslated result[0])
@@ -4789,7 +4791,7 @@ compileExpression = (source, moduleName = '@unnamed') ->
     [expression] = _terms ast
     {js} = compileCtxAstToJs topLevelExpression, ctx, expression
     (finalizeTypes ctx, expression)
-    js: library + immutable + (listOfLines map lookupJs, (reverse modules)) + js
+    js: library + immutable + (listOfLines map lookupJs, (reverse modules)) + '\n' + js
     ast: ast
     errors: checkTypes ctx
 
@@ -4943,7 +4945,7 @@ topLevelAndExpression = (source) ->
   types: ctx._scope()
   subs: ctx.substitution.fails
   ast: ast
-  compiled: library + immutable + compiledDefinitions.js + compiledExpression.js
+  compiled: library + immutable + compiledDefinitions.js + '\n' + compiledExpression.js
 
 typeEnumaration = (ctx) ->
   values mapMap _type, ctx._scope()
@@ -6145,6 +6147,13 @@ tests = [
   g (f)
   """
   'g', 4
+
+  'syntax macro'
+  """
+  id (syntax [x]
+    x)
+  """
+  '(id 42)', 42
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
