@@ -1488,7 +1488,6 @@ ms.fn = ms_fn = (ctx, call) ->
 
       polymorphicAssignCompile ctx, call,
         if ctx.shouldDefer()
-          console.log "deferring fn", ctx.definitionName(), ctx.deferReason()[1]
           deferredExpression()
         else
           # Typing
