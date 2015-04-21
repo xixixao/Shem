@@ -2101,6 +2101,10 @@ ms.syntax = ms_syntax = (ctx, call) ->
 
   if hasName
     macroName = ctx.definitionName()
+    [param] = _terms paramTuple
+    if isSplat param
+      splatted = yes
+      paramTuple = tuple_ splatToName param
 
     macroSource = call_ (token_ 'fn'), (join [paramTuple], rest)
     macroCompiled = (termCompile ctx, macroSource)
@@ -2109,7 +2113,10 @@ ms.syntax = ms_syntax = (ctx, call) ->
     macroFn = eval compiledMacro
     if macroFn
       ctx.declareMacro ctx.definitionPattern(), (ctx, call) ->
-        constantToSource macroFn (_arguments call)...
+        if splatted
+          constantToSource macroFn Immutable.List (_arguments call)
+        else
+          constantToSource macroFn (_arguments call)...
     else
       malformed ctx, ctx.definitionPattern(), 'Macro failed to compile'
 
