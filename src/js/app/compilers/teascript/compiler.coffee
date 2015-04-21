@@ -454,9 +454,15 @@ class Context
   #   final: Bool
 
   isDeclared: (name) ->
-    !!(@_declaration name)
+    !!@_declaration name
+
+  isFinallyDeclared: (name) ->
+    (declaration = @_declaration name) and declaration.final
 
   isCurrentlyDeclared: (name) ->
+    !!@_declarationInCurrentScope name
+
+  isFinallyCurrentlyDeclared: (name) ->
     (declaration = @_declarationInCurrentScope name) and declaration.final
 
   isTyped: (name) ->
@@ -1168,9 +1174,13 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
   # log "is deferriing", (print pattern), ctx.shouldDefer()
   # Make sure deferred names are added to scope so they are compiled within functions
   if ctx.shouldDefer()
+    shouldDeclareFinally = ctx.isDeclared ctx.deferReason()[1]
     for {name, id} in definedNames
       if not ctx.isCurrentlyDeclared name
-        ctx.declare name, id: id
+        if shouldDeclareFinally
+          ctx.declare name, id: id
+        else
+          ctx.preDeclare name, id: id
     #log "exiting pattern early", pattern, "for", ctx.shouldDefer()
     return {}
 
@@ -1198,7 +1208,8 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
         deps: deps#(map (({name}) -> name), deps)
       # for dep in deps
       #   ctx.addToDeferred {name: dep.name, type: dep.type, reversed: name}
-      ctx.assignType name, (new TempType type)
+      if not ctx.isTyped name
+        ctx.assignType name, (new TempType type)
     else
       # Ready for typing since there are no missing dependencies
       inferType ctx, name, type, constraints, polymorphic
@@ -1221,7 +1232,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
       unifiedType = substitute ctx.substitution, explicitType
       inferredType = quantifyUnbound ctx, unifiedType
       if not typeEq inferredType, updatedDeclaredType
-        ctx.extendSubstitution substituionFail "#{name}'s declared type is too general, inferred #{plainPrettyPrint inferredType}"
+        ctx.extendSubstitution substitutionFail "#{name}'s declared type is too general, inferred #{plainPrettyPrint inferredType}"
       # Context reduction
       isDeclaredConstraint = (c) ->
         entailed = entail ctx, unifiedType.constraints, c
@@ -1232,7 +1243,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
       catch e
         throw new Error "Error when deferring #{name} #{e.message}"
       if _notEmpty retainedConstraints
-        ctx.extendSubstitution substituionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
+        ctx.extendSubstitution substitutionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
   else
     # log name, "constraints", (substituteList ctx.substitution, constraints)
     [deferredConstraints, retainedConstraints] = deferConstraints ctx,
@@ -1241,7 +1252,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
     currentType = substitute ctx.substitution, type
     # log "assign type", name, (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
     if includesJsType currentType.type
-      ctx.extendSubstitution substituionFail "#{name}'s inferred type includes JS"
+      ctx.extendSubstitution substitutionFail "#{name}'s inferred type includes JS"
     else
       ctx.assignType name,
         if polymorphic
@@ -1338,7 +1349,7 @@ resolveDeferredTypes = (ctx) ->
         allConstraints = (join binding.constraints or [], depConstraints)
 
         # If the thing is not declared it must be coming from an outer scope
-        # add it as a missing name to the current definition
+        # add it is a missing name to the current definition
 
         if (not ctx.isCurrentlyDeclared name)
           if ctx.isInTopScope()
@@ -1351,9 +1362,6 @@ resolveDeferredTypes = (ctx) ->
           # log binding.constraints, depConstraints
           inferType ctx, name, canonicalType,
             allConstraints, binding.polymorphic
-          # unifiedType = (substitute ctx.substitution, canonicalType)
-          # ctx.assignType name,
-          #   quantifyAll (addConstraints unifiedType, definitionConstraints)
   ctx.deferredBindings().length = 0 # clear
 
 compileDeferred = (ctx) ->
@@ -1412,14 +1420,14 @@ ms.fn = ms_fn = (ctx, call) ->
         [body, wheres...] = defs
       paramNames = _names params
 
-      # Arity - before deferring instead? put to assignCompile, because this makes the naming of functions special
+      # Predeclare type
       if name = ctx.isAtSimpleDefinition()
         # Explicit typing
         if type
-          explicitType = declareExplicitlyTyped ctx, typeConstrainedCompile ctx, type
+          explicitType = preDeclareExplicitlyTyped ctx, typeConstrainedCompile ctx, type
           ctx.assignArity name, paramNames
         else
-          ctx.declare name,
+          ctx.preDeclare name,
             arity: paramNames
             id: ctx.definitionId()
             type: ctx.preDeclaredType name # if any
@@ -1493,16 +1501,16 @@ ms.fn = ms_fn = (ctx, call) ->
             #     body: (join compiledWheres, [(jsReturn compiledBody)]))])
 
 # Assumes definition name
-declareExplicitlyTyped = (ctx, type) ->
+preDeclareExplicitlyTyped = (ctx, type) ->
   explicitType = quantifyUnbound ctx, type
   name = ctx.definitionName()
   if ctx.isPreTyped name
     # TODO: unify explicit types like in inferType
     explicitType = ctx.preDeclaredType name
-  if ctx.isCurrentlyDeclared name
+  if ctx.isFinallyCurrentlyDeclared name
     malformed ctx, ctx.definitionPattern(), 'This name is already taken'
   else
-    ctx.declare name,
+    ctx.preDeclare name,
       id: ctx.definitionId()
       type: explicitType
   explicitType
@@ -1665,7 +1673,7 @@ ms[':'] = ms_typed = (ctx, call) ->
       else
         typeConstrainedCompile ctx, call
     if hasName
-      declareExplicitlyTyped ctx, compiledType
+      preDeclareExplicitlyTyped ctx, compiledType
     # TODO: support typing of expressions,
     #watch out of definition patterns without a name
     jsNoop()
@@ -1679,7 +1687,7 @@ ms['::'] = ms_typed_expression = (ctx, call) ->
     expression = constraintSeq
   compiledType = new Constrained constraints, typeCompile ctx, type
   if name = ctx.definitionName()
-    declareExplicitlyTyped ctx, compiledType
+    preDeclareExplicitlyTyped ctx, compiledType
   call.tea = compiledType
   assignCompile ctx, call, (termCompile ctx, expression)
 
@@ -2486,9 +2494,9 @@ nameCompile = (ctx, atom, symbol) ->
     if contextType and contextType not instanceof TempType
       type = freshInstance ctx, contextType
       nameTranslate ctx, atom, symbol, type
-    # Inside function only defer compilation if we don't know arity
+    # In sub-scope (function) only defer compilation for declarations in current scope
     else if (not ctx.isCurrentlyDeclared symbol) and
-        (ctx.isDeclared symbol) or contextType instanceof TempType
+        (ctx.isFinallyDeclared symbol) or contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
       ctx.addToDeferredNames {name: symbol, type: type}
@@ -4085,7 +4093,7 @@ typeFail = (message, t1, t2) ->
       [t2, t1]
     else
       [t1, t2]
-  substituionFail
+  substitutionFail
     message: "#{message} #{(safePrintType first)}, #{(safePrintType second)}"
     conflicts: [first.origin, second.origin]
 
@@ -4181,7 +4189,7 @@ newSubstitution = (name, type) ->
 isFailed = (sub) ->
   sub.fails.length > 0
 
-substituionFail = (failure) ->
+substitutionFail = (failure) ->
   sub = emptySubstitution()
   sub.fails.push failure
   sub
