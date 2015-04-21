@@ -1467,7 +1467,7 @@ ms.fn = ms_fn = (ctx, call) ->
       # Syntax - used params in function body
       # !! TODO: possibly add to nameCompile instead, or defer to IDE
       isUsedParam = (expression) ->
-        (isName expression) and (_symbol expression) in paramNames
+        (isName expression) and expression.label isnt 'name' and (_symbol expression) in paramNames
       labelUsedParams = (expression) ->
         map (syntaxNameAs ctx, '', 'param'), filterAst isUsedParam, expression
       map labelUsedParams, join docs, (if body then join [body], wheres else wheres)
