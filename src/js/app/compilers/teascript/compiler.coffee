@@ -2126,6 +2126,15 @@ ms.syntax = ms_syntax = (ctx, call) ->
 ms['`'] = ms_quote = (ctx, call) ->
   expression = firstOrCall _arguments call
 
+  commedAtom = (atom, otherwise) ->
+    if (_symbol atom)[0] is ','
+      identifier = token_ (_symbol atom)[1...]
+      compiled = termCompile ctx, identifier
+      retrieve atom, identifier
+      compiled
+    else
+      otherwise()
+
   if ctx.assignTo()
 
     matchAst = (ast) ->
@@ -2140,9 +2149,10 @@ ms['`'] = ms_quote = (ctx, call) ->
             ctx.resetAssignTo()
             precs)
       else
-        ast.label = 'const'
-        precs: [(cond_ (jsBinary "===",
-            (jsAccess matched, "symbol"), toJsString ast.symbol))]
+        commedAtom ast, ->
+          ast.label = 'const'
+          precs: [(cond_ (jsBinary "===",
+              (jsAccess matched, "symbol"), toJsString ast.symbol))]
 
     matchAst expression
   else
@@ -2155,9 +2165,10 @@ ms['`'] = ms_quote = (ctx, call) ->
         else
           (jsArray (map serializeAst, ast))
       else
-        serialized = (jsValue (JSON.stringify ast))
-        ast.label = 'const'
-        serialized
+        commedAtom ast, ->
+          serialized = (jsValue (JSON.stringify ast))
+          ast.label = 'const'
+          serialized
     serializeAst expression
 
 ms[','] = ms_comma = (ctx, call) ->
@@ -3063,6 +3074,7 @@ replicate = (expression, newForm) ->
 retrieve = (expression, newForm) ->
   expression.tea = newForm.tea
   expression.malformed = newForm.malformed
+  expression.label = newForm.label if newForm.label
   if newForm.tea?.type.origin is newForm
     markOrigin newForm.tea.type, expression
 
