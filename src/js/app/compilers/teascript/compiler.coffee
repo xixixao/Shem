@@ -4688,6 +4688,15 @@ var from__nullable = function (jsValue) {
       return fn;
     };""").join('\n\n') +
 """
+var _0 = function (fn) {
+  if (fn._ === 0 || !fn._ && fn.length === 0) {
+    return fn();
+  } else if (fn._ > 0 || !fn._ && fn.length > 0) {
+    return function (a) {
+      return _1(fn, a);
+    };
+  }
+}
 ;
 """
 
