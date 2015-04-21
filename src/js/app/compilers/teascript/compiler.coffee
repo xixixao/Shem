@@ -2141,6 +2141,7 @@ ms['`'] = ms_quote = (ctx, call) ->
             ctx.resetAssignTo()
             precs)
       else
+        ast.label = 'const'
         precs: [(cond_ (jsBinary "===",
             (jsAccess matched, "symbol"), toJsString ast.symbol))]
 
@@ -2155,7 +2156,9 @@ ms['`'] = ms_quote = (ctx, call) ->
         else
           (jsArray (map serializeAst, ast))
       else
-        (jsValue (JSON.stringify ast))
+        serialized = (jsValue (JSON.stringify ast))
+        ast.label = 'const'
+        serialized
     serializeAst res
 
 ms[','] = ms_comma = (ctx, call) ->
