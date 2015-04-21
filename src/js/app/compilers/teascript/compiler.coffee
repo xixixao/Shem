@@ -6188,6 +6188,17 @@ tests = [
   """
   '(some 42)', 42
 
+  'pattern match syntax'
+  """
+  infix (syntax [exp]
+    (match exp
+      (` ((, x) (, op) (, z))) (` ((, op) (, x) (, z)))
+      _ (` "Failed to match syntax")))
+
+  f (infix (3 + 4))
+  """
+  'f', 7
+
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
