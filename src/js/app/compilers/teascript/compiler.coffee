@@ -2104,6 +2104,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
     [param] = _terms paramTuple
     if isSplat param
       splatted = yes
+      param.label = 'name'
       paramTuple = tuple_ splatToName param
 
     macroSource = call_ (token_ 'fn'), (join [paramTuple], rest)
@@ -2123,9 +2124,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
   jsNoop()
 
 ms['`'] = ms_quote = (ctx, call) ->
-  [res] = _arguments call
-  # call.tea = toConstrained typeConstant 'Exp'
-  # assignCompile ctx, call, res
+  expression = firstOrCall _arguments call
 
   if ctx.assignTo()
 
@@ -2145,7 +2144,7 @@ ms['`'] = ms_quote = (ctx, call) ->
         precs: [(cond_ (jsBinary "===",
             (jsAccess matched, "symbol"), toJsString ast.symbol))]
 
-    matchAst res
+    matchAst expression
   else
     call.tea = toConstrained expressionType
 
@@ -2159,14 +2158,20 @@ ms['`'] = ms_quote = (ctx, call) ->
         serialized = (jsValue (JSON.stringify ast))
         ast.label = 'const'
         serialized
-    serializeAst res
+    serializeAst expression
 
 ms[','] = ms_comma = (ctx, call) ->
-  [res] = (_arguments call)
+  expression = firstOrCall _arguments call
   if matched = ctx.assignTo()
-    expressionCompile ctx, res
+    expressionCompile ctx, expression
   else
-    (jsCall 'constantToSource', [expressionCompile ctx, res])
+    (jsCall 'constantToSource', [expressionCompile ctx, expression])
+
+firstOrCall = (args) ->
+  if args.length > 1
+    call_ args[0], args[1...]
+  else
+    args[0]
 
 constantToSource = (value) ->
   switch typeof value
