@@ -270,6 +270,20 @@ class Context
     (def = @scopes[i].definition) and def.deferrable and def or
       i > 0 and (@_deferrableDefinitionAtScope i - 1) or undefined
 
+  parentDeferrableDefinitionNames: ->
+    @_parentDeferrableDefinitionNames @scopes.length - 1
+
+  _parentDeferrableDefinitionNames: (i) ->
+    rest =
+      if i > 0
+        @_parentDeferrableDefinitionNames i - 1
+      else
+        []
+    if (def = @scopes[i].definition) and def.deferrable and def.name
+      join [def.name], rest
+    else
+      rest
+
   isDefining: ->
     !!@_scope().definition
 
@@ -1176,7 +1190,7 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
   if ctx.shouldDefer()
     shouldDeclareFinally = ctx.isDeclared ctx.deferReason()[1]
     for {name, id} in definedNames
-      if not ctx.isCurrentlyDeclared name
+      if not ctx.isFinallyCurrentlyDeclared name
         if shouldDeclareFinally
           ctx.declare name, id: id
         else
@@ -1474,6 +1488,7 @@ ms.fn = ms_fn = (ctx, call) ->
 
       polymorphicAssignCompile ctx, call,
         if ctx.shouldDefer()
+          console.log "deferring fn", ctx.definitionName(), ctx.deferReason()[1]
           deferredExpression()
         else
           # Typing
@@ -2087,12 +2102,16 @@ ms.syntax = ms_syntax = (ctx, call) ->
   if hasName
     macroName = ctx.definitionName()
 
-    compiledMacro = translateToJs translateIr ctx,
-        (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], rest))
+    macroSource = call_ (token_ 'fn'), (join [paramTuple], rest)
+    macroCompiled = (termCompile ctx, macroSource)
+    compiledMacro = translateToJs translateIr ctx, macroCompiled
+    retrieve call, macroSource
     macroFn = eval compiledMacro
     if macroFn
       ctx.declareMacro ctx.definitionPattern(), (ctx, call) ->
         constantToSource macroFn (_arguments call)...
+    else
+      malformed ctx, ctx.definitionPattern(), 'Macro failed to compile'
 
   jsNoop()
 
@@ -2515,13 +2534,13 @@ nameCompile = (ctx, atom, symbol) ->
           [[(validIdentifier symbol), exp]]
   else
     # Name typed, use a fresh instance
-    # log symbol, contextType
     if contextType and contextType not instanceof TempType
       type = freshInstance ctx, contextType
       nameTranslate ctx, atom, symbol, type
     # In sub-scope (function) only defer compilation for declarations in current scope
     else if (not ctx.isCurrentlyDeclared symbol) and
-        (ctx.isFinallyDeclared symbol) or contextType instanceof TempType
+        ((ctx.isFinallyDeclared symbol) or symbol in ctx.parentDeferrableDefinitionNames()) or
+          contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
       ctx.addToDeferredNames {name: symbol, type: type}
@@ -6190,6 +6209,10 @@ tests = [
 
   'pattern match syntax'
   """
+  + (macro [x y]
+    (: (Fn Num Num Num))
+    (Js.binary "+" x y))
+
   infix (syntax [exp]
     (match exp
       (` ((, x) (, op) (, z))) (` ((, op) (, x) (, z)))
