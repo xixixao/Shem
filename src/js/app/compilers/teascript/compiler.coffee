@@ -1692,7 +1692,7 @@ ms['::'] = ms_typed_expression = (ctx, call) ->
   assignCompile ctx, call, (termCompile ctx, expression)
 
 ms.global = ms_global = (ctx, call) ->
-  call.tea = toConstrained typeConstant 'JS'
+  call.tea = toConstrained jsType
   assignCompile ctx, call, (jsValue "window")
 
 callJsMethodCompile = (ctx, call) ->
@@ -2169,7 +2169,7 @@ simpleMacro = (macroFn) ->
 for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method']
   do (jsMethod) ->
     ms["Js.#{jsMethod}"] = (ctx, call) ->
-      call.tea = toConstrained typeConstant "JS"
+      call.tea = toConstrained jsType
       terms = _arguments call
       compatibles = (for term, i in terms
         compiled = termCompile ctx, term
@@ -4481,7 +4481,7 @@ charType = typeConstant 'Char'
 boolType = typeConstant 'Bool'
 numType = typeConstant 'Num'
 regexType = typeConstant 'Regex'
-jsType = typeConstant 'JS'
+jsType = typeConstant 'Js'
 
 safePrintType = (type) ->
   try
