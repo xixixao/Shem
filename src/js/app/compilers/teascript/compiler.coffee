@@ -700,7 +700,7 @@ isTranslated = (result) ->
   (isSimpleTranslated result) or (Array.isArray result) and (isSimpleTranslated result[0])
 
 isSimpleTranslated = (result) ->
-  result.js or result.ir
+  result.js or result.ir or result.precs or result.assigns
 
 callUnknownCompile = (ctx, call) ->
   callUnknownTranslate ctx, (operatorCompile ctx, call), call
@@ -2090,8 +2090,9 @@ ms.syntax = ms_syntax = (ctx, call) ->
     compiledMacro = translateToJs translateIr ctx,
         (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], rest))
     macroFn = eval compiledMacro
-    ctx.declareMacro ctx.definitionPattern(), (ctx, call) ->
-      constantToSource macroFn (_arguments call)...
+    if macroFn
+      ctx.declareMacro ctx.definitionPattern(), (ctx, call) ->
+        constantToSource macroFn (_arguments call)...
 
   jsNoop()
 
@@ -2099,20 +2100,44 @@ ms['`'] = ms_quote = (ctx, call) ->
   [res] = _arguments call
   # call.tea = toConstrained typeConstant 'Exp'
   # assignCompile ctx, call, res
-  call.tea = toConstrained typeConstant 'Expression'
 
-  serializeAst = (ast) ->
-    if isForm ast
-      if (_operator ast)?.symbol is ','
-        termCompile ctx, ast
+  if ctx.assignTo()
+
+    matchAst = (ast) ->
+      matched = ctx.assignTo()
+      if isForm ast
+        if (_operator ast)?.symbol is ','
+          termCompile ctx, ast
+        else
+          combinePatterns (for term, i in _terms ast
+            ctx.setAssignTo (jsAccess (jsCall "_terms", [matched]), i)
+            precs = matchAst term
+            ctx.resetAssignTo()
+            precs)
       else
-        (jsArray (map serializeAst, ast))
-    else
-      (jsValue (JSON.stringify ast))
-  serializeAst res
+        precs: [(cond_ (jsBinary "===",
+            (jsAccess matched, "symbol"), toJsString ast.symbol))]
+
+    matchAst res
+  else
+    call.tea = toConstrained expressionType
+
+    serializeAst = (ast) ->
+      if isForm ast
+        if (_operator ast)?.symbol is ','
+          termCompile ctx, ast
+        else
+          (jsArray (map serializeAst, ast))
+      else
+        (jsValue (JSON.stringify ast))
+    serializeAst res
 
 ms[','] = ms_comma = (ctx, call) ->
-  (jsCall 'constantToSource', [expressionCompile ctx, (_arguments call)[0]])
+  [res] = (_arguments call)
+  if matched = ctx.assignTo()
+    expressionCompile ctx, res
+  else
+    (jsCall 'constantToSource', [expressionCompile ctx, res])
 
 constantToSource = (value) ->
   switch typeof value
@@ -3766,6 +3791,7 @@ builtInTypeNames = ->
     boolType
     numType
     jsType
+    expressionType
   ]
 
 builtInDefinitions = ->
@@ -4482,6 +4508,7 @@ boolType = typeConstant 'Bool'
 numType = typeConstant 'Num'
 regexType = typeConstant 'Regex'
 jsType = typeConstant 'Js'
+expressionType = typeConstant 'Expression'
 
 safePrintType = (type) ->
   try
