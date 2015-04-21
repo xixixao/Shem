@@ -2166,7 +2166,8 @@ ms['`'] = ms_quote = (ctx, call) ->
       else
         commedAtom ast, ->
           serialized = (jsValue (JSON.stringify ast))
-          ast.label = 'const'
+          if (isExpression ast) or (ast.symbol in allDelims)
+            ast.label = 'const'
           serialized
     serializeAst expression
 
