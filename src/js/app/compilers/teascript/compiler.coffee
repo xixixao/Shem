@@ -1309,6 +1309,16 @@ topLevel = (ctx, form) ->
   else
     throw new Error "Missing definition at top level"
 
+topLevelModule = (moduleName, defaultImports) -> (ctx, form) ->
+  [jsVarDeclaration (validIdentifier moduleName),
+    (exportAll ctx, (join (importAny defaultImports), (topLevel ctx, form)))]
+
+topLevelExpressionInModule = (defaultImports) -> (ctx, expression) ->
+  (iife (concat [
+    toJsString 'use strict'
+    (importAny defaultImports)
+    [(jsReturn (topLevelExpression ctx, expression))]]))
+
 definitionList = (ctx, pairs) ->
   # log "yay"
   concat (definitionListCompile ctx, pairs)
@@ -1423,6 +1433,19 @@ definitionPairCompile = (ctx, pattern, value) ->
     undefined
   else
     compiled
+
+importAny = (defaultImports) ->
+  concat (for name, names of values defaultImports
+    imports name, names)
+
+exportAll = (ctx, definitions) ->
+  nonVirtual = filterMap ((name, declaration) -> not declaration.virtual), ctx._scope()
+  exported = subtractSets nonVirtual, builtInDefinitions()
+  exportList = map validIdentifier, (setToArray exported)
+  (iife (concat [
+    toJsString 'use strict'
+    definitions
+    [(jsReturn (jsDictionary exportList, exportList))]]))
 
 ms = {}
 ms.fn = ms_fn = (ctx, call) ->
@@ -1819,7 +1842,7 @@ declareMethods = (ctx, classConstraint, methodDeclarations) ->
   for name, {arity, type} of values methodDeclarations
     type = quantifyUnbound ctx,
       (addConstraints (freshInstance ctx, type), [classConstraint])
-    ctx.declare name, {arity, type}
+    ctx.declare name, {arity, type, virtual: yes}
   return
 
 ms.instance = ms_instance = (ctx, call) ->
@@ -1886,6 +1909,8 @@ ms.instance = ms_instance = (ctx, call) ->
       if not all methodTypes
         malformed ctx, call, "missing type of a method"
         return jsNoop()
+
+      ctx.declare instanceName, virtual: no
 
       # """var #{instanceName} = new #{className}(#{listOf methods});"""
       (jsVarDeclaration (validIdentifier instanceName),
@@ -2011,8 +2036,15 @@ ms.req = ms_req = (ctx, call) ->
   if not moduleName or not isName moduleName
     return malformed ctx, call, 'req requires a module name to require from'
   moduleName.label = 'param'
-  ctx.req moduleName.symbol, (arrayToSet (filter _is, (map _symbol, reqs)))
-  jsNoop()
+  requiredNames = (arrayToSet (filter _is, (map _symbol, reqs)))
+  ctx.req moduleName.symbol, requiredNames
+  imports moduleName.symbol, setToArray requiredNames
+
+imports = (moduleName, names) ->
+  validModuleName = validIdentifier moduleName
+  for name in names
+    validName = validIdentifier name
+    jsVarDeclaration validName, (jsAccess validModuleName, validName)
 
 ms.format = ms_format = (ctx, call) ->
   typeTable =
@@ -2503,7 +2535,7 @@ translateDict = (dictName, fieldNames, additionalFields = []) ->
     params: (map validIdentifier, allFieldNames)
     body: paramAssigns)
   accessors = fieldNames.map (name) ->
-    (jsAssignStatement (validIdentifier "#{dictName}-#{name}"), (jsFunction
+    (jsVarDeclaration (validIdentifier "#{dictName}-#{name}"), (jsFunction
       name: (validIdentifier name)
       params: ["dict"]
       body: [(jsReturn (jsAccess "dict", name))]))
@@ -3205,6 +3237,12 @@ jsConditionalTranslate = ({condCasePairs, elseCase}) ->
         #{elseCase}
       }"""
 
+jsDictionary = (keys, values) ->
+  {js: jsDictionaryTranslate, keys, values}
+
+jsDictionaryTranslate = ({keys, values}) ->
+  body = zipWith ((key, value) -> "\"#{key}\": #{value}"), keys, values
+  "{#{listOf body}}"
 
 jsExprList = (elems) ->
   {js: jsExprListTranslate, elems}
@@ -3382,13 +3420,13 @@ walk = (ast, cb) ->
 
 # for including in other files
 # TODO: support with arbitrary left patterns, prob via context
-exportList = (source) ->
-  wheres = whereList inside preCompileDefs source
-  names = []
-  for [pattern] in wheres
-    if pattern.symbol and pattern.symbol isnt '_'
-      names.push pattern.symbol
-  names
+# exportList = (source) ->
+#   wheres = whereList inside preCompileDefs source
+#   names = []
+#   for [pattern] in wheres
+#     if pattern.symbol and pattern.symbol isnt '_'
+#       names.push pattern.symbol
+#   names
 
 # Valid identifiers
 
@@ -3987,6 +4025,12 @@ mapMap = (fn, set) ->
   initialized = newMap()
   for key, val of set.values
     addToMap initialized, key, fn val
+  initialized
+
+mapKeys = (fn, map) ->
+  initialized = newMap()
+  for key, val of map.values
+    addToMap initialized, key, fn key
   initialized
 
 mapSet =
@@ -4852,7 +4896,9 @@ compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
   replaceOrAddToMap moduleGraph, moduleName, requires: requiredMap
   toInject = collectRequiresFor moduleName
   ctx = injectedContext toInject
-  {request, ast, ir, js} = compileCtxAstToJs topLevel, ctx, (astFromSource "(#{source})", -1, -1)
+  defaultImports = (subtractSets (newSetWith 'Prelude'), (newSetWith moduleName))
+  compilationFn = (topLevelModule moduleName, importsFor defaultImports)
+  {request, ast, ir, js} = compileCtxAstToJs compilationFn, ctx, (astFromSource "(#{source})", -1, -1)
   if request
     if not allInjected request, requiredMap
       return compileTopLevel source, moduleName, request
@@ -4869,7 +4915,7 @@ compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
 
 compileExpression = (source, moduleName = '@unnamed') ->
   ast = (astFromSource "(#{source})", -1, -1)
-  if _empty _terms ast
+  if _empty _validTerms ast
     {
       ast: ast
       js: ''
@@ -4878,16 +4924,26 @@ compileExpression = (source, moduleName = '@unnamed') ->
     module = lookupCompiledModule moduleName
     {modules, ctx} = contextWithDependencies moduleName
     [expression] = _terms ast
-    {js} = compileCtxAstToJs topLevelExpression, ctx, expression
+    compilationFn = (topLevelExpressionInModule importsFor moduleDependencies moduleName)
+    {js} = compileCtxAstToJs compilationFn, ctx, expression
     (finalizeTypes ctx, expression)
-    js: library + immutable + (listOfLines map lookupJs, (reverse modules)) + '\n;' + js
+    js: library + immutable + (listOfLines map lookupJs, modules) + '\n;' + js
     ast: ast
     errors: checkTypes ctx
 
+importsFor = (moduleSet) ->
+  lookupDefinitions = (name) ->
+    console.log name
+    setToArray (lookupCompiledModule name).declared.definitions
+  mapKeys lookupDefinitions, moduleSet
+
 contextWithDependencies = (moduleName) ->
-  toInject = concatSets (newSetWith moduleName), (collectRequiresFor moduleName)
+  toInject = moduleDependencies moduleName
   ctx: injectedContext toInject
   modules: setToArray toInject
+
+moduleDependencies = (moduleName) ->
+  concatSets (collectRequiresFor moduleName), (newSetWith moduleName)
 
 # Primitive type checking for now
 checkTypes = (ctx) ->
@@ -5059,14 +5115,19 @@ astFromSource = (source, posOffset = 0, depthOffset = 0) ->
 
 compileAstToJs = (compileFn, ast) ->
   ctx = new Context
-  compileCtxAstToJs compileFn, ctx, ast
+  compileCtxAstToJsAlways compileFn, ctx, ast
+
+compileCtxAstToJsAlways = (compileFn, ctx, ast) ->
+  ir = compileFn ctx, ast
+  {js} = compileCtxIrToJs ctx, ir
+  {ctx, ast, ir, js}
 
 compileCtxAstToJs = (compileFn, ctx, ast) ->
   ir = compileFn ctx, ast
   if ctx.requested()
     return request: ctx.requested(), ast: ast, ir: ir
   {js} = compileCtxIrToJs ctx, ir
-  {ast, ir, js}
+  {ctx, ast, ir, js}
 
 compileCtxIrToJs = (ctx, ir) ->
   if ir
