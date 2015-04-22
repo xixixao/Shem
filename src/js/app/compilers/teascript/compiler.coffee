@@ -2028,9 +2028,9 @@ ms.match = ms_match = (ctx, call) ->
 
 ms.req = ms_req = (ctx, call) ->
   reqTuple = ctx.definitionPattern()
-  if not isTuple reqTuple
-    return malformed ctx, reqTuple, 'req requires a tuple of names to be required'
   reqs = _validTerms reqTuple
+  if (not isTuple reqTuple) or _empty reqs
+    return malformed ctx, reqTuple, 'req requires a tuple of names to be required'
   map (syntaxNewName ctx, 'definition name to be imported required'), reqs
   [moduleName] = _validArguments call
   if not moduleName or not isName moduleName
