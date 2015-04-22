@@ -205,6 +205,14 @@ class Context
     @classParams = newMap()
     @types = []
     @isMalformed = no
+    @_requested = newMap()
+
+  req: (moduleName, names) ->
+    addToMap @_requested, moduleName, names
+
+  requested: ->
+    if @_requested.size > 0
+      @_requested
 
   markMalformed: ->
     @isMalformed = yes
@@ -1993,6 +2001,19 @@ ms.match = ms_match = (ctx, call) ->
       varList varNames
       compiledCases])
 
+ms.req = ms_req = (ctx, call) ->
+  reqTuple = ctx.definitionPattern()
+  if not isTuple reqTuple
+    return malformed ctx, reqTuple, 'req requires a tuple of names to be required'
+  reqs = _validTerms reqTuple
+  map (syntaxNewName ctx, 'definition name to be imported required'), reqs
+  [moduleName] = _validArguments call
+  if not moduleName or not isName moduleName
+    return malformed ctx, call, 'req requires a module name to require from'
+  moduleName.label = 'param'
+  ctx.req moduleName.symbol, (arrayToSet (filter _is, (map _symbol, reqs)))
+  jsNoop()
+
 ms.format = ms_format = (ctx, call) ->
   typeTable =
     n: numType
@@ -3312,16 +3333,6 @@ theme =
 colorize = (color, string) ->
   "<span style=\"color: #{color}\">#{string}</span>"
 
-# TODO: support require
-# Ideally shouldnt have to, just doing it to get around the def checking
-labelRequires = (ast) ->
-  macro 'require', ast, (node, words) ->
-    [req, module, list] = words
-    module.label = 'symbol'
-    for fun in inside list
-      fun.label = 'symbol'
-    node
-
 # TODO: figure out comments
 # typeComments = (ast) ->
 #   macro '#', ast, (node) ->
@@ -3648,9 +3659,6 @@ sortedStronglyConnectedComponents = (graph) ->
 #     content = mainCache.concat(varDecls, compiledCases.join '').join '\n'
 #     """(function(){
 #       #{content} else {throw new Error('match failed to match');}}())"""
-#   'require': (from, list) ->
-#     args = inside(list).map(compileName).map(toJsString).join ', '
-#     "$listize(window.requireModule(#{toJsString from.symbol}, [#{args}]))"
 #   'list': (items...) ->
 #     "$listize(#{compileList items})"
 
@@ -4835,24 +4843,29 @@ lookupCompiledModule = (name) ->
   lookupInMap compiledModules, name
 
 
-compileTopLevel = (source, moduleName = '@unnamed') ->
-  required = newSetWith 'Prelude' # TODO: Hardcoded prelude dependency
-  if (not lookupCompiledModule 'Prelude') and moduleName isnt 'Prelude'
-    request: 'Prelude'
-  else
-    directRequires = subtractSets required, (newSetWith moduleName)
-    replaceOrAddToMap moduleGraph, moduleName, requires: directRequires
-    toInject = collectRequiresFor moduleName
-    ctx = injectedContext toInject
-    {js, ast} = compileCtxAstToJs topLevel, ctx, (astFromSource "(#{source})", -1, -1)
-    (finalizeTypes ctx, ast)
-    replaceOrAddToMap compiledModules, moduleName,
-      declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
-      js: js
+compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
+  addToMap requiredMap, 'Prelude', yes # TODO: Hardcoded prelude dependency
+  removeFromMap requiredMap, moduleName
+  for requiredModuleName of values requiredMap
+    if not lookupCompiledModule requiredModuleName
+      return request: requiredModuleName
+  replaceOrAddToMap moduleGraph, moduleName, requires: requiredMap
+  toInject = collectRequiresFor moduleName
+  ctx = injectedContext toInject
+  {request, ast, ir, js} = compileCtxAstToJs topLevel, ctx, (astFromSource "(#{source})", -1, -1)
+  if request
+    if not allInjected request, requiredMap
+      return compileTopLevel source, moduleName, request
+    else
+      {js} = compileCtxIrToJs ctx, ir
+  (finalizeTypes ctx, ast)
+  replaceOrAddToMap compiledModules, moduleName,
+    declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
     js: js
-    ast: ast
-    types: typeEnumaration ctx
-    errors: checkTypes ctx
+  js: js
+  ast: ast
+  types: typeEnumaration ctx
+  errors: checkTypes ctx
 
 compileExpression = (source, moduleName = '@unnamed') ->
   ast = (astFromSource "(#{source})", -1, -1)
@@ -4889,6 +4902,15 @@ lookupJs = (moduleName) ->
   else
     js
 
+allInjected = (required, injected) ->
+  for name, names of values required
+    injectedNames = lookupInMap injected, name
+    if not injectedNames or
+        names.size isnt injectedNames.size or
+        (intersectSets [names, injectedNames]).size isnt names.size
+      return no
+  yes
+
 subtractContexts = (ctx, what) ->
   definitions = subtractMaps ctx._scope(), what._scope()
   typeNames = subtractMaps ctx._scope().typeNames, what._scope().typeNames
@@ -4899,19 +4921,20 @@ subtractContexts = (ctx, what) ->
 
 injectedContext = (modulesToInject) ->
   ctx = new Context
-  for name of values modulesToInject when compiled = lookupCompiledModule name
-    injectContext ctx, compiled.declared
+  for moduleName, names of values modulesToInject when compiled = lookupCompiledModule moduleName
+    injectContext ctx, compiled.declared, names
   ctx
 
-injectContext = (ctx, compiledModule) ->
+injectContext = (ctx, compiledModule, names) ->
   {definitions, typeNames, classes, macros} = compiledModule
   topScope = ctx._scope()
-  for name, macro of values macros
+  shouldImport = (name) -> not names.size or inSet names, name
+  for name, macro of values macros when shouldImport name
     if ctx.isMacroDeclared name
       throw new Error "Macro #{name} already defined"
     else
       addToMap topScope.macros, name, macro
-  for name, definition of values definitions
+  for name, definition of values definitions when shouldImport name
     addToMap topScope, name, definition
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
@@ -4919,20 +4942,19 @@ injectContext = (ctx, compiledModule) ->
   ctx
 
 collectRequiresFor = (name) ->
-  collectRequiresWithAcc name, newSet()
+  collectRequiresWithAcc name, newMap()
 
 collectRequiresWithAcc = (name, acc) ->
   compiled = lookupInMap moduleGraph, name
   if not compiled
     console.error "#{name} module not found"
-    newSet()
+    newMap()
   else
     {requires} = compiled
     collected = reduceSet collectRequiresWithAcc,
-      (concatSets requires, acc),
-      (subtractSets requires, acc)
-    concatSets collected, acc
-
+      (concatMaps requires, acc),
+      (subtractMaps requires, acc)
+    concatMaps collected, acc
 
 findMatchingDefinitions = (moduleName, reference) ->
   {declared: {savedScopes}} = lookupCompiledModule moduleName
@@ -5041,13 +5063,19 @@ compileAstToJs = (compileFn, ast) ->
 
 compileCtxAstToJs = (compileFn, ctx, ast) ->
   ir = compileFn ctx, ast
+  if ctx.requested()
+    return request: ctx.requested(), ast: ast, ir: ir
+  {js} = compileCtxIrToJs ctx, ir
+  {ast, ir, js}
+
+compileCtxIrToJs = (ctx, ir) ->
   if ir
     jsIr = translateIr ctx, ir
     js = (if Array.isArray jsIr
         translateStatementsToJs
       else
         translateToJs) jsIr
-  {ctx, ast, js}
+  {js}
 
 astizeList = (source) ->
   parentize astize (tokenize "(#{source})", -1), -1
@@ -5060,7 +5088,7 @@ astizeExpressionWithWrapper = (source) ->
 
 finalizeTypes = (ctx, ast) ->
   visitExpressions ast, (expression) ->
-    if expression?.label is 'name' and (type = ctx.finalType expression.symbol)
+    if expression.label is 'name' and (type = ctx.finalType expression.symbol)
       expression.tea = type
     else if expression.tea
       expression.tea = substitute ctx.substitution, expression.tea
