@@ -1365,7 +1365,7 @@ resolveDeferredTypes = (ctx) ->
       unresolvedNames = newMap()
       for name, binding of values bindings
         if canonicalType = ctx.finalType name
-          # log "already resolved", name, group
+          # log "already resolved", name, group, binding
           for type in binding.types
             # log "unify", (printType type.type), (printType canonicalType)
             unify ctx, type.type, (freshInstance ctx, canonicalType).type
@@ -1393,6 +1393,7 @@ resolveDeferredTypes = (ctx) ->
           if ctx.isInTopScope()
             # TODO: error missing name
           else
+            # TODO: add expression
             ctx.addToDeferredNames
               name: name
               type: addConstraints canonicalType, allConstraints
@@ -2634,7 +2635,7 @@ nameCompile = (ctx, atom, symbol) ->
           contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
-      ctx.addToDeferredNames {name: symbol, type: type}
+      ctx.addToDeferredNames {name: symbol, type: type, expression: atom}
       nameTranslate ctx, atom, symbol, type
     else
       # log "deferring in rhs for #{symbol}", ctx.definitionName()
