@@ -977,7 +977,7 @@ seqCompile = (ctx, form) ->
     elemType = ctx.freshTypeVariable star
     # TODO use (Seq c e) instead of (Array e)
     form.tea = new Constrained (concatMap _constraints, (map _tea, elems)),
-      new TypeApp arrayType, elemType
+      (markOrigin (new TypeApp arrayType(), elemType), form)
 
     for elem in elems
       unify ctx, elem.tea.type,
@@ -996,7 +996,7 @@ seqCompile = (ctx, form) ->
     # expressionCompile ctx, arrayToConses elems
     # result =>         "[#{listOf map _compiled, elems}]"
 
-    compiledItems = uniformCollectionCompile ctx, form, elems, arrayType
+    compiledItems = uniformCollectionCompile ctx, form, elems, arrayType()
     assignCompile ctx, form, (irArray compiledItems)
 
 isSplat = (expression) ->
@@ -1012,21 +1012,21 @@ hashmapCompile = (ctx, form) ->
     throw new Error "matching on hash maps not supported yet"
   else
     [labels, items] = unzip pairs _terms form
-    keyedType = markOrigin (new TypeApp hashmapType, stringType), form
+    keyedType = markOrigin (new TypeApp hashmapType(), stringType()), form
     compiledItems = uniformCollectionCompile ctx, form, items, keyedType
     keys = (map (__ string_, _labelName), labels)
     assignCompile ctx, form, (irMap keys, compiledItems)
 
 
 uniformCollectionCompile = (ctx, form, items, collectionType, moreConstraints = []) ->
-  {constraints, itemType, compiled} = termsCompileExpectingSameType ctx, items
+  {constraints, itemType, compiled} = termsCompileExpectingSameType ctx, form, items
   (labelOperator form) if not isCall form
   form.tea = new Constrained (join moreConstraints, constraints),
       (markOrigin (new TypeApp collectionType, itemType), form)
   compiled
 
-termsCompileExpectingSameType = (ctx, items) ->
-  itemType = ctx.freshTypeVariable star
+termsCompileExpectingSameType = (ctx, origin, items) ->
+  itemType = (markOrigin (ctx.freshTypeVariable star), origin)
   termsCompileExpectingType ctx, itemType, items
 
 termsCompileExpectingType = (ctx, itemType, terms) ->
@@ -1365,7 +1365,9 @@ resolveDeferredTypes = (ctx) ->
       unresolvedNames = newMap()
       for name, binding of values bindings
         if canonicalType = ctx.finalType name
+          # log "already resolved", name, group
           for type in binding.types
+            # log "unify", (printType type.type), (printType canonicalType)
             unify ctx, type.type, (freshInstance ctx, canonicalType).type
         else
           addToMap unresolvedNames, name, binding
@@ -1744,13 +1746,13 @@ ms['::'] = ms_typed_expression = (ctx, call) ->
   assignCompile ctx, call, (termCompile ctx, expression)
 
 ms.global = ms_global = (ctx, call) ->
-  call.tea = toConstrained jsType
+  call.tea = toConstrained markOrigin jsType(), call
   assignCompile ctx, call, (jsValue "window")
 
 callJsMethodCompile = (ctx, call) ->
   [dotMethod, object, args...] = _validTerms call
   labelOperator dotMethod
-  call.tea = toConstrained jsType
+  call.tea = toConstrained markOrigin jsType(), call
   if object
     (jsMethod (termCompile ctx, object), dotMethod.symbol[1...], (termsCompile ctx, args))
   else
@@ -2056,18 +2058,20 @@ imports = (moduleName, names) ->
 
 ms.format = ms_format = (ctx, call) ->
   typeTable =
-    n: numType
-    i: numType
-    s: stringType
-    c: charType
+    n: numType()
+    i: numType()
+    s: stringType()
+    c: charType()
   [formatStringToken, args...] = _arguments call
   compiledArgs = termsCompile ctx, args
   if not all map _tea, args
-    call.tea = toConstrained stringType
+    call.tea = toConstrained stringType()
     return malformed ctx, call, "Argument not typed"
-  call.tea = new Constrained (concatMap (__ _constraints, _tea), args), stringType
+  call.tea = new Constrained (concatMap (__ _constraints, _tea), args), markOrigin stringType(), call
   types = []
   formatString = _stringValue formatStringToken
+  for name, type of typeTable
+    markOrigin type, formatStringToken
   while formatString.length > 0
     match = formatString.match /^(.*?(?:^|[^\\]|\\\\))\%(.)/
     break unless match
@@ -2099,7 +2103,7 @@ ms.cond = ms_cond = (ctx, call) ->
   [conds, someResults] = unzip pairs args
   results = (filter _is, someResults)
 
-  doneConds = termsCompileExpectingType ctx, boolType, conds
+  doneConds = termsCompileExpectingType ctx, (markOrigin boolType(), call), conds
 
   # mark all used as used (or remember them)
   oldUsed = ctx.usedNames()
@@ -2216,7 +2220,7 @@ ms['`'] = ms_quote = (ctx, call) ->
 
     matchAst expression
   else
-    call.tea = toConstrained expressionType
+    call.tea = toConstrained markOrigin expressionType(), call
 
     serializeAst = (ast) ->
       if isForm ast
@@ -2300,7 +2304,7 @@ simpleMacro = (macroFn) ->
 for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method']
   do (jsMethod) ->
     ms["Js.#{jsMethod}"] = (ctx, call) ->
-      call.tea = toConstrained jsType
+      call.tea = toConstrained jsType()
       terms = _arguments call
       compatibles = (for term, i in terms
         compiled = termCompile ctx, term
@@ -2322,7 +2326,7 @@ ms.Set = ms_Set = (ctx, call) ->
     throw new Error "matching on sets not supported yet"
   else
     items = _arguments call
-    compiledItems = uniformCollectionCompile ctx, call, items, hashsetType
+    compiledItems = uniformCollectionCompile ctx, call, items, hashsetType()
     assignCompile ctx, call, (irSet compiledItems)
 
 ms.List = ms_List = (ctx, call) ->
@@ -2331,7 +2335,7 @@ ms.List = ms_List = (ctx, call) ->
     throw new Error "matching on lists not supported yet"
   else
     items = _arguments call
-    compiledItems = uniformCollectionCompile ctx, call, items, listType
+    compiledItems = uniformCollectionCompile ctx, call, items, listType()
     assignCompile ctx, call, (irList compiledItems)
 
 ms.Map = ms_Map = (ctx, call) ->
@@ -2343,8 +2347,8 @@ ms.Map = ms_Map = (ctx, call) ->
     if args.length % 2 != 0
       return malformed ctx, args[args.length - 1], 'Missing value for key'
     [labels, items] = unzip pairs args
-    compiledLabels = termsCompileExpectingSameType ctx, labels
-    keyType = applyKindFn hashmapType, compiledLabels.itemType
+    compiledLabels = termsCompileExpectingSameType ctx, call, labels
+    keyType = applyKindFn hashmapType(), compiledLabels.itemType
     compiledItems = uniformCollectionCompile ctx, call, items, keyType,
       compiledLabels.constraints
     assignCompile ctx, call, (irMap compiledLabels.compiled, compiledItems)
@@ -2669,17 +2673,17 @@ namespacedNameCompile = (ctx, atom, symbol) ->
       "window.#{symbol['global.'.length...]}"
     else
       symbol
-  type: toConstrained jsType
+  type: toConstrained jsType()
   pattern: precs: []
 
 numericalCompile = (ctx, atom, symbol) ->
   translation = if symbol[0] is '~' then (jsUnary "-", symbol[1...]) else symbol
-  type: toConstrained numType
+  type: toConstrained numType()
   translation: translation
   pattern: literalPattern ctx, translation
 
 regexCompile = (ctx, atom, symbol) ->
-  type: toConstrained regexType
+  type: toConstrained regexType()
   translation: symbol
   pattern:
     if ctx.assignTo()
@@ -2702,12 +2706,12 @@ charCompile = (ctx, atom, symbol) ->
     else
       malformed ctx, atom, 'Unrecognized character'
       ''
-  type: toConstrained charType
+  type: toConstrained charType()
   translation: translation
   pattern: literalPattern ctx, translation
 
 stringCompile = (ctx, atom, symbol) ->
-  type: toConstrained stringType
+  type: toConstrained stringType()
   translation: symbol
   pattern: literalPattern ctx, symbol
 
@@ -3015,9 +3019,9 @@ irJsCompatibleTranslate = (ctx, {type, expression}) ->
 isCustomCollectionType = ({type}) ->
   helpContext = new Context
   newVar = -> helpContext.freshTypeVariable star
-  (toMatchTypes (applyKindFn arrayType, newVar()), type) or
-    (toMatchTypes (applyKindFn hashmapType, newVar(), newVar()), type) or
-    (toMatchTypes (applyKindFn hashsetType, newVar()), type)
+  (toMatchTypes (applyKindFn arrayType(), newVar()), type) or
+    (toMatchTypes (applyKindFn hashmapType(), newVar(), newVar()), type) or
+    (toMatchTypes (applyKindFn hashsetType(), newVar()), type)
 
 
 isTypeAnnotation = (expression) ->
@@ -3881,24 +3885,24 @@ comparatorOpType = '(Fn a a Bool)'
 
 builtInTypeNames = ->
   arrayToMap map (({name, kind}) -> [name, kind]), [
-    arrowType
-    arrayType
-    listType
-    hashmapType
-    hashsetType
-    stringType
-    charType
-    boolType
-    numType
-    jsType
-    expressionType
+    arrowType()
+    arrayType()
+    listType()
+    hashmapType()
+    hashsetType()
+    stringType()
+    charType()
+    boolType()
+    numType()
+    jsType()
+    expressionType()
   ]
 
 builtInDefinitions = ->
-  newMapWith 'True', (type: (quantifyAll toConstrained boolType), arity: []),
-      'False', (type: (quantifyAll toConstrained boolType), arity: [])
+  newMapWith 'True', (type: (quantifyAll toConstrained boolType()), arity: []),
+      'False', (type: (quantifyAll toConstrained boolType()), arity: [])
       '==', (
-        type: (quantifyAll toConstrained (typeFn (atomicType 'a', star), (atomicType 'a', star), boolType)),
+        type: (quantifyAll toConstrained (typeFn (atomicType 'a', star), (atomicType 'a', star), boolType())),
         arity: ['x', 'y'])
   # concatMaps (mapMap desiplifyTypeAndArity, newMapWith '&', '(Fn a b b)', # TODO: replace with actual type
   #   'show-list', '(Fn a b)' # TODO: replace with actual type
@@ -4181,6 +4185,7 @@ unify = (ctx, t1, t2) ->
 
 # Returns a substitution
 mostGeneralUnifier = (t1, t2) ->
+  # log "mgu", (printType t1), (printType t2), (print t1.origin), (print t2.origin)
   if t1.TypeVariable
     bindVariable t1, t2
   else if t2.TypeVariable
@@ -4446,7 +4451,7 @@ isNormalizedConstraintArgument = (type) ->
 
 includesJsType = (type) ->
   if type.TypeConstr
-    typeEq type, jsType
+    typeEq type, jsType()
   else if type.TypeApp
     (includesJsType type.op) or (includesJsType type.arg)
 
@@ -4518,7 +4523,7 @@ kindFnOfArgs = (arg, args...) ->
 
 typeFn = (argType, args...) ->
   if _empty args
-    new TypeApp zeroArrowType, argType
+    new TypeApp zeroArrowType(), argType
   else
     properTypeFn argType, args...
 
@@ -4527,7 +4532,7 @@ properTypeFn = (from, to, args...) ->
     if not to
       from
     else
-      new TypeApp (new TypeApp arrowType, from), to
+      new TypeApp (new TypeApp arrowType(), from), to
   else
     properTypeFn from, (properTypeFn to, args...)
 
@@ -4614,19 +4619,19 @@ quantify = (vars, type) ->
   new ForAll kinds, (substitute quantifiedVars, type)
 
 star = '*'
-arrowType = new TypeConstr 'Fn', kindFn 2
-zeroArrowType = new TypeConstr 'Fn0', kindFn 1
-arrayType = new TypeConstr 'Array', kindFn 1
-listType = new TypeConstr 'List', kindFn 1
-hashmapType = new TypeConstr 'Map', kindFn 2
-hashsetType = new TypeConstr 'Set', kindFn 1
-stringType = typeConstant 'String'
-charType = typeConstant 'Char'
-boolType = typeConstant 'Bool'
-numType = typeConstant 'Num'
-regexType = typeConstant 'Regex'
-jsType = typeConstant 'Js'
-expressionType = typeConstant 'Expression'
+arrowType = -> new TypeConstr 'Fn', kindFn 2
+zeroArrowType = -> new TypeConstr 'Fn0', kindFn 1
+arrayType = -> new TypeConstr 'Array', kindFn 1
+listType = -> new TypeConstr 'List', kindFn 1
+hashmapType = -> new TypeConstr 'Map', kindFn 2
+hashsetType = -> new TypeConstr 'Set', kindFn 1
+stringType = -> typeConstant 'String'
+charType = -> typeConstant 'Char'
+boolType = -> typeConstant 'Bool'
+numType = -> typeConstant 'Num'
+regexType = -> typeConstant 'Regex'
+jsType = -> typeConstant 'Js'
+expressionType = -> typeConstant 'Expression'
 
 safePrintType = (type) ->
   try
@@ -5048,7 +5053,7 @@ findMatchingDefinitions = (moduleName, reference) ->
   topScope = cloneMap ctx._scope()
   removeFromMap topScope, '=='
   addToMap topScope, '{}',
-    type: quantifyAll toConstrained new TypeApp arrayType, (new TypeVariable 'a', star)
+    type: quantifyAll toConstrained new TypeApp arrayType()(), (new TypeVariable 'a', star)
   findMatchingDefinitionsOnType type, join scoped, [topScope]
 
 findMatchingDefinitionsOnType = (type, definitionLists) ->
