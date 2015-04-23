@@ -102,10 +102,13 @@ labelMapping = (word, rules) ->
 
 labelOperator = (expression) ->
   if isForm expression
-    [open, _..., close] = expression
-    open.label = close.label = 'operator'
+    labelDelimeters expression, 'operator'
   else if not isFake expression
     expression.label = 'operator'
+
+labelDelimeters = (form, label) ->
+  [open, _..., close] = form
+  open.label = close.label = label
 
 crawl = (ast, cb, parent) ->
   if Array.isArray ast
@@ -977,7 +980,7 @@ seqCompile = (ctx, form) ->
     elemType = ctx.freshTypeVariable star
     # TODO use (Seq c e) instead of (Array e)
     form.tea = new Constrained (concatMap _constraints, (map _tea, elems)),
-      (markOrigin (new TypeApp arrayType(), elemType), form)
+      (markOrigin (new TypeApp arrayType, elemType), form)
 
     for elem in elems
       unify ctx, elem.tea.type,
@@ -996,7 +999,7 @@ seqCompile = (ctx, form) ->
     # expressionCompile ctx, arrayToConses elems
     # result =>         "[#{listOf map _compiled, elems}]"
 
-    compiledItems = uniformCollectionCompile ctx, form, elems, arrayType()
+    compiledItems = uniformCollectionCompile ctx, form, elems, arrayType
     assignCompile ctx, form, (irArray compiledItems)
 
 isSplat = (expression) ->
@@ -1012,7 +1015,7 @@ hashmapCompile = (ctx, form) ->
     throw new Error "matching on hash maps not supported yet"
   else
     [labels, items] = unzip pairs _terms form
-    keyedType = markOrigin (new TypeApp hashmapType(), stringType()), form
+    keyedType = markOrigin (new TypeApp hashmapType, stringType), form
     compiledItems = uniformCollectionCompile ctx, form, items, keyedType
     keys = (map (__ string_, _labelName), labels)
     assignCompile ctx, form, (irMap keys, compiledItems)
@@ -1747,13 +1750,13 @@ ms['::'] = ms_typed_expression = (ctx, call) ->
   assignCompile ctx, call, (termCompile ctx, expression)
 
 ms.global = ms_global = (ctx, call) ->
-  call.tea = toConstrained markOrigin jsType(), call
+  call.tea = toConstrained markOrigin jsType, call
   assignCompile ctx, call, (jsValue "window")
 
 callJsMethodCompile = (ctx, call) ->
   [dotMethod, object, args...] = _validTerms call
   labelOperator dotMethod
-  call.tea = toConstrained markOrigin jsType(), call
+  call.tea = toConstrained markOrigin jsType, call
   if object
     (jsMethod (termCompile ctx, object), dotMethod.symbol[1...], (termsCompile ctx, args))
   else
@@ -2059,16 +2062,16 @@ imports = (moduleName, names) ->
 
 ms.format = ms_format = (ctx, call) ->
   typeTable =
-    n: numType()
-    i: numType()
-    s: stringType()
-    c: charType()
+    n: numType
+    i: numType
+    s: stringType
+    c: charType
   [formatStringToken, args...] = _arguments call
   compiledArgs = termsCompile ctx, args
   if not all map _tea, args
-    call.tea = toConstrained stringType()
+    call.tea = toConstrained stringType
     return malformed ctx, call, "Argument not typed"
-  call.tea = new Constrained (concatMap (__ _constraints, _tea), args), markOrigin stringType(), call
+  call.tea = new Constrained (concatMap (__ _constraints, _tea), args), markOrigin stringType, call
   types = []
   formatString = _stringValue formatStringToken
   for name, type of typeTable
@@ -2104,7 +2107,7 @@ ms.cond = ms_cond = (ctx, call) ->
   [conds, someResults] = unzip pairs args
   results = (filter _is, someResults)
 
-  doneConds = termsCompileExpectingType ctx, (markOrigin boolType(), call), conds
+  doneConds = termsCompileExpectingType ctx, (markOrigin boolType, call), conds
 
   # mark all used as used (or remember them)
   oldUsed = ctx.usedNames()
@@ -2190,6 +2193,8 @@ ms.syntax = ms_syntax = (ctx, call) ->
 
 ms['`'] = ms_quote = (ctx, call) ->
   expression = firstOrCall _arguments call
+  if (_arguments call).length > 1
+    labelDelimeters call, 'const'
 
   commedAtom = (atom, otherwise) ->
     if (_symbol atom)[0] is ','
@@ -2208,6 +2213,7 @@ ms['`'] = ms_quote = (ctx, call) ->
         if (_operator ast)?.symbol is ','
           termCompile ctx, ast
         else
+          labelDelimeters ast, 'const'
           combinePatterns (for term, i in _terms ast
             ctx.setAssignTo (jsAccess (jsCall "_terms", [matched]), i)
             precs = matchAst term
@@ -2221,18 +2227,19 @@ ms['`'] = ms_quote = (ctx, call) ->
 
     matchAst expression
   else
-    call.tea = toConstrained markOrigin expressionType(), call
+    call.tea = toConstrained markOrigin expressionType, call
 
     serializeAst = (ast) ->
       if isForm ast
         if (_operator ast)?.symbol is ','
           termCompile ctx, ast
         else
+          labelDelimeters ast, 'const'
           (jsArray (map serializeAst, ast))
       else
         commedAtom ast, ->
           serialized = (jsValue (JSON.stringify ast))
-          if (isExpression ast) or (ast.symbol in allDelims)
+          if (isExpression ast)
             ast.label = 'const'
           serialized
     serializeAst expression
@@ -2305,7 +2312,7 @@ simpleMacro = (macroFn) ->
 for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method']
   do (jsMethod) ->
     ms["Js.#{jsMethod}"] = (ctx, call) ->
-      call.tea = toConstrained jsType()
+      call.tea = toConstrained jsType
       terms = _arguments call
       compatibles = (for term, i in terms
         compiled = termCompile ctx, term
@@ -2327,7 +2334,7 @@ ms.Set = ms_Set = (ctx, call) ->
     throw new Error "matching on sets not supported yet"
   else
     items = _arguments call
-    compiledItems = uniformCollectionCompile ctx, call, items, hashsetType()
+    compiledItems = uniformCollectionCompile ctx, call, items, hashsetType
     assignCompile ctx, call, (irSet compiledItems)
 
 ms.List = ms_List = (ctx, call) ->
@@ -2336,7 +2343,7 @@ ms.List = ms_List = (ctx, call) ->
     throw new Error "matching on lists not supported yet"
   else
     items = _arguments call
-    compiledItems = uniformCollectionCompile ctx, call, items, listType()
+    compiledItems = uniformCollectionCompile ctx, call, items, listType
     assignCompile ctx, call, (irList compiledItems)
 
 ms.Map = ms_Map = (ctx, call) ->
@@ -2349,7 +2356,7 @@ ms.Map = ms_Map = (ctx, call) ->
       return malformed ctx, args[args.length - 1], 'Missing value for key'
     [labels, items] = unzip pairs args
     compiledLabels = termsCompileExpectingSameType ctx, call, labels
-    keyType = applyKindFn hashmapType(), compiledLabels.itemType
+    keyType = applyKindFn hashmapType, compiledLabels.itemType
     compiledItems = uniformCollectionCompile ctx, call, items, keyType,
       compiledLabels.constraints
     assignCompile ctx, call, (irMap compiledLabels.compiled, compiledItems)
@@ -2674,17 +2681,17 @@ namespacedNameCompile = (ctx, atom, symbol) ->
       "window.#{symbol['global.'.length...]}"
     else
       symbol
-  type: toConstrained jsType()
+  type: toConstrained jsType
   pattern: precs: []
 
 numericalCompile = (ctx, atom, symbol) ->
   translation = if symbol[0] is '~' then (jsUnary "-", symbol[1...]) else symbol
-  type: toConstrained numType()
+  type: toConstrained numType
   translation: translation
   pattern: literalPattern ctx, translation
 
 regexCompile = (ctx, atom, symbol) ->
-  type: toConstrained regexType()
+  type: toConstrained regexType
   translation: symbol
   pattern:
     if ctx.assignTo()
@@ -2707,12 +2714,12 @@ charCompile = (ctx, atom, symbol) ->
     else
       malformed ctx, atom, 'Unrecognized character'
       ''
-  type: toConstrained charType()
+  type: toConstrained charType
   translation: translation
   pattern: literalPattern ctx, translation
 
 stringCompile = (ctx, atom, symbol) ->
-  type: toConstrained stringType()
+  type: toConstrained stringType
   translation: symbol
   pattern: literalPattern ctx, symbol
 
@@ -3020,9 +3027,9 @@ irJsCompatibleTranslate = (ctx, {type, expression}) ->
 isCustomCollectionType = ({type}) ->
   helpContext = new Context
   newVar = -> helpContext.freshTypeVariable star
-  (toMatchTypes (applyKindFn arrayType(), newVar()), type) or
-    (toMatchTypes (applyKindFn hashmapType(), newVar(), newVar()), type) or
-    (toMatchTypes (applyKindFn hashsetType(), newVar()), type)
+  (toMatchTypes (applyKindFn arrayType, newVar()), type) or
+    (toMatchTypes (applyKindFn hashmapType, newVar(), newVar()), type) or
+    (toMatchTypes (applyKindFn hashsetType, newVar()), type)
 
 
 isTypeAnnotation = (expression) ->
@@ -3886,24 +3893,24 @@ comparatorOpType = '(Fn a a Bool)'
 
 builtInTypeNames = ->
   arrayToMap map (({name, kind}) -> [name, kind]), [
-    arrowType()
-    arrayType()
-    listType()
-    hashmapType()
-    hashsetType()
-    stringType()
-    charType()
-    boolType()
-    numType()
-    jsType()
-    expressionType()
+    arrowType
+    arrayType
+    listType
+    hashmapType
+    hashsetType
+    stringType
+    charType
+    boolType
+    numType
+    jsType
+    expressionType
   ]
 
 builtInDefinitions = ->
-  newMapWith 'True', (type: (quantifyAll toConstrained boolType()), arity: []),
-      'False', (type: (quantifyAll toConstrained boolType()), arity: [])
+  newMapWith 'True', (type: (quantifyAll toConstrained boolType), arity: []),
+      'False', (type: (quantifyAll toConstrained boolType), arity: [])
       '==', (
-        type: (quantifyAll toConstrained (typeFn (atomicType 'a', star), (atomicType 'a', star), boolType())),
+        type: (quantifyAll toConstrained (typeFn (atomicType 'a', star), (atomicType 'a', star), boolType)),
         arity: ['x', 'y'])
   # concatMaps (mapMap desiplifyTypeAndArity, newMapWith '&', '(Fn a b b)', # TODO: replace with actual type
   #   'show-list', '(Fn a b)' # TODO: replace with actual type
@@ -4452,7 +4459,7 @@ isNormalizedConstraintArgument = (type) ->
 
 includesJsType = (type) ->
   if type.TypeConstr
-    typeEq type, jsType()
+    typeEq type, jsType
   else if type.TypeApp
     (includesJsType type.op) or (includesJsType type.arg)
 
@@ -4524,7 +4531,7 @@ kindFnOfArgs = (arg, args...) ->
 
 typeFn = (argType, args...) ->
   if _empty args
-    new TypeApp zeroArrowType(), argType
+    new TypeApp zeroArrowType, argType
   else
     properTypeFn argType, args...
 
@@ -4533,7 +4540,7 @@ properTypeFn = (from, to, args...) ->
     if not to
       from
     else
-      new TypeApp (new TypeApp arrowType(), from), to
+      new TypeApp (new TypeApp arrowType, from), to
   else
     properTypeFn from, (properTypeFn to, args...)
 
@@ -4620,19 +4627,19 @@ quantify = (vars, type) ->
   new ForAll kinds, (substitute quantifiedVars, type)
 
 star = '*'
-arrowType = -> new TypeConstr 'Fn', kindFn 2
-zeroArrowType = -> new TypeConstr 'Fn0', kindFn 1
-arrayType = -> new TypeConstr 'Array', kindFn 1
-listType = -> new TypeConstr 'List', kindFn 1
-hashmapType = -> new TypeConstr 'Map', kindFn 2
-hashsetType = -> new TypeConstr 'Set', kindFn 1
-stringType = -> typeConstant 'String'
-charType = -> typeConstant 'Char'
-boolType = -> typeConstant 'Bool'
-numType = -> typeConstant 'Num'
-regexType = -> typeConstant 'Regex'
-jsType = -> typeConstant 'Js'
-expressionType = -> typeConstant 'Expression'
+arrowType = new TypeConstr 'Fn', kindFn 2
+zeroArrowType = new TypeConstr 'Fn0', kindFn 1
+arrayType = new TypeConstr 'Array', kindFn 1
+listType = new TypeConstr 'List', kindFn 1
+hashmapType = new TypeConstr 'Map', kindFn 2
+hashsetType = new TypeConstr 'Set', kindFn 1
+stringType = typeConstant 'String'
+charType = typeConstant 'Char'
+boolType = typeConstant 'Bool'
+numType = typeConstant 'Num'
+regexType = typeConstant 'Regex'
+jsType = typeConstant 'Js'
+expressionType = typeConstant 'Expression'
 
 safePrintType = (type) ->
   try
@@ -5054,7 +5061,7 @@ findMatchingDefinitions = (moduleName, reference) ->
   topScope = cloneMap ctx._scope()
   removeFromMap topScope, '=='
   addToMap topScope, '{}',
-    type: quantifyAll toConstrained new TypeApp arrayType()(), (new TypeVariable 'a', star)
+    type: quantifyAll toConstrained new TypeApp arrayType(), (new TypeVariable 'a', star)
   findMatchingDefinitionsOnType type, join scoped, [topScope]
 
 findMatchingDefinitionsOnType = (type, definitionLists) ->
@@ -6358,6 +6365,21 @@ tests = [
   infix (syntax [exp]
     (match exp
       (` ((, x) (, op) (, z))) (` ((, op) (, x) (, z)))
+      _ (` "Failed to match syntax")))
+
+  f (infix (3 + 4))
+  """
+  'f', 7
+
+  'shortened syntax quote'
+  """
+  + (macro [x y]
+    (: (Fn Num Num Num))
+    (Js.binary "+" x y))
+
+  infix (syntax [exp]
+    (match exp
+      (` ,x ,op ,z) (` ,op ,x ,z)
       _ (` "Failed to match syntax")))
 
   f (infix (3 + 4))
