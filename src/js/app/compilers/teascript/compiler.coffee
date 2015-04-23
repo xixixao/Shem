@@ -4450,7 +4450,6 @@ withOrigin = (typeOrConstraint, expression) ->
   typeOrConstraint
 
 mutateMarkingOrigin = (typeOrConstraint, expression) ->
-  throw new Error "Mutating type with origin #{printType typeOrConstraint}" if typeOrConstraint.origin
   typeOrConstraint.origin = expression
 
 # Clones constrained types and parts of them
