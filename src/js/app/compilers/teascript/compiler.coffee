@@ -884,14 +884,14 @@ callInfer = (ctx, operator, terms) ->
     callInferSingle ctx, operator, op.tea, arg.tea
 
 callInferSingle = (ctx, originalOperator, operatorTea, argTea) ->
-  returnType = markOrigin (ctx.freshTypeVariable star), originalOperator
-  callType = markOrigin (typeFn argTea.type, returnType), originalOperator
+  returnType = withOrigin (ctx.freshTypeVariable star), originalOperator
+  callType = withOrigin (typeFn argTea.type, returnType), originalOperator
   unify ctx, operatorTea.type, callType
   new Constrained (join operatorTea.constraints, argTea.constraints), returnType
 
 callZeroInfer = (ctx, originalOperator, operatorTea) ->
-  returnType = markOrigin (ctx.freshTypeVariable star), originalOperator
-  callType = markOrigin (typeFn returnType), originalOperator
+  returnType = withOrigin (ctx.freshTypeVariable star), originalOperator
+  callType = withOrigin (typeFn returnType), originalOperator
   unify ctx, operatorTea.type, callType
   new Constrained operatorTea.constraints, returnType
 
@@ -980,7 +980,7 @@ seqCompile = (ctx, form) ->
     elemType = ctx.freshTypeVariable star
     # TODO use (Seq c e) instead of (Array e)
     form.tea = new Constrained (concatMap _constraints, (map _tea, elems)),
-      (markOrigin (new TypeApp arrayType, elemType), form)
+      (withOrigin (new TypeApp arrayType, elemType), form)
 
     for elem in elems
       unify ctx, elem.tea.type,
@@ -1015,7 +1015,7 @@ hashmapCompile = (ctx, form) ->
     throw new Error "matching on hash maps not supported yet"
   else
     [labels, items] = unzip pairs _terms form
-    keyedType = markOrigin (new TypeApp hashmapType, stringType), form
+    keyedType = withOrigin (new TypeApp hashmapType, stringType), form
     compiledItems = uniformCollectionCompile ctx, form, items, keyedType
     keys = (map (__ string_, _labelName), labels)
     assignCompile ctx, form, (irMap keys, compiledItems)
@@ -1025,11 +1025,11 @@ uniformCollectionCompile = (ctx, form, items, collectionType, moreConstraints = 
   {constraints, itemType, compiled} = termsCompileExpectingSameType ctx, form, items
   (labelOperator form) if not isCall form
   form.tea = new Constrained (join moreConstraints, constraints),
-      (markOrigin (new TypeApp collectionType, itemType), form)
+      (withOrigin (new TypeApp collectionType, itemType), form)
   compiled
 
 termsCompileExpectingSameType = (ctx, origin, items) ->
-  itemType = (markOrigin (ctx.freshTypeVariable star), origin)
+  itemType = (withOrigin (ctx.freshTypeVariable star), origin)
   termsCompileExpectingType ctx, itemType, items
 
 termsCompileExpectingType = (ctx, itemType, terms) ->
@@ -1088,7 +1088,7 @@ typeNameCompile = (ctx, atom, expectedKind) ->
         # throw new Error "type name #{atom.symbol} was not defined" unless kind
         malformed ctx, atom, "This type name has not been defined"
         kindOfType = star
-      markOrigin (atomicType atom.symbol, kindOfType), atom
+      withOrigin (atomicType atom.symbol, kindOfType), atom
     else
       expanded
   finalKind = kind type
@@ -1106,7 +1106,7 @@ typeNameCompile = (ctx, atom, expectedKind) ->
 typeTupleCompile = (ctx, form) ->
   (labelOperator form)
   elemTypes = _terms form
-  applyKindFn (markOrigin (tupleType elemTypes.length), form),
+  applyKindFn (withOrigin (tupleType elemTypes.length), form),
     (typesCompile ctx, elemTypes)...
 
 typeConstructorCompile = (ctx, call) ->
@@ -1116,7 +1116,7 @@ typeConstructorCompile = (ctx, call) ->
   if isAtom op
     name = op.symbol
     compiledArgs = typesCompile ctx, args
-    markOrigin (if name is 'Fn'
+    withOrigin (if name is 'Fn'
       (labelOperator op)
       typeFn compiledArgs...
     else
@@ -1136,7 +1136,7 @@ typeConstraintCompile = (ctx, expression) ->
       className = op.symbol
       {constraint} = ctx.classNamed className
       paramKinds = (map kind, constraint.types.types)
-      markOrigin (new ClassConstraint op.symbol,
+      withOrigin (new ClassConstraint op.symbol,
         new Types (typesCompile ctx, args, paramKinds)), expression
     else
       malformed ctx, expression, 'Class name required in a constraint'
@@ -1368,10 +1368,8 @@ resolveDeferredTypes = (ctx) ->
       unresolvedNames = newMap()
       for name, binding of values bindings
         if canonicalType = ctx.finalType name
-          # log "already resolved", name, group, binding
           for type in binding.types
-            # log "unify", (printType type.type), (printType canonicalType)
-            unify ctx, type.type, (freshInstance ctx, canonicalType).type
+            unify ctx, type.type, (mapOrigin (freshInstance ctx, canonicalType).type, type.type.origin)
         else
           addToMap unresolvedNames, name, binding
 
@@ -1396,7 +1394,7 @@ resolveDeferredTypes = (ctx) ->
           if ctx.isInTopScope()
             # TODO: error missing name
           else
-            # TODO: add expression
+            # TODO: add origin to canonicalType
             ctx.addToDeferredNames
               name: name
               type: addConstraints canonicalType, allConstraints
@@ -1491,7 +1489,7 @@ ms.fn = ms_fn = (ctx, call) ->
             type: ctx.preDeclaredType name # if any
 
       newParamType = (param) ->
-        markOrigin (ctx.freshTypeVariable star), param
+        withOrigin (ctx.freshTypeVariable star), param
       paramTypeVars = map newParamType, params
       paramTypes = map (__ toForAll, toConstrained), paramTypeVars
       ctx.newLateScope()
@@ -1541,9 +1539,9 @@ ms.fn = ms_fn = (ctx, call) ->
           call.tea =
             if body
               new Constrained (join body.tea.constraints, deferredConstraints),
-                markOrigin (typeFn paramTypeVars..., body.tea?.type), call
+                withOrigin (typeFn paramTypeVars..., body.tea?.type), call
             else
-              (cloneOrigin (freshInstance ctx, explicitType), compiledType)
+              (copyOrigin (freshInstance ctx, explicitType), compiledType)
           # """λ#{paramNames.length}(function (#{listOf paramNames}) {
           #   #{compiledWheres}
           #   return #{compiledBody};
@@ -2596,8 +2594,7 @@ atomCompile = (ctx, atom) ->
         else
           nameCompile) ctx, atom, symbol
   if type
-    atom.tea = type
-    mapOrigin type, atom
+    atom.tea = mapOrigin type, atom
   atom.id = id if id?
   atom.scope = ctx.currentScopeIndex()
   if ctx.isOperator()
@@ -2642,7 +2639,7 @@ nameCompile = (ctx, atom, symbol) ->
           contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
-      ctx.addToDeferredNames {name: symbol, type: type, expression: atom}
+      ctx.addToDeferredNames {name: symbol, type: (mapOrigin type, atom)}
       nameTranslate ctx, atom, symbol, type
     else
       # log "deferring in rhs for #{symbol}", ctx.definitionName()
@@ -3149,7 +3146,7 @@ retrieve = (expression, newForm) ->
   expression.malformed = newForm.malformed
   expression.label = newForm.label if newForm.label
   if newForm.tea?.type.origin is newForm
-    markOrigin newForm.tea.type, expression
+    mutateMarkingOrigin newForm.tea.type, expression
 
 filterAst = (test, expression) ->
   join (filter test, [expression]),
@@ -4193,7 +4190,6 @@ unify = (ctx, t1, t2) ->
 
 # Returns a substitution
 mostGeneralUnifier = (t1, t2) ->
-  # log "mgu", (printType t1), (printType t2), (print t1.origin), (print t2.origin)
   if t1.TypeVariable
     bindVariable t1, t2
   else if t2.TypeVariable
@@ -4365,7 +4361,7 @@ substitute = (substitution, type) ->
   else if type.QuantifiedVar
     substitution[type.var] or type
   else if type.TypeApp
-    markOrigin (new TypeApp (substitute substitution, type.op),
+    withOrigin (new TypeApp (substitute substitution, type.op),
       (substitute substitution, type.arg)), type.origin
   else if type.ForAll
     new ForAll type.kinds, (substitute substitution, type.type)
@@ -4373,7 +4369,7 @@ substitute = (substitution, type) ->
     new Constrained (substituteList substitution, type.constraints),
       (substitute substitution, type.type)
   else if type.ClassConstraint
-    markOrigin (new ClassConstraint type.className, substitute substitution, type.types),
+    withOrigin (new ClassConstraint type.className, substitute substitution, type.types),
       type.origin
   else if type.Types
     new Types substituteList substitution, type.types
@@ -4414,32 +4410,64 @@ freshName = (nameIndex) ->
   # suffix = if nameIndex >= 25 then freshName (Math.floor nameIndex / 25) - 1 else ''
   # (String.fromCharCode 97 + nameIndex % 25) + suffix
 
-cloneOrigin = (to, from) ->
-  if to.TypeApp
-    cloneOrigin to.op, from.op
-    cloneOrigin to.arg, from.arg
-  else if to.Constrained
-    cloneOrigin to.type, from.type
+copyOrigin = (to, from) ->
+  clone = cloneType to
+  if to.Constrained
+    copyOrigin to.type, from.type
     for c, i in to.constraints
-      cloneOrigin c, from.constraints[i]
+      copyOrigin c, from.constraints[i]
   else
-    markOrigin to, from.origin
-  to
+    if to.TypeApp
+      copyOrigin to.op, from.op
+      copyOrigin to.arg, from.arg
+    mutateMarkingOrigin clone, from.origin
+  clone
 
 mapOrigin = (type, expression) ->
-  if type.TypeApp
-    mapOrigin type.op, expression
-    mapOrigin type.arg, expression
-  else if type.Constrained
-    mapOrigin type.type, expression
+  clone = cloneType type
+  mutateMappingOrigin clone, expression
+  clone
+
+mutateMappingOrigin = (type, expression) ->
+  if type.Constrained
+    mutateMappingOrigin type.type, expression
     for c in type.constraints
-      mapOrigin c, expression
+      mutateMarkingOrigin c, expression
   else
-    markOrigin type, expression
+    if type.TypeApp
+      mutateMappingOrigin type.op, expression
+      mutateMappingOrigin type.arg, expression
+    mutateMarkingOrigin type, expression
 
 markOrigin = (typeOrConstraint, expression) ->
-  typeOrConstraint.origin = expression
+  clone = cloneType typeOrConstraint
+  mutateMarkingOrigin clone, expression
+  clone
+
+# Should be used only on new types
+withOrigin = (typeOrConstraint, expression) ->
+  mutateMarkingOrigin typeOrConstraint, expression
   typeOrConstraint
+
+mutateMarkingOrigin = (typeOrConstraint, expression) ->
+  throw new Error "Mutating type with origin #{printType typeOrConstraint}" if typeOrConstraint.origin
+  typeOrConstraint.origin = expression
+
+# Clones constrained types and parts of them
+# Class constraint arguments are not cloned
+cloneType = (t) ->
+  if t.TypeVariable
+    new TypeVariable t.name, t.kind
+  else if t.TypeConstr
+    new TypeConstr t.name, t.kind
+  else if t.QuantifiedVar
+    new QuantifiedVar t.var
+  else if t.TypeApp
+    new TypeApp (cloneType t.op), (cloneType t.arg)
+  else if t.ClassConstraint
+    new ClassConstraint t.className, t.types
+  else if t.Constrained
+    new Constrained (map cloneType, t.constraints), (cloneType t.type)
 
 # Normalized constraint has a type which has type variable at its head
 #   that is either ordinary type variable or type variable standing for a constructor
