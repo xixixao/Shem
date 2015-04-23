@@ -535,6 +535,9 @@ class Context
     declaration.final = no
     @_declare name, declaration
 
+  declareAsFinal: (name) ->
+    (@_declarationInCurrentScope name).final = yes
+
   _declare: (name, declaration) ->
     declaration.id ?= @freshId()
     replaceOrAddToMap @_scope(), name, declaration
@@ -559,7 +562,7 @@ class Context
       undefined
 
   _declarationInScope: (i, name) ->
-    lookupInMap @scopes[i], name
+    (decl = (lookupInMap @scopes[i], name)) and not decl.isClass and decl
 
   freshId: ->
     @nameIndex++
@@ -1281,6 +1284,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
           quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
         else
           toForAll currentType
+  ctx.declareAsFinal name
   if deferredConstraints
     ctx.addToScopeConstraints deferredConstraints
 
@@ -1439,7 +1443,9 @@ importAny = (defaultImports) ->
     imports name, names)
 
 exportAll = (ctx, definitions) ->
-  nonVirtual = filterMap ((name, declaration) -> not declaration.virtual), ctx._scope()
+  shouldBeExported = (name, declaration) ->
+    not declaration.virtual and declaration.final
+  nonVirtual = filterMap shouldBeExported, ctx._scope()
   exported = subtractSets nonVirtual, builtInDefinitions()
   exportList = map validIdentifier, (setToArray exported)
   (iife (concat [
@@ -1469,7 +1475,8 @@ ms.fn = ms_fn = (ctx, call) ->
       if name = ctx.isAtSimpleDefinition()
         # Explicit typing
         if type
-          explicitType = preDeclareExplicitlyTyped ctx, typeConstrainedCompile ctx, type
+          compiledType = typeConstrainedCompile ctx, type
+          explicitType = preDeclareExplicitlyTyped ctx, compiledType
           ctx.assignArity name, paramNames
         else
           ctx.preDeclare name,
@@ -1530,7 +1537,7 @@ ms.fn = ms_fn = (ctx, call) ->
               new Constrained (join body.tea.constraints, deferredConstraints),
                 markOrigin (typeFn paramTypeVars..., body.tea?.type), call
             else
-              freshInstance ctx, explicitType
+              (cloneOrigin (freshInstance ctx, explicitType), compiledType)
           # """λ#{paramNames.length}(function (#{listOf paramNames}) {
           #   #{compiledWheres}
           #   return #{compiledBody};
@@ -1791,6 +1798,7 @@ ms.class = ms_class = (ctx, call) ->
         if classConstraint
           ctx.addClass name, classConstraint, superClasses, freshedDeclarations
           declareMethods ctx, classConstraint, freshedDeclarations
+          ctx.declare name, isClass: yes
 
           translateDict name, (keysOfMap freshedDeclarations), superClassNames
         else
@@ -4392,6 +4400,18 @@ freshName = (nameIndex) ->
   nameIndex
   # suffix = if nameIndex >= 25 then freshName (Math.floor nameIndex / 25) - 1 else ''
   # (String.fromCharCode 97 + nameIndex % 25) + suffix
+
+cloneOrigin = (to, from) ->
+  if to.TypeApp
+    cloneOrigin to.op, from.op
+    cloneOrigin to.arg, from.arg
+  else if to.Constrained
+    cloneOrigin to.type, from.type
+    for c, i in to.constraints
+      cloneOrigin c, from.constraints[i]
+  else
+    markOrigin to, from.origin
+  to
 
 mapOrigin = (type, expression) ->
   if type.TypeApp
