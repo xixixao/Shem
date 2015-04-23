@@ -5088,7 +5088,7 @@ findMatchingDefinitions = (moduleName, reference) ->
   topScope = cloneMap ctx._scope()
   removeFromMap topScope, '=='
   addToMap topScope, '{}',
-    type: quantifyAll toConstrained new TypeApp arrayType(), (new TypeVariable 'a', star)
+    type: quantifyAll toConstrained new TypeApp arrayType, (new TypeVariable 'a', star)
   findMatchingDefinitionsOnType type, join scoped, [topScope]
 
 findMatchingDefinitionsOnType = (type, definitionLists) ->
