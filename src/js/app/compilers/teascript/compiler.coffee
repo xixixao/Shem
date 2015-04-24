@@ -226,7 +226,7 @@ class Context
       throw new Error "already defining, forgot to leaveDefinition?"
     @_scope().definition =
       name: pattern?.symbol
-      id: pattern?.symbol and @freshId()
+      id: pattern?.symbol and (@currentDeclarationId pattern.symbol) or @freshId()
       pattern: pattern
       inside: 0
       late: no
@@ -611,6 +611,9 @@ class Context
 
   deferredBindings: ->
     @_scope().deferredBindings
+
+  currentDeclarationId: (name) ->
+    (@_declarationInCurrentScope name)?.id
 
   declarationId: (name) ->
     (@_declaration name)?.id
@@ -1497,7 +1500,7 @@ ms.fn = ms_fn = (ctx, call) ->
       # log "adding types", (map _symbol, params), paramTypes
       ctx.declareTyped paramNames, paramTypes
       for param in params
-        param.id = ctx.declarationId _symbol param
+        param.id = ctx.currentDeclarationId _symbol param
 
       # Declare wheres first so they properly shadow parent scope
       preDeclarePatterns ctx, _fst unzip pairs wheres
@@ -2619,7 +2622,7 @@ nameCompile = (ctx, atom, symbol) ->
         pattern: []
     else
       atom.label = 'name'
-      id = (ctx.definitionId()) ? (ctx.declarationId symbol) ? ctx.freshId()
+      id = (ctx.definitionId()) ? (ctx.currentDeclarationId symbol) ? ctx.freshId()
       type = toConstrained ctx.freshTypeVariable star
       # ctx.bindTypeVariables [type.type.name]
       ctx.addToDefinedNames {name: symbol, id: id, type: type}
@@ -4450,7 +4453,7 @@ withOrigin = (typeOrConstraint, expression) ->
   typeOrConstraint
 
 mutateMarkingOrigin = (typeOrConstraint, expression) ->
-  typeOrConstraint.origin = expression
+  # typeOrConstraint.origin = expression
 
 # Clones constrained types and parts of them
 # Class constraint arguments are not cloned
