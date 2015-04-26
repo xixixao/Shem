@@ -1275,13 +1275,13 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
       isDeclaredConstraint = (c) ->
         entailed = entail ctx, unifiedType.constraints, c
       notDeclared = filter (__ _not, isDeclaredConstraint), checked = (substituteList ctx.substitution, constraints)
-      try
       {success, error} = deferConstraints ctx, notDeclared
       if error
-        throw new Error "Error when deferring #{name} #{error}"
-      [deferredConstraints, retainedConstraints] = success
-      if _notEmpty retainedConstraints
-        ctx.extendSubstitution substitutionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
+        ctx.extendSubstitution error
+      else
+        [deferredConstraints, retainedConstraints] = success
+        if _notEmpty retainedConstraints
+          ctx.extendSubstitution substitutionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
   else
     # log name, "constraints", (substituteList ctx.substitution, constraints)
     {success, error} = deferConstraints ctx,
@@ -2489,7 +2489,7 @@ normalizeConstraints = (ctx, constraints) ->
       else
         # TODO: propogate this as standard error
         # throw new Error "no instance found to satisfy #{safePrintType constraint}"
-        return error: "No instance found to satisfy #{safePrintType constraint}"
+        return error: instanceLookupFailed constraint
       after = subLimit ctx.substitution
       # There was a functional dependency, renormalize
       if after isnt before
@@ -2561,6 +2561,12 @@ constraintsFromInstance = (ctx, constraint) ->
       ctx.extendSubstitution substitution
       return map ((c) -> substitute substitution, c), freshed.constraints
   null
+
+instanceLookupFailed = (constraint) ->
+  [first, second] = sortBasedOnOriginPosition constraint, constraint.types.types[0]
+  substitutionFail
+    message: "No instance found to satisfy #{safePrintType constraint}"
+    conflicts: [first.origin, second.origin]
 
 _names = (list) ->
   map _symbol, list
@@ -2874,6 +2880,8 @@ irDefinitionTranslate = (ctx, {type, expression, id, bare}) ->
     #   constraintsFromCanonicalType ctx, declaredType, finalType
     # else
       (reduceConstraints ctx, allConstraints).success
+  if not reducedConstraints
+    return jsNoop()
   if bare and _notEmpty reducedConstraints
     malformed ctx, expression, "Ambiguous class constraints: #{map safePrintType, reducedConstraints}"
     return "null";
@@ -4288,14 +4296,16 @@ bindVariable = (variable, type) ->
     newSubstitution variable.name, type
 
 typeFail = (message, t1, t2) ->
-  [first, second] =
-    if t1.origin?.start > t2.origin?.start
-      [t2, t1]
-    else
-      [t1, t2]
+  [first, second] = sortBasedOnOriginPosition t1, t2
   substitutionFail
     message: "#{message} #{(safePrintType first)}, #{(safePrintType second)}"
     conflicts: [first.origin, second.origin]
+
+sortBasedOnOriginPosition = (t1, t2) ->
+  if t1.origin?.start > t2.origin?.start
+    [t2, t1]
+  else
+    [t1, t2]
 
 
 # Maybe substitution if the types match
