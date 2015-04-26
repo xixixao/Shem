@@ -1088,7 +1088,7 @@ typeNameCompile = (ctx, atom, expectedKind) ->
         else
           ctx.kindOfTypeName atom.symbol
       if kindOfType instanceof TempKind
-        kindOfType = expectedKind
+        kindOfType = expectedKind or star
       if not kindOfType
         # throw new Error "type name #{atom.symbol} was not defined" unless kind
         malformed ctx, atom, "This type name has not been defined"
@@ -2496,9 +2496,9 @@ normalizeConstraints = (ctx, constraints) ->
         toNormalize.push normalized...
         normalized = []
   if all normalized
-    success: normalized
+    {success: normalized}
   else
-    error: "??Not all normalized??"
+    {error: "??Not all normalized??"}
 
 # normalizeConstraint = (ctx, constraint) ->
 #   if isNormalizedConstraint constraint
@@ -5425,6 +5425,14 @@ tests = [
       (match person
         (Person name id) name))"""
   """(name ((Person id: 3) "Mike"))""", "Mike"
+
+  'recursive data'
+  """
+  Tree (data [a]
+    Val [value: a]
+    Node [child: (Tree a)])
+  """
+  '(Val-value (Node-child (Node (Val 42))))', 42
 
   'late bound function'
   """f (fn [x] (g x))
