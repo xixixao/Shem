@@ -2677,9 +2677,9 @@ nameCompile = (ctx, atom, symbol) ->
       type = freshInstance ctx, contextType
       nameTranslate ctx, atom, symbol, type
     # In sub-scope (function) only defer compilation for declarations in current scope
-    else if (not ctx.isCurrentlyDeclared symbol) and
-        ((ctx.isFinallyDeclared symbol) or symbol in ctx.parentDeferrableDefinitionNames()) or
-          contextType instanceof TempType
+    else if ((not ctx.isCurrentlyDeclared symbol) and (ctx.arity symbol) and
+          ((ctx.isFinallyDeclared symbol) or symbol in ctx.parentDeferrableDefinitionNames())) or
+            contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
       ctx.addToDeferredNames {name: symbol, type: (mapOrigin type, atom)}
@@ -3353,11 +3353,11 @@ jsNoopTranslate = ->
   "null"
 
 
-jsReturn = (arg) ->
-  {js: jsReturnTranslate, arg}
+jsReturn = (result) ->
+  {js: jsReturnTranslate, result}
 
-jsReturnTranslate = ({arg}) ->
-  "return #{arg};"
+jsReturnTranslate = ({result}) ->
+  "return #{result};"
 
 
 jsTernary = (cond, thenExp, elseExp) ->
@@ -6460,6 +6460,30 @@ tests = [
   f (infix (3 + 4))
   """
   'f', 7
+
+  'constraints and deferring'
+  """
+  Show (class [a]
+    show (fn [x] (: (Fn a String))))
+
+  show-string (instance (Show String)
+    show (fn [x] x))
+
+  s (fn [y]
+    (show y))
+
+  f (fn [x]
+    g)
+
+  g "2"
+
+  r (fn [y]
+    (f (s y)))
+
+  j (fn [x]
+    (r "src"))
+  """
+  '(j 2)', "2"
 
 
   # TODO: support matching with the same name
