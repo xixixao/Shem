@@ -2457,30 +2457,49 @@ reduceConstraints = (ctx, constraints) ->
   else
     null
 
+# Normalized constraints have a type variable in their head, they are "abstract"
+# and don't match any one instance
 normalizeConstraints = (ctx, constraints) ->
-  normalized = concat (for constraint in constraints
-    normalizeConstraint ctx, constraint)
+  toNormalize = map id, constraints
+  normalized = []
+  while _notEmpty toNormalize
+    constraint = substitute ctx.substitution, toNormalize.shift()
+    if isNormalizedConstraint constraint
+      normalized.push constraint
+    else
+      before = subLimit ctx.substitution
+      instanceContraints = constraintsFromInstance ctx, constraint
+      if instanceContraints
+        toNormalize.push instanceContraints...
+      else
+        # TODO: propogate this as standard error
+        throw new Error "no instance found to satisfy #{safePrintType constraint}"
+      after = subLimit ctx.substitution
+      # There was a functional dependency, renormalize
+      if after isnt before
+        toNormalize.push normalized...
+        normalized = []
   if all normalized
     normalized
   else
     null
 
-normalizeConstraint = (ctx, constraint) ->
-  if isNormalizedConstraint constraint
-    [constraint]
-  else
-    instanceContraints = constraintsFromInstance ctx, constraint
-    if instanceContraints
-      normalizeConstraints ctx, instanceContraints
-    else
-      # TODO: propogate this as standard error
-      throw new Error "no instance found to satisfy #{safePrintType constraint}"
-      null
+# normalizeConstraint = (ctx, constraint) ->
+#   if isNormalizedConstraint constraint
+#     [constraint]
+#   else
+#     instanceContraints = constraintsFromInstance ctx, constraint
+#     if instanceContraints
+#       normalizeConstraints ctx, instanceContraints
+#     else
+#       # TODO: propogate this as standard error
+#       throw new Error "no instance found to satisfy #{safePrintType constraint}"
+#       null
 
 simplifyConstraints = (ctx, constraints) ->
   requiredConstraints = []
   for constraint, i in constraints
-    if not entail ctx, (join requiredConstraints, constraints[i + 1..]), constraint
+    if not entailedBySuperClasses ctx, (join requiredConstraints, constraints[i + 1..]), constraint
       requiredConstraints.push constraint
   requiredConstraints
 
@@ -2488,17 +2507,22 @@ simplifyConstraints = (ctx, constraints) ->
 # Whether constraints entail constraint
 entail = (ctx, constraints, constraint) ->
   constraints = substituteList ctx.substitution, constraints
+  if entailedBySuperClasses ctx, constraints, constraint
+    return yes
+  instanceContraints = constraintsFromInstance ctx, constraint
+  if instanceContraints
+    allMap ((c) -> entail ctx, constraints, c), instanceContraints
+  else
+    no
+
+entailedBySuperClasses = (ctx, constraints, constraint) ->
   for c in constraints
     for superClassConstraint in constraintsFromSuperClasses ctx, c
       # if typeEq superClassConstraint, constraint
       if (sub = constraintsEqual superClassConstraint, constraint)
         ctx.extendSubstitution sub
         return yes
-  instanceContraints = constraintsFromInstance ctx, constraint
-  if instanceContraints
-    allMap ((c) -> entail ctx, constraints, c), instanceContraints
-  else
-    no
+  no
 
 constraintsEqual = (c1, c2) ->
   c1.className is c2.className and
@@ -5006,7 +5030,6 @@ compileExpression = (source, moduleName = '@unnamed') ->
 
 importsFor = (moduleSet) ->
   lookupDefinitions = (name) ->
-    console.log name
     setToArray (lookupCompiledModule name).declared.definitions
   mapKeys lookupDefinitions, moduleSet
 
@@ -5222,7 +5245,7 @@ astizeExpressionWithWrapper = (source) ->
 
 finalizeTypes = (ctx, ast) ->
   visitExpressions ast, (expression) ->
-    if expression.label is 'name' and (type = ctx.finalType expression.symbol)
+    if expression.label is 'name' and (type = (ctx.typeForId expression.id) or (ctx.finalType expression.symbol))
       expression.tea = type
     else if expression.tea
       expression.tea = substitute ctx.substitution, expression.tea
