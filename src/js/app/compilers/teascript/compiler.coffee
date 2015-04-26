@@ -1436,7 +1436,8 @@ deferDeferred = (ctx) ->
     for [expression, dependencyName, lhs, rhs] in ctx.deferred()
       if ctx.isInTopScope()
         malformed ctx, expression, "#{dependencyName} is not defined"
-      else
+      else if not ctx.isCurrentlyDeclared dependencyName
+        # log "Deferring further for", dependencyName, "in", ctx.definitionName()
         ctx.doDefer expression, dependencyName
 
 definitionPairCompile = (ctx, pattern, value) ->
@@ -6484,6 +6485,20 @@ tests = [
     (r "src"))
   """
   '(j 2)', "2"
+
+  'deferred in where'
+  """
+  f (fn [x] g)
+
+  g 3
+
+  h (fn [x]
+    2
+    gg (fn [x]
+      ff)
+    ff (f ""))
+  """
+  '(h 3)', 2
 
 
   # TODO: support matching with the same name
