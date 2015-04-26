@@ -3949,6 +3949,7 @@ builtInTypeNames = ->
     charType
     boolType
     numType
+    regexType
     jsType
     expressionType
   ]
