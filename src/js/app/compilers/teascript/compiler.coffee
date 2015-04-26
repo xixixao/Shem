@@ -1083,10 +1083,10 @@ typeNameCompile = (ctx, atom, expectedKind) ->
   type =
     if expanded is atom.symbol
       kindOfType =
-        if isCapital atom
-          ctx.kindOfTypeName atom.symbol
-        else
+        if isNotCapital atom
           expectedKind or star
+        else
+          ctx.kindOfTypeName atom.symbol
       if kindOfType instanceof TempKind
         kindOfType = expectedKind
       if not kindOfType
@@ -2176,7 +2176,9 @@ auxiliaryDependencies = (graph, names) ->
 ms.syntax = ms_syntax = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare a new syntax macro'
   [paramTuple, rest...] = _arguments call
-  [body] = rest
+  [maybeType] = rest
+
+  doDeclare =  isTypeAnnotation maybeType
 
   if hasName
     macroName = ctx.definitionName()
@@ -2200,7 +2202,11 @@ ms.syntax = ms_syntax = (ctx, call) ->
     else
       malformed ctx, ctx.definitionPattern(), 'Macro failed to compile'
 
-  jsNoop()
+  if isTypeAnnotation maybeType
+    params = (map token_, map _symbol, _terms paramTuple)
+    typedFn_ params, maybeType, call_ (token_ macroName), params
+  else
+    jsNoop()
 
 ms['`'] = ms_quote = (ctx, call) ->
   expression = firstOrCall _arguments call
@@ -2782,7 +2788,7 @@ deferredExpression = ->
 syntaxType = (expression) ->
   # ignore type classes for now
   if isName expression
-    expression.label = if isCapital then 'typename' else 'typevar'
+    expression.label = if isNotCapital expression then 'typevar' else 'typename'
   else if isTuple expression
     map syntaxType, (_terms expression)
   else if isCall expression
@@ -3103,7 +3109,10 @@ isLabel = (atom) ->
   /[^\\]:$/.test atom.symbol
 
 isCapital = (atom) ->
-  /[A-Z]/.test atom.symbol
+  /^[A-Z]/.test atom.symbol
+
+isNotCapital = (atom) ->
+  /^[a-z]/.test atom.symbol
 
 isName = (expression) ->
   throw new Error "Nothing passed to isName" unless expression
@@ -3985,23 +3994,23 @@ builtInDefinitions = ->
   #   'empty-array', (type: (parseUnConstrainedType '(Fn (Array a))'), arity: [])
   #   'cons-array', (type: (parseUnConstrainedType '(Fn a (Array a) (Array a))'), arity: ['what', 'onto'])
 
-desiplifyTypeAndArity = (simple) ->
-  type = parseUnConstrainedType simple
-  args = collectArgs type.type.type
-  arity = if Array.isArray args then args.length else 0
-  type: type
-  arity: ("a#{i}" for i in  [0...arity - 2])
+# desiplifyTypeAndArity = (simple) ->
+#   type = parseUnConstrainedType simple
+#   args = collectArgs type.type.type
+#   arity = if Array.isArray args then args.length else 0
+#   type: type
+#   arity: ("a#{i}" for i in  [0...arity - 2])
 
-parseUnConstrainedType = (string) ->
-  quantifyAll toConstrained typeCompile astize tokenize string
+# parseUnConstrainedType = (string) ->
+#   quantifyAll toConstrained typeCompile astize tokenize string
 
-desiplifyType = (simple) ->
-  if Array.isArray simple
-    typeFn (map desiplifyType, simple)...
-  else if /^[A-Z]/.test simple
-    typeConstant simple
-  else
-    new TypeVariable simple, star
+# desiplifyType = (simple) ->
+#   if Array.isArray simple
+#     typeFn (map desiplifyType, simple)...
+#   else if /^[A-Z]/.test simple
+#     typeConstant simple
+#   else
+#     new TypeVariable simple, star
 
 
 # Set/Map implementation
@@ -4568,10 +4577,10 @@ typeConstant = (name) ->
 
 # Either a type variable or type constructor of some kind
 atomicType = (name, kind) ->
-  if /^[A-Z]/.test name
-    new TypeConstr name, kind
-  else
+  if (isNotCapital symbol: name)
     new TypeVariable name, kind
+  else
+    new TypeConstr name, kind
 
 tupleType = (arity) ->
   new TypeConstr "[#{arity}]", kindFn arity
