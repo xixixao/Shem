@@ -4499,7 +4499,7 @@ withOrigin = (typeOrConstraint, expression) ->
   typeOrConstraint
 
 mutateMarkingOrigin = (typeOrConstraint, expression) ->
-  # typeOrConstraint.origin = expression
+  typeOrConstraint.origin = expression
 
 # Clones constrained types and parts of them
 # Class constraint arguments are not cloned
