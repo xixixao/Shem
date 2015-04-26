@@ -7,7 +7,7 @@ tokenize = (input, initPos = 0) ->
         \x20 # space
       | \n # newline
       | [#{controls}] # delims
-      | /([^\s]|\\/)([^/]|\\/)*?/ # regex
+      | /([^\s]|\\/)([^/]|\\/)*?/[gmi]? # regex
       | "(?:[^"\\]|\\.)*" # strings
       | \\[^\s][^\s#{controls}]* # char
       | [^#{controls}\\"'\s]+ # normal tokens
@@ -86,7 +86,7 @@ constantLabeling = (atom) ->
     ['label', -> isLabel atom]
     ['string', -> /^"/.test symbol]
     ['char', -> /^\\/.test symbol]
-    ['regex', -> /^\/[^\s\/]/.test symbol]
+    ['regex', -> /^\/.*\/[gmi]?$/.test symbol]
     ['const', -> /^[A-Z]([^\s\.-]|-(?=[A-Z]))*$/.test symbol] # TODO: instead label based on context
     ['paren', -> symbol in ['(', ')']]
     ['bracket', -> symbol in ['[', ']']]
