@@ -600,6 +600,7 @@ class Context
       for defined in def.definedNames
         addToMap auxiliaries, defined,
           deps: def.usedNames
+          defines: def.definedNames
           definition: def
     @_scope().auxiliaries = auxiliaries
 
@@ -934,7 +935,7 @@ tupleCompile = (ctx, form) ->
   # TODO: should we support bare records?
   #   [a: 2 b: 3]
   if not ctx.shouldDefer()
-    form.tea = tupleOfTypes map _tea, elems
+    form.tea = markOrigin (tupleOfTypes map _tea, elems), form
 
   if ctx.assignTo()
     combinePatterns compiledElems
@@ -2151,8 +2152,14 @@ findDefinitionsIncludingDeps = (ctx, names) ->
 
 findDefinitions = (ctx, names) ->
   auxiliaries = ctx.auxiliaries()
+  alreadyDefined = newSet()
   concat (for name in names
-    (lookupInMap auxiliaries, name)?.definition or [])
+    aux = (lookupInMap auxiliaries, name)
+    if aux and not inSet alreadyDefined, name
+      addAllToSet alreadyDefined, aux.defines
+      aux.definition
+    else
+      [])
 
 findDeps = (ctx) -> (names) ->
   auxiliaries = ctx.auxiliaries()
@@ -3180,10 +3187,13 @@ walkIr = (ast, cb) ->
 printIr = (ast) ->
   walkIr ast, (ast) ->
     args = {}
-    for name, node of ast
+    for name, node of ast when name not in ['js', 'ir']
       args[name] =
         if node?
-          if name in ['js', 'ir'] then true else printIr node
+          if name is 'type'
+            (printType node)
+          else
+            printIr node
         else
           undefined
     args
