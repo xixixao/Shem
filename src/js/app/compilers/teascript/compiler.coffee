@@ -755,7 +755,7 @@ callKnownCompile = (ctx, call) ->
   nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
 
   if nonLabeledArgs.length > positionalParams.length
-    malformed ctx, call, 'Too many arguments'
+    malformed ctx, call, "Too many arguments to #{operator.symbol}"
   else
     extraParamNames = positionalParams[nonLabeledArgs.length..]
     extraParams = map token_, ("_#{n}" for n in extraParamNames)
@@ -871,6 +871,7 @@ callTyping = (ctx, call) ->
   return if ctx.shouldDefer()
   terms = _terms call
   op = _operator call
+  return if not all (tea for {tea} in terms)
   call.tea =
     if terms.length is 1
       # terms = join terms, [tea: toConstrained (markOrigin (ctx.freshTypeVariable star), call)]
@@ -1174,6 +1175,8 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
     if ctx.shouldDefer()
       return deferCurrentDefinition ctx, expression
 
+    return jsNoop() unless expression.tea
+
     if assigns.length is 0
       return malformed ctx, to, 'Not an assignable pattern'
     translation = map compileVariableAssignment, (join translationCache, assigns)
@@ -1214,6 +1217,9 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
         else
           ctx.preDeclare name, id: id
     #log "exiting pattern early", pattern, "for", ctx.shouldDefer()
+    return {}
+
+  if not matched.tea
     return {}
 
   # Properly bind types according to the pattern
@@ -1537,14 +1543,11 @@ ms.fn = ms_fn = (ctx, call) ->
           deferredExpression()
         else
           # Typing
-          if body and not body.tea
-            malformed ctx, body, 'Expression failed to type check'
-            #throw new Error "Body not typed"
           call.tea =
-            if body
+            if body and body.tea
               new Constrained (join body.tea.constraints, deferredConstraints),
                 withOrigin (typeFn paramTypeVars..., body.tea?.type), call
-            else
+            else if explicitType
               (copyOrigin (freshInstance ctx, explicitType), compiledType)
           # """λ#{paramNames.length}(function (#{listOf paramNames}) {
           #   #{compiledWheres}
