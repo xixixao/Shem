@@ -1276,16 +1276,20 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
         entailed = entail ctx, unifiedType.constraints, c
       notDeclared = filter (__ _not, isDeclaredConstraint), checked = (substituteList ctx.substitution, constraints)
       try
-        [deferredConstraints, retainedConstraints] = deferConstraints ctx,
-          notDeclared
-      catch e
-        throw new Error "Error when deferring #{name} #{e.message}"
+      {success, error} = deferConstraints ctx, notDeclared
+      if error
+        throw new Error "Error when deferring #{name} #{error}"
+      [deferredConstraints, retainedConstraints] = success
       if _notEmpty retainedConstraints
         ctx.extendSubstitution substitutionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
   else
     # log name, "constraints", (substituteList ctx.substitution, constraints)
-    [deferredConstraints, retainedConstraints] = deferConstraints ctx,
+    {success, error} = deferConstraints ctx,
       (substituteList ctx.substitution, constraints)
+    if error
+      ctx.extendSubstitution substitutionFail error
+      return
+    [deferredConstraints, retainedConstraints] = success
     # Finalizing type again after possibly added substitution when defer constraints
     currentType = substitute ctx.substitution, type
     # log "assign type", name, (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
@@ -2449,23 +2453,24 @@ substituteVarNames = (ctx, varNames) ->
 # Returns deferred and retained constraints
 deferConstraints = (ctx, constraints) ->
   reducedConstraints = reduceConstraints ctx, constraints
-  throw new Error "could not reduce constraints in deferConstraints" unless reducedConstraints
+  if not reducedConstraints.success
+    return reducedConstraints
   fixedVars = ctx.allBoundTypeVariables()
-  impliedConstraints = substituteList ctx.substitution, reducedConstraints
+  impliedConstraints = substituteList ctx.substitution, reducedConstraints.success
   isFixed = (constraint) ->
     # log fixedVars, (printType constraint), (findUnconstrained constraint)
     isSubset fixedVars, (findUnconstrained constraint)
   [deferred, retained] = partition isFixed, impliedConstraints
   # TODO: handle ambiguity when reducedConstraints include variables not in
   # fixedVars or quantifiedVars
-  [deferred, retained]
+  success: [deferred, retained]
 
 reduceConstraints = (ctx, constraints) ->
   normalized = normalizeConstraints ctx, constraints
-  if normalized
-    simplifyConstraints ctx, normalized
+  if normalized.success
+    simplifyConstraints ctx, normalized.success
   else
-    null
+    normalized
 
 # Normalized constraints have a type variable in their head, they are "abstract"
 # and don't match any one instance
@@ -2483,16 +2488,17 @@ normalizeConstraints = (ctx, constraints) ->
         toNormalize.push instanceContraints...
       else
         # TODO: propogate this as standard error
-        throw new Error "no instance found to satisfy #{safePrintType constraint}"
+        # throw new Error "no instance found to satisfy #{safePrintType constraint}"
+        return error: "No instance found to satisfy #{safePrintType constraint}"
       after = subLimit ctx.substitution
       # There was a functional dependency, renormalize
       if after isnt before
         toNormalize.push normalized...
         normalized = []
   if all normalized
-    normalized
+    success: normalized
   else
-    null
+    error: "??Not all normalized??"
 
 # normalizeConstraint = (ctx, constraint) ->
 #   if isNormalizedConstraint constraint
@@ -2511,7 +2517,7 @@ simplifyConstraints = (ctx, constraints) ->
   for constraint, i in constraints
     if not entailedBySuperClasses ctx, (join requiredConstraints, constraints[i + 1..]), constraint
       requiredConstraints.push constraint
-  requiredConstraints
+  success: requiredConstraints
 
 
 # Whether constraints entail constraint
@@ -2867,7 +2873,7 @@ irDefinitionTranslate = (ctx, {type, expression, id, bare}) ->
     # if declaredType = ctx.typeForId id
     #   constraintsFromCanonicalType ctx, declaredType, finalType
     # else
-      reduceConstraints ctx, allConstraints
+      (reduceConstraints ctx, allConstraints).success
   if bare and _notEmpty reducedConstraints
     malformed ctx, expression, "Ambiguous class constraints: #{map safePrintType, reducedConstraints}"
     return "null";
@@ -2979,6 +2985,7 @@ findSubClassParam = (ctx, constraint) ->
   toClassName = (c) -> c.className
   classParams = ctx.classParamsForType constraint
   throw new Error "No params for #{safePrintType constraint}" unless classParams
+  # return "{}" unless classParams
   for className, dict of values classParams
     if chain = findSuperClassChain ctx, className, constraint.className
       return accessList dict, chain
@@ -3013,6 +3020,7 @@ instanceDictFor = (ctx, constraint) ->
     if toMatchTypes (freshInstance ctx, type).type.types, constraint.types
       return validIdentifier name
   throw new Error "no instance for #{safePrintType constraint}"
+  # return {}
 
 irFunction = ({name, params, body}) ->
   {ir: irFunctionTranslate, name, params, body}
