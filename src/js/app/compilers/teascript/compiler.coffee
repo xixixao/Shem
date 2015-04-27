@@ -4391,7 +4391,7 @@ subUnion = (subA, subB) ->
     type = (inSub subA, name) or (inSub subB, name)
     if type
       setInSub union, name, type
-  union.fails = [].concat subA.fails, subB.fails
+  union.fails = [].concat subB.fails, subA.fails
   union
 
 newSubstitution = (name, type) ->
