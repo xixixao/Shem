@@ -482,13 +482,13 @@ class Context
     !!@_declaration name
 
   isFinallyDeclared: (name) ->
-    (declaration = @_declaration name) and declaration.final
+    (@_declaration name)?.final
 
   isCurrentlyDeclared: (name) ->
     !!@_declarationInCurrentScope name
 
   isFinallyCurrentlyDeclared: (name) ->
-    (declaration = @_declarationInCurrentScope name) and declaration.final
+    (@_declarationInCurrentScope name)?.final
 
   isTyped: (name) ->
     !!@type name
@@ -498,6 +498,9 @@ class Context
 
   isFinallyTyped: (name) ->
     !!@finalType name
+
+  declaredId: (name) ->
+    (@_declaration name)?.id
 
   typeForId: (id) ->
     @types[id]
@@ -1572,14 +1575,15 @@ ms.fn = ms_fn = (ctx, call) ->
 preDeclareExplicitlyTyped = (ctx, type) ->
   explicitType = quantifyUnbound ctx, type
   name = ctx.definitionName()
+  id = ctx.definitionId()
   if ctx.isPreTyped name
     # TODO: unify explicit types like in inferType
     explicitType = ctx.preDeclaredType name
-  if ctx.isFinallyCurrentlyDeclared name
+  if (ctx.isFinallyCurrentlyDeclared name) and (ctx.declaredId name) isnt id
     malformed ctx, ctx.definitionPattern(), 'This name is already taken'
   else
     ctx.preDeclare name,
-      id: ctx.definitionId()
+      id: id
       type: explicitType
   explicitType
 
