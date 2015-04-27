@@ -1290,7 +1290,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
     {success, error} = deferConstraints ctx,
       (substituteList ctx.substitution, constraints)
     if error
-      ctx.extendSubstitution substitutionFail error
+      ctx.extendSubstitution error
       return
     [deferredConstraints, retainedConstraints] = success
     # Finalizing type again after possibly added substitution when defer constraints
@@ -3981,6 +3981,9 @@ builtInDefinitions = ->
       '==', (
         type: (quantifyAll toConstrained (typeFn (atomicType 'a', star), (atomicType 'a', star), boolType)),
         arity: ['x', 'y'])
+      'is-null-or-undefined', (
+        type: (quantifyAll toConstrained (typeFn (atomicType 'a', star), boolType)),
+        arity: ['x'])
   # concatMaps (mapMap desiplifyTypeAndArity, newMapWith '&', '(Fn a b b)', # TODO: replace with actual type
   #   'show-list', '(Fn a b)' # TODO: replace with actual type
   #   'from-nullable', '(Fn a b)' # TODO: replace with actual type JS -> Maybe a
@@ -4926,12 +4929,8 @@ var show__list = function (x) {
   return t;
 };
 
-var from__nullable = function (jsValue) {
-  if (typeof jsValue === "undefined" || jsValue === null) {
-    return {';none': true};
-  } else {
-    return {':just': [jsValue]};
-  }
+var is__null__or__undefined = function (jsValue) {
+  return typeof jsValue === "undefined" || jsValue === null;
 };
 """ +
 (for i in [1..9]
