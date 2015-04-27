@@ -2679,7 +2679,8 @@ nameCompile = (ctx, atom, symbol) ->
         pattern: []
     else
       atom.label = 'name'
-      id = (ctx.definitionId()) ? (ctx.currentDeclarationId symbol) ? ctx.freshId()
+      id = (ctx.definitionName() and ctx.definitionId()) ?
+        (ctx.currentDeclarationId symbol) ? ctx.freshId()
       type = toConstrained ctx.freshTypeVariable star
       # ctx.bindTypeVariables [type.type.name]
       ctx.addToDefinedNames {name: symbol, id: id, type: type}
