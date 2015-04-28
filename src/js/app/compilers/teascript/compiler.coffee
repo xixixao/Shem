@@ -10,7 +10,7 @@ tokenize = (input, initPos = 0) ->
       | /([^\s]|\\/)([^/\s]|\\/)*?/[gmi]? # regex
       | "(?:[^"\\]|\\.)*" # strings
       | \\[^\s][^\s#{controls}]* # char
-      | [^#{controls}\\"'\s]+ # normal tokens
+      | [^#{controls}\\"\s]+ # normal tokens
       )///
     if not match
       throw new Error "Could not recognize a token starting with `#{input[0..10]}`"
