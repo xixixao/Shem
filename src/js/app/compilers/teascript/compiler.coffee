@@ -5152,9 +5152,9 @@ lookupJs = (moduleName) ->
 allInjected = (required, injected) ->
   for name, names of values required
     injectedNames = lookupInMap injected, name
-    if not injectedNames or
-        names.size isnt injectedNames.size or
-        (intersectSets [names, injectedNames]).size isnt names.size
+    if not injectedNames# or
+        #names.size isnt injectedNames.size or
+        #(intersectSets [names, injectedNames]).size isnt names.size
       return no
   yes
 
