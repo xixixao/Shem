@@ -5216,6 +5216,7 @@ findMatchingDefinitions = (moduleName, reference) ->
       []
   topScope = cloneMap ctx._scope()
   removeFromMap topScope, '=='
+  removeFromMap topScope, 'is-null-or-undefined'
   addToMap topScope, '{}',
     type: quantifyAll toConstrained new TypeApp arrayType, (new TypeVariable 'a', star)
   findMatchingDefinitionsOnType type, join scoped, [topScope]
