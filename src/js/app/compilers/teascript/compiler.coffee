@@ -5181,8 +5181,8 @@ injectContext = (ctx, compiledModule, names) ->
       throw new Error "Macro #{name} already defined"
     else
       addToMap topScope.macros, name, macro
-  for name, definition of values definitions when shouldImport name
-    addToMap topScope, name, definition
+  for name, {type, arity, isClass, virtual} of values definitions when shouldImport name
+    addToMap topScope, name, {type, arity, isClass, virtual}
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
   ctx.scopeIndex += compiledModule.savedScopes.length
