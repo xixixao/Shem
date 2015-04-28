@@ -5112,7 +5112,7 @@ compileExpression = (source, moduleName = '@unnamed') ->
     }
   else
     module = lookupCompiledModule moduleName
-    {modules, ctx} = contextWithDependencies moduleName
+    {modules, ctx} = contextWithDependencies moduleDependencies moduleName
     [expression] = _terms ast
     compilationFn = (topLevelExpressionInModule importsFor moduleDependencies moduleName)
     {js} = compileCtxAstToJs compilationFn, ctx, expression
@@ -5126,13 +5126,15 @@ importsFor = (moduleSet) ->
     setToArray (lookupCompiledModule name).declared.definitions
   mapKeys lookupDefinitions, moduleSet
 
-contextWithDependencies = (moduleName) ->
-  toInject = moduleDependencies moduleName
-  ctx: injectedContext toInject
-  modules: setToArray toInject
+contextWithDependencies = (modules) ->
+  ctx: injectedContext modules
+  modules: setToArray modules
 
 moduleDependencies = (moduleName) ->
   concatSets (collectRequiresFor moduleName), (newSetWith moduleName)
+
+reverseModuleDependencies = (moduleName) ->
+  concatSets (newSetWith moduleName), (collectRequiresFor moduleName)
 
 # Primitive type checking for now
 checkTypes = (ctx) ->
@@ -5203,7 +5205,7 @@ collectRequiresWithAcc = (name, acc) ->
 
 findMatchingDefinitions = (moduleName, reference) ->
   {declared: {savedScopes}} = lookupCompiledModule moduleName
-  {ctx} = contextWithDependencies moduleName
+  {ctx} = contextWithDependencies reverseModuleDependencies moduleName
   {scope, type} = reference
   return [] unless scope?
   scoped =
@@ -5223,6 +5225,7 @@ findMatchingDefinitions = (moduleName, reference) ->
 
 findMatchingDefinitionsOnType = (type, definitionLists) ->
   ctx = new Context
+  console.log definitionLists
   [typed, untyped] = unzip (for definitions, i in definitionLists
     isValid = (name, def) ->
       def.type? and not def.type.TempType
@@ -5236,7 +5239,7 @@ findMatchingDefinitionsOnType = (type, definitionLists) ->
         score = -Infinity
       else
         score = -((subMagnitude sub) + i * 100)
-      type: plainPrettyPrint def.type#score + ' ' +
+      type: score + ' ' + plainPrettyPrint def.type#score + ' ' +
       arity: def.arity
       docs: def.docs
       rawType: def.type
