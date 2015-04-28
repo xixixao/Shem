@@ -4819,8 +4819,8 @@ forallToHumanReadable = (type) ->
   nextConstrainingName = (name) ->
     if name isnt 'undefined'
       dependent = setToArray (lookupInMap constrainingVars, name)
-      nextSimpleName() + '-' +
-        (map ((name) -> (lookupInMap sub, name).name), dependent).join ''
+      suffix = (map ((name) -> (lookupInMap sub, name).name), dependent).join ''
+      nextSimpleName() + if suffix then "-#{suffix}" else ''
   for group in constrainingGroups
     filtered = filterSet ((name) -> inSet constrainingVars, name), group
     sub = concatMaps sub, (mapKeys (__ newVar, nextConstrainingName), filtered)
