@@ -1495,16 +1495,18 @@ ms.fn = ms_fn = (ctx, call) ->
 
       # Predeclare type
       if name = ctx.isAtSimpleDefinition()
+        documentation = extractDocs docs[0]
         # Explicit typing
         if type
           compiledType = typeConstrainedCompile ctx, type
-          explicitType = preDeclareExplicitlyTyped ctx, compiledType
+          explicitType = preDeclareExplicitlyTyped ctx, compiledType, documentation
           ctx.assignArity name, paramNames
         else
           ctx.preDeclare name,
             arity: paramNames
             id: ctx.definitionId()
             type: ctx.preDeclaredType name # if any
+            docs: documentation
 
       newParamType = (param) ->
         withOrigin (ctx.freshTypeVariable star), param
@@ -1540,11 +1542,7 @@ ms.fn = ms_fn = (ctx, call) ->
 
       # Syntax - used params in function body
       # !! TODO: possibly add to nameCompile instead, or defer to IDE
-      isUsedParam = (expression) ->
-        (isName expression) and expression.label isnt 'name' and (_symbol expression) in paramNames
-      labelUsedParams = (expression) ->
-        map (syntaxNameAs ctx, '', 'param'), filterAst isUsedParam, expression
-      map labelUsedParams, join docs, (if body then join [body], wheres else wheres)
+      labelUsedParams (join docs, (if body then join [body], wheres else wheres)), paramNames
 
       polymorphicAssignCompile ctx, call,
         if ctx.shouldDefer()
@@ -1571,8 +1569,15 @@ ms.fn = ms_fn = (ctx, call) ->
             #     params: paramNames
             #     body: (join compiledWheres, [(jsReturn compiledBody)]))])
 
+labelUsedParams = (ast, paramNames) ->
+  isUsedParam = (expression) ->
+    (isName expression) and expression.label isnt 'name' and (_symbol expression) in paramNames
+  labelParams = (expression) ->
+    map ((token) -> token.label = 'param'), filterAst isUsedParam, expression
+  map labelParams, ast
+
 # Assumes definition name
-preDeclareExplicitlyTyped = (ctx, type) ->
+preDeclareExplicitlyTyped = (ctx, type, documentation) ->
   explicitType = quantifyUnbound ctx, type
   name = ctx.definitionName()
   id = ctx.definitionId()
@@ -1585,6 +1590,7 @@ preDeclareExplicitlyTyped = (ctx, type) ->
     ctx.preDeclare name,
       id: id
       type: explicitType
+      docs: documentation
   explicitType
 
 preDeclarePatterns = (ctx, patterns) ->
@@ -1595,6 +1601,23 @@ preDeclarePatterns = (ctx, patterns) ->
     compiled = patternCompile ctx, pattern
     ctx.resetAssignTo()
     ctx.leaveDefinition()
+
+extractDocs = (docs) ->
+  cutIndent = (length) -> (node) ->
+    if node.label is 'indent'
+      {symbol: node.symbol[length...]}
+    else
+      node
+  if docs and isComment docs
+    nonWs = 3
+    while docs[nonWs].symbol?.match /\s+/
+      nonWs++
+    firstIndent = _fst filter (({label}) -> label is 'indent'), docs
+    content = docs[nonWs...docs.length - 1]
+    print (if firstIndent
+      crawl content, (cutIndent firstIndent.symbol.length)
+    else
+      content)
 
 ms.type = ms_type = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare new type alias'
@@ -1861,16 +1884,16 @@ findClassType = (ctx, params, className, paramNames, methods) ->
   freshingSub = mapMap ((kind) -> ctx.freshTypeVariable kind), kinds
   classParam = (param) ->
     substitute freshingSub, new TypeVariable param, (lookupInMap kinds, param)
-  method = ({arity, type, def}) ->
-    {arity, def, type: (substitute freshingSub, type)}
+  method = ({arity, type, docs, def}) ->
+    {arity, docs, def, type: (substitute freshingSub, type)}
   classConstraint: (new ClassConstraint className, new Types (map classParam, paramNames))
   freshedDeclarations: (mapMap method, methods)
 
 declareMethods = (ctx, classConstraint, methodDeclarations) ->
-  for name, {arity, type} of values methodDeclarations
+  for name, {arity, docs, type} of values methodDeclarations
     type = quantifyUnbound ctx,
       (addConstraints (freshInstance ctx, type), [classConstraint])
-    ctx.declare name, {arity, type, virtual: yes}
+    ctx.declare name, {arity, docs, type, virtual: yes}
   return
 
 ms.instance = ms_instance = (ctx, call) ->
@@ -5179,6 +5202,9 @@ findMatchingDefinitionsOnType = (type, definitionLists) ->
       else
         score = -((subMagnitude sub) + i * 100)
       type: plainPrettyPrint def.type#score + ' ' +
+      arity: def.arity
+      docs: def.docs
+      rawType: def.type
       score: score
     isTyped = (completion) ->
       completion.score isnt -Infinity
@@ -5278,6 +5304,18 @@ astizeExpression = (source) ->
 
 astizeExpressionWithWrapper = (source) ->
   parentize astize (tokenize "(#{source})", -1), -1
+
+labelDocs = (source, params) ->
+  ast = (astizeList source)[1...-1]
+  labelUsedParams ast, params
+  # Strip labels at the top of docs, since those are words
+  for word in ast when not ((isForm word) or (word.label is 'param'))
+    word.label = null
+  labelOperators = (token, symbol, parent) ->
+    if (isCall parent) and token is (_operator parent)
+      token.label = 'operator'
+  crawl ast, labelOperators
+  collapse toHtml ast
 
 finalizeTypes = (ctx, ast) ->
   visitExpressions ast, (expression) ->
@@ -6586,6 +6624,7 @@ exports.syntaxedExpHtml = syntaxedExpHtml
 exports.syntaxedType = syntaxedType
 exports.prettyPrint = prettyPrint
 exports.plainPrettyPrint = plainPrettyPrint
+exports.labelDocs = labelDocs
 
 # exports.compileModule = (source) ->
 #   """
