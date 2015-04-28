@@ -502,8 +502,10 @@ class Context
   declaredId: (name) ->
     (@_declaration name)?.id
 
+  # Only valid for ids from current context, that is without module set
   typeForId: (id) ->
-    @types[id]
+    if id and not id.module
+      @types[id.value]
 
   type: (name) ->
     (@_declaration name)?.type
@@ -571,7 +573,7 @@ class Context
     (decl = (lookupInMap @scopes[i], name)) and not decl.isClass and decl
 
   freshId: ->
-    @nameIndex++
+    value: @nameIndex++
 
   ## Deferring
 
