@@ -2236,7 +2236,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
 
   if isTypeAnnotation maybeType
     params = (map token_, map _symbol, _terms paramTuple)
-    typedFn_ params, maybeType, call_ (token_ macroName), params
+    typedFn_ params, maybeType, [call_ (token_ macroName), params]
   else
     jsNoop()
 
@@ -2326,7 +2326,8 @@ constantToSource = (value) ->
 ms.macro = ms_macro = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare a new instance'
   [paramTuple, body...] = _arguments call
-  [type, macroBody...] = body
+  [docs, defs] = partition isComment, body
+  [type, macroBody...] = defs
 
   if hasName
     macroName = ctx.definitionName()
@@ -2349,7 +2350,7 @@ ms.macro = ms_macro = (ctx, call) ->
       malformed ctx, ctx.definitionPattern(), "Macro with this name already defined"
     else
       ctx.declareMacro ctx.definitionPattern(), simpleMacro eval compiledMacro
-      typedFn_ params, type, call_ (token_ macroName), params
+      typedFn_ params, type, join docs, [call_ (token_ macroName), params]
 
 simpleMacro = (macroFn) ->
   (ctx, call) ->
@@ -2869,7 +2870,7 @@ fn_ = (params, body) ->
   (call_ (token_ 'fn'), [(tuple_ params), body])
 
 typedFn_ = (params, type, body) ->
-  (call_ (token_ 'fn'), [(tuple_ params), type, body])
+  (call_ (token_ 'fn'), join [(tuple_ params), type], body)
 
 token_ = (string) ->
   (tokenize string)[0]
