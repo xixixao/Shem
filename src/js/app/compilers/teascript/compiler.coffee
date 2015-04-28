@@ -5171,10 +5171,10 @@ subtractContexts = (ctx, what) ->
 injectedContext = (modulesToInject) ->
   ctx = new Context
   for moduleName, names of values modulesToInject when compiled = lookupCompiledModule moduleName
-    injectContext ctx, compiled.declared, names
+    injectContext ctx, compiled.declared, moduleName, names
   ctx
 
-injectContext = (ctx, compiledModule, names) ->
+injectContext = (ctx, compiledModule, moduleName, names) ->
   {definitions, typeNames, classes, macros} = compiledModule
   topScope = ctx._scope()
   shouldImport = (name) -> not names.size or inSet names, name
@@ -5183,8 +5183,9 @@ injectContext = (ctx, compiledModule, names) ->
       throw new Error "Macro #{name} already defined"
     else
       addToMap topScope.macros, name, macro
-  for name, {type, arity, isClass, virtual} of values definitions when shouldImport name
-    addToMap topScope, name, {type, arity, isClass, virtual}
+  for name, {type, arity, id, isClass, virtual} of values definitions when shouldImport name
+    id.module = moduleName
+    addToMap topScope, name, {type, arity, id, isClass, virtual}
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
   ctx.scopeIndex += compiledModule.savedScopes.length
