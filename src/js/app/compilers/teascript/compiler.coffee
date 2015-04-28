@@ -1368,7 +1368,7 @@ definitionListCompile = (ctx, pairs) ->
 # This function resolves the types of mutually recursive functions
 resolveDeferredTypes = (ctx) ->
   if _notEmpty ctx.deferredBindings()
-    groups = toNameSets sortedStronglyConnectedComponents deferredToGraph ctx.deferredBindings()
+    groups = topologicallySortedGroups ctx.deferredBindings()
     for group in groups
       bindings = newMap()
       for binding in ctx.deferredBindings() when inSet group, binding.name
@@ -2829,7 +2829,7 @@ deferredExpression = ->
 syntaxType = (expression) ->
   # ignore type classes for now
   if isName expression
-    expression.label = if isNotCapital expression then 'typevar' else 'typename'
+    expression.label = 'typename' #if isNotCapital expression then 'typevar' else 'typename'
   else if isTuple expression
     map syntaxType, (_terms expression)
   else if isCall expression
@@ -3565,11 +3565,14 @@ validIdentifier = (name) ->
     .replace(/\|/g, 'or_')
     .replace(/\?/g, 'p_')
 
-deferredToGraph = (deferred) ->
+topologicallySortedGroups = (dependent) ->
+  toNameSets sortedStronglyConnectedComponents dependentToGraph dependent
+
+dependentToGraph = (dependent) ->
   nodes = newMap()
   findOrAdd = (name) ->
     lookupOrAdd nodes, name, {name: name, edges: []}
-  for {name, deps} in deferred
+  for {name, deps} in dependent
     node = findOrAdd name
     for dep in deps
       node.edges.push findOrAdd dep.name
@@ -4782,22 +4785,52 @@ plainPrettyPrint = (type) ->
 
 prettyPrintWith = (printer, type) ->
   if type.ForAll
-    prettyPrintWith printer, type.type
+    prettyPrintWith printer, forallToHumanReadable type
   else if type.Constrained
     if _notEmpty type.constraints
       (map printer, join [type.type], type.constraints).join ' '
     else
       printer type.type
 
-humanPrintType = (type) ->
+forallToHumanReadable = (type) ->
+  notConstrained = (type) ->
+    if type.Types and type.types.length > 1
+      mapMap (-> findFreeInList type.types[1...]), notConstrained type.types[0]
+    else if type.TypeVariable
+      newSetWith type.name
+    else if type.TypeApp
+      notConstrained type.op
+    else
+      newSet()
+  _name = ({name}) -> name
+  toDependent = (name, deps) -> {name, deps: map ((name) -> {name}), setToArray deps}
+  constrained = freshInstance (new Context), type
+  allVars = findFree constrained
+  constrainingVars = concatMaps (notConstrained c.types for c in constrained.constraints)...
+  constrainingGroups = topologicallySortedGroups mapToArrayVia toDependent, constrainingVars
+  # constrainingVars.sort if a.name > b.name then 1 else if a.name < b.name then -1 else 0
+  [constraining, simple] = partitionMap ((_, name) -> inSet constrainingVars, name), allVars
   index = 0
-  nextName = ->
+  newVar = (name) -> new TypeVariable name, star
+  nextSimpleName = ->
     (String.fromCharCode 97 + index++ % 25)
-  safePrintType substitute (mapMap nextName, (findFree type)), type
+  sub = mapKeys (__ newVar, nextSimpleName), simple
+  nextConstrainingName = (name) ->
+    if name isnt 'undefined'
+      dependent = setToArray (lookupInMap constrainingVars, name)
+      nextSimpleName() + '-' +
+        (map ((name) -> (lookupInMap sub, name).name), dependent).join ''
+  for group in constrainingGroups
+    filtered = filterSet ((name) -> inSet constrainingVars, name), group
+    sub = concatMaps sub, (mapKeys (__ newVar, nextConstrainingName), filtered)
+  substitute sub, constrained
 
 printType = (type) ->
   if type.TypeVariable
-    "_#{type.name}"
+    if /^[0-9]/.test type.name
+      "_#{type.name}"
+    else
+      "#{type.name}"
   else if type.QuantifiedVar
     "#{type.var}"
   else if type.TypeConstr
