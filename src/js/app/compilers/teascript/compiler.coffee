@@ -502,10 +502,10 @@ class Context
   declaredId: (name) ->
     (@_declaration name)?.id
 
+  # TODO: use scope index instead and remove ids altogether
   # Only valid for ids from current context, that is without module set
   typeForId: (id) ->
-    if id and not id.module
-      @types[id.value]
+    @types[id]
 
   type: (name) ->
     (@_declaration name)?.type
@@ -573,7 +573,7 @@ class Context
     (decl = (lookupInMap @scopes[i], name)) and not decl.isClass and decl
 
   freshId: ->
-    value: @nameIndex++
+    @nameIndex++
 
   ## Deferring
 
@@ -1690,7 +1690,9 @@ ms.data = ms_data = (ctx, call) ->
               body: [(jsReturn (jsNew identifier, paramNames))])])
         else
           (jsNew identifier, []))
-      (join (translateDict identifier, paramNames), [constrValue]))
+      constrFunction = dictConstructorFunction identifier, paramNames
+      accessors = dictAccessors constr.symbol, identifier, paramNames
+      (concat [constrFunction, accessors, [constrValue]]))
 
 findDataType = (ctx, typeArgLists, typeParams, dataName) ->
   varNames = map _symbol, typeParams
@@ -1845,7 +1847,7 @@ ms.class = ms_class = (ctx, call) ->
           declareMethods ctx, classConstraint, freshedDeclarations
           ctx.declare name, isClass: yes
 
-          translateDict name, (keysOfMap freshedDeclarations), superClassNames
+          dictConstructorFunction name, (keysOfMap freshedDeclarations), superClassNames
         else
           jsNoop()
     else
@@ -2630,7 +2632,7 @@ malformed = (ctx, expression, message) ->
   expression.malformed = message
   jsNoop()
 
-translateDict = (dictName, fieldNames, additionalFields = []) ->
+dictConstructorFunction = (dictName, fieldNames, additionalFields = []) ->
   allFieldNames = (join additionalFields, fieldNames)
   paramAssigns = allFieldNames.map (name) ->
     (jsAssignStatement (jsAccess "this", name), (validIdentifier name))
@@ -2638,12 +2640,19 @@ translateDict = (dictName, fieldNames, additionalFields = []) ->
     name: dictName
     params: (map validIdentifier, allFieldNames)
     body: paramAssigns)
+  [constrFn]
+
+dictAccessors = (constrName, dictName, fieldNames) ->
   accessors = fieldNames.map (name) ->
-    (jsVarDeclaration (validIdentifier "#{dictName}-#{name}"), (jsFunction
-      name: (validIdentifier name)
+    accessorName = "#{dictName}-#{name}"
+    errorMessage = "throw new Error('Expected #{constrName},
+      got ' + dict.constructor.name + ' instead in #{accessorName}')"
+    (jsVarDeclaration (validIdentifier accessorName), (jsFunction
+      name: (validIdentifier accessorName)
       params: ["dict"]
-      body: [(jsReturn (jsAccess "dict", name))]))
-  join [constrFn], accessors
+      body: [(jsConditional [
+          ["dict instanceof #{validIdentifier constrName}",
+            [(jsReturn (jsAccess "dict", name))]]], errorMessage)]))
 
 requireName = (ctx, message) ->
   if ctx.isAtDefinition()
@@ -5183,9 +5192,8 @@ injectContext = (ctx, compiledModule, moduleName, names) ->
       throw new Error "Macro #{name} already defined"
     else
       addToMap topScope.macros, name, macro
-  for name, {type, arity, id, isClass, virtual} of values definitions when shouldImport name
-    id.module = moduleName
-    addToMap topScope, name, {type, arity, id, isClass, virtual}
+  for name, {type, arity, docs, isClass, virtual} of values definitions when shouldImport name
+    addToMap topScope, name, {type, arity, docs, isClass, virtual}
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
   ctx.scopeIndex += compiledModule.savedScopes.length
@@ -5242,7 +5250,7 @@ findMatchingDefinitionsOnType = (type, definitionLists) ->
         score = -Infinity
       else
         score = -((subMagnitude sub) + i * 100)
-      type: score + ' ' + plainPrettyPrint def.type#score + ' ' +
+      type: plainPrettyPrint def.type#score + ' ' +
       arity: def.arity
       docs: def.docs
       rawType: def.type
@@ -5271,6 +5279,19 @@ subMagnitude = (sub) ->
 
 actualOpName = (type) ->
   type.name ? actualOpName type.op
+
+findDocsFor = (moduleName, reference) ->
+  {declared: {savedScopes}} = lookupCompiledModule moduleName
+  {ctx} = contextWithDependencies reverseModuleDependencies moduleName
+  {name, scope} = reference
+  while scope > 0 and not found
+    savedScope = savedScopes[scope]
+    found = lookupInMap savedScope.definitions, name
+    scope = savedScope.parent
+  found or= lookupInMap ctx._scope(), name # Top scope
+  if found
+    {arity, type, docs} = found
+    {name: name, rawType: type, docs, arity}
 
 # API
 
@@ -6658,6 +6679,7 @@ runTests = (tests) ->
 exports.compileTopLevel = compileTopLevel
 exports.compileExpression = compileExpression
 exports.findMatchingDefinitions = findMatchingDefinitions
+exports.findDocsFor = findDocsFor
 exports.astizeList = astizeList
 exports.astizeExpression = astizeExpression
 exports.astizeExpressionWithWrapper = astizeExpressionWithWrapper
@@ -6666,6 +6688,7 @@ exports.syntaxedType = syntaxedType
 exports.prettyPrint = prettyPrint
 exports.plainPrettyPrint = plainPrettyPrint
 exports.labelDocs = labelDocs
+exports.builtInLibraryNumLines = library.split('\n').length + immutable.split('\n').length
 
 # exports.compileModule = (source) ->
 #   """
