@@ -1065,7 +1065,7 @@ unifyTypesOfTermsWithType = (ctx, canonicalType, terms) ->
 #     (call_ (token_ 'cons-array'), [x, (arrayToConses xs)])
 
 typeConstrainedCompile = (ctx, call) ->
-  [type, constraints...] = _arguments call
+  [type, constraints...] = _validArguments call
   new Constrained (typeConstraintsCompile ctx, constraints), (typeCompile ctx, type)
 
 typeCompile = (ctx, expression, expectedKind) ->
@@ -1772,7 +1772,7 @@ ms[':'] = ms_typed = (ctx, call) ->
         if type
           new Constrained constraints, typeCompile ctx, type
       else
-        typeConstrainedCompile ctx, call
+        typeConstrainedCompile ctx, (filter (__ _not, isComment), call)
     if hasName
       preDeclareExplicitlyTyped ctx, compiledType, docs
     # TODO: support typing of expressions,
@@ -2242,8 +2242,9 @@ ms.syntax = ms_syntax = (ctx, call) ->
       malformed ctx, ctx.definitionPattern(), 'Macro failed to compile'
 
   if isTypeAnnotation maybeType
+    [docs] = partition isComment, rest
     params = (map token_, map _symbol, _terms paramTuple)
-    typedFn_ params, maybeType, [call_ (token_ macroName), params]
+    typedFn_ params, maybeType, join docs, [call_ (token_ macroName), params]
   else
     jsNoop()
 
@@ -2361,6 +2362,7 @@ ms.macro = ms_macro = (ctx, call) ->
 
 simpleMacro = (macroFn) ->
   (ctx, call) ->
+    # NOTE: this operator compile labels the call as function call, instead of macro call
     operatorCompile ctx, call
     args = termsCompile ctx, (_arguments call)[0..macroFn.length]
     callTyping ctx, call
