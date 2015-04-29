@@ -1488,7 +1488,6 @@ ms.fn = ms_fn = (ctx, call) ->
       malformed ctx, call, 'Missing function result'
     else
       [docs, defs] = partition isComment, defs
-      map labelComments, docs
       if isTypeAnnotation defs[0]
         [type, body, wheres...] = defs
       else
@@ -1497,13 +1496,13 @@ ms.fn = ms_fn = (ctx, call) ->
 
       # Predeclare type
       if name = ctx.isAtSimpleDefinition()
-        documentation = extractDocs docs[0]
         # Explicit typing
         if type
           compiledType = typeConstrainedCompile ctx, type
-          explicitType = preDeclareExplicitlyTyped ctx, compiledType, documentation
+          explicitType = preDeclareExplicitlyTyped ctx, compiledType, docs
           ctx.assignArity name, paramNames
         else
+          documentation = extractDocs docs
           ctx.preDeclare name,
             arity: paramNames
             id: ctx.definitionId()
@@ -1579,7 +1578,7 @@ labelUsedParams = (ast, paramNames) ->
   map labelParams, ast
 
 # Assumes definition name
-preDeclareExplicitlyTyped = (ctx, type, documentation) ->
+preDeclareExplicitlyTyped = (ctx, type, docs) ->
   explicitType = quantifyUnbound ctx, type
   name = ctx.definitionName()
   id = ctx.definitionId()
@@ -1592,7 +1591,7 @@ preDeclareExplicitlyTyped = (ctx, type, documentation) ->
     ctx.preDeclare name,
       id: id
       type: explicitType
-      docs: documentation
+      docs: extractDocs docs
   explicitType
 
 preDeclarePatterns = (ctx, patterns) ->
@@ -1605,6 +1604,8 @@ preDeclarePatterns = (ctx, patterns) ->
     ctx.leaveDefinition()
 
 extractDocs = (docs) ->
+  map labelComments, docs
+  docs = docs[0]
   cutIndent = (length) -> (node) ->
     if node.label is 'indent'
       {symbol: node.symbol[length...]}
@@ -1763,7 +1764,8 @@ ms.record = ms_record = (ctx, call) ->
   # Type an expression
 ms[':'] = ms_typed = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare typed values for now'
-    [type, constraintSeq, rest...] = _arguments call
+    [docs, defs] = partition isComment, _arguments call
+    [type, constraintSeq, rest...] = defs
     compiledType =
       if isSeq constraintSeq
         constraints = typeConstraintsCompile ctx, _terms constraintSeq
@@ -1772,13 +1774,14 @@ ms[':'] = ms_typed = (ctx, call) ->
       else
         typeConstrainedCompile ctx, call
     if hasName
-      preDeclareExplicitlyTyped ctx, compiledType
+      preDeclareExplicitlyTyped ctx, compiledType, docs
     # TODO: support typing of expressions,
     #watch out of definition patterns without a name
     jsNoop()
 
 ms['::'] = ms_typed_expression = (ctx, call) ->
-  [type, constraintSeq, expression] = _arguments call
+  [docs, defs] = partition isComment, _arguments call
+  [type, constraintSeq, expression] = defs
   if isSeq constraintSeq
     constraints = typeConstraintsCompile ctx, _terms constraintSeq
   else
@@ -1786,7 +1789,7 @@ ms['::'] = ms_typed_expression = (ctx, call) ->
     expression = constraintSeq
   compiledType = new Constrained constraints, typeCompile ctx, type
   if name = ctx.definitionName()
-    preDeclareExplicitlyTyped ctx, compiledType
+    preDeclareExplicitlyTyped ctx, compiledType, docs
   call.tea = compiledType
   assignCompile ctx, call, (termCompile ctx, expression)
 
