@@ -1430,7 +1430,7 @@ compileDeferred = (ctx) ->
     while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
       prevSize = ctx.deferred().length
       [expression, dependencyName, lhs, rhs] = deferred = ctx.deferred().shift()
-      if ctx.isFinallyTyped dependencyName
+      if (ctx.isFinallyDeclared dependencyName)
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
         deferredCount = 0
       else
@@ -2740,15 +2740,14 @@ nameCompile = (ctx, atom, symbol) ->
       type = freshInstance ctx, contextType
       nameTranslate ctx, atom, symbol, type
     # In sub-scope (function) only defer compilation for declarations in current scope
-    else if ((not ctx.isCurrentlyDeclared symbol) and (ctx.arity symbol) and
-          ((ctx.isFinallyDeclared symbol) or symbol in ctx.parentDeferrableDefinitionNames())) or
-            contextType instanceof TempType
+    else if ((not ctx.isCurrentlyDeclared symbol) and (ctx.isDeclared symbol)) or
+        contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
       ctx.addToDeferredNames {name: symbol, type: (mapOrigin type, atom)}
       nameTranslate ctx, atom, symbol, type
     else
-      # log "deferring in rhs for #{symbol}", ctx.definitionName()
+      # log "deferring in rhs for #{symbol}", ctx._deferrableDefinition().name
       ctx.doDefer atom, symbol
       translation: deferredExpression()
 
@@ -4575,7 +4574,7 @@ withOrigin = (typeOrConstraint, expression) ->
   typeOrConstraint
 
 mutateMarkingOrigin = (typeOrConstraint, expression) ->
-  typeOrConstraint.origin = expression
+  # typeOrConstraint.origin = expression
 
 # Clones constrained types and parts of them
 # Class constraint arguments are not cloned
@@ -5493,8 +5492,11 @@ test = (testName, teaSource, result) ->
       log map formatFail, compiled.subs
     if result isnt (got = eval compiled.compiled)
       log "'#{testName}' expected", result, "got", got
+    else
+      success = yes
   catch e
     logError "Error in test |#{testName}|\n#{teaSource}\n", e
+  success
 
 tests = [
   'simple defs'
@@ -6680,9 +6682,12 @@ runTest = (givenName) ->
   "Done"
 
 runTests = (tests) ->
-  for [name, source, expression, result] in tuplize 4, tests
+  results = for [name, source, expression, result] in tuplize 4, tests
     test name, source + "\n" + expression, result
-  "Finished"
+  if all results
+    "All correct"
+  else
+    (filter _not, results).length + " failed"
 # end of tests
 
 
