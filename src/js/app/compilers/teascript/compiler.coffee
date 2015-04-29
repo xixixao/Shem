@@ -1844,7 +1844,7 @@ ms.class = ms_class = (ctx, call) ->
         malformed ctx, 'class already defined', ctx.definitionPattern()
       else
         {classConstraint, freshedDeclarations} = findClassType ctx, params,
-          name, paramNames, declarations
+          name, paramNames, declarations, constraints
         if classConstraint
           ctx.addClass name, classConstraint, superClasses, freshedDeclarations
           declareMethods ctx, classConstraint, freshedDeclarations
@@ -1868,10 +1868,12 @@ quantifyConstraintFor = (names) -> (constraint) ->
       else
         type)
 
-findClassType = (ctx, params, className, paramNames, methods) ->
+findClassType = (ctx, params, className, paramNames, methods, constraints) ->
   kinds = mapMap (-> undefined), (arrayToSet paramNames)
-  for name, {arity, type, def} of values methods
-    vars = findFree type.type
+  types = join (map ((c) -> type: c), constraints),
+    (map (({type, def}) -> type: type.type, def: def), (mapToArray methods))
+  for {type, def} in types
+    vars = findFree type
     for param in paramNames
       kindSoFar = lookupInMap kinds, param
       foundKind = lookupInMap vars, param
