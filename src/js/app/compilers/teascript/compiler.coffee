@@ -2246,6 +2246,9 @@ ms.syntax = ms_syntax = (ctx, call) ->
     params = (map token_, map _symbol, _terms paramTuple)
     typedFn_ params, maybeType, join docs, [call_ (token_ macroName), params]
   else
+    # TODO: docs for macros
+    [docs] = partition isComment, rest
+    extractDocs docs
     jsNoop()
 
 ms['`'] = ms_quote = (ctx, call) ->
