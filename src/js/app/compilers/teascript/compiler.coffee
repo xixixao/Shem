@@ -2086,6 +2086,29 @@ ms.match = ms_match = (ctx, call) ->
       varList varNames
       compiledCases])
 
+
+
+# Creates the condition and body of a branch inside match macro
+matchBranchTranslate = (precs, assigns, compiledResult) ->
+  {conds, preassigns} = constructCond precs
+  [hoistedWheres, furtherHoistable] = hoistWheres [], assigns #hoistWheres hoistableWheres, assigns
+
+  [conds, concat [
+    (map compileVariableAssignment, (join preassigns, assigns))
+    # hoistedWheres.map(compileDef)
+    [(jsReturn compiledResult)]]]
+
+varList = (varNames) ->
+  # "var #{listOf varNames};"
+  if varNames.length > 0 then (jsVarDeclarations varNames) else null
+
+conditional = (condCasePairs, elseCase) ->
+  if condCasePairs.length is 1
+    [[cond, branch]] = condCasePairs
+    if cond is 'true'
+      return branch
+  (jsConditional condCasePairs, elseCase)
+
 ms.req = ms_req = (ctx, call) ->
   reqTuple = ctx.definitionPattern()
   reqs = _validTerms reqTuple
@@ -2439,40 +2462,12 @@ builtInMacros = ->
   objectToMap ms
 
 
-# Creates the condition and body of a branch inside match macro
-matchBranchTranslate = (precs, assigns, compiledResult) ->
-  {conds, preassigns} = constructCond precs
-  [hoistedWheres, furtherHoistable] = hoistWheres [], assigns #hoistWheres hoistableWheres, assigns
-
-  [conds, concat [
-    (map compileVariableAssignment, (join preassigns, assigns))
-    # hoistedWheres.map(compileDef)
-    [(jsReturn compiledResult)]]]
-
 iife = (body) ->
   # """(function(){
   #     #{body}}())"""
   (jsWrap (jsCall (jsFunction
       params: []
       body: body), []))
-
-varList = (varNames) ->
-  # "var #{listOf varNames};"
-  if varNames.length > 0 then (jsVarDeclarations varNames) else null
-
-conditional = (condCasePairs, elseCase) ->
-  if condCasePairs.length is 1
-    [[cond, branch]] = condCasePairs
-    if cond is 'true'
-      return branch
-  (jsConditional condCasePairs, elseCase)
-  # ((for [cond, branch], i in condCasePairs
-  #   control = if i is 0 then 'if' else ' else if'
-  #   """#{control} (#{cond}) {
-  #       #{branch}
-  #     }""").join '') + """ else {
-  #       #{elseCase}
-  #     }"""
 
 paramTupleIn = (ctx, call, expression) ->
   if not expression or not isTuple expression
