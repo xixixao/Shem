@@ -6720,6 +6720,7 @@ exports.concat = concat
 exports.id = id
 exports.map = map
 exports.zipWith = zipWith
+exports.unzip = unzip
 exports.allMap = allMap
 exports.all = all
 exports.filter = filter
