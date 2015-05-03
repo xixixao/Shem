@@ -575,6 +575,13 @@ class Context
   freshId: ->
     @nameIndex++
 
+  savedDeclaration: (name, scopeIndex) ->
+    if scopeIndex is 0
+      @_declaration name
+    else
+      saved = @savedScopes[scopeIndex]
+      (lookupInMap saved.definitions, name) or @savedDeclaration name, saved.parent
+
   ## Deferring
 
   addToDeferredNames: (binding) ->
@@ -1172,7 +1179,8 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
   # if not translatedExpression # TODO: throw here?
   if ctx.isAtDefinition()
     to = ctx.definitionPattern()
-    ctx.setAssignTo (irDefinition expression.tea, translatedExpression, ctx.definitionId())
+    ctx.setAssignTo (irDefinition expression.tea, translatedExpression,
+      {name: ctx.definitionName(), scopeIndex: ctx.currentScopeIndex()})
     {precs, assigns} = patternCompile ctx, to, expression, polymorphic
     translationCache = ctx.resetAssignTo()
 
@@ -2756,7 +2764,6 @@ constPattern = (ctx, symbol) ->
 
 nameTranslate = (ctx, atom, symbol, type) ->
   id = ctx.declarationId symbol
-  arity = ctx.arity symbol
   ctx.addToUsedNames symbol
   translation =
     if atom.label is 'const'
@@ -2766,7 +2773,7 @@ nameTranslate = (ctx, atom, symbol, type) ->
         else
           (jsAccess (validIdentifier symbol), "_value")
     else
-      (irReference symbol, id, type, arity)
+      (irReference symbol, type, ctx.currentScopeIndex())
   {id, type, translation}
 
 namespacedNameCompile = (ctx, atom, symbol) ->
@@ -2910,15 +2917,16 @@ translateIr = (ctx, irAst) ->
       walked.js = ast.js
       walked
 
-irDefinition = (type, expression, id, bare) ->
-  {ir: irDefinitionTranslate, type, expression, id, bare}
+irDefinition = (type, expression, reference, bare) ->
+  {ir: irDefinitionTranslate, type, expression, reference, bare}
 
 # TODO: This must always wrap a function, because if the expression
 #       is not a function then it can't need type class dictionaries
 #       ^.___ not necessarily, we could have a tuple of functions or similar
-irDefinitionTranslate = (ctx, {type, expression, id, bare}) ->
+irDefinitionTranslate = (ctx, {type, expression, reference, bare}) ->
   finalType = substitute ctx.substitution, type
-  allConstraints = (addConstraintsFrom ctx, {id, type}, finalType).constraints
+  allConstraints = (addConstraintsFrom ctx,
+    {type, name: reference?.name, scopeIndex: reference?.scopeIndex}, finalType).constraints
   reducedConstraints =
     # if declaredType = ctx.typeForId id
     #   constraintsFromCanonicalType ctx, declaredType, finalType
@@ -2973,11 +2981,11 @@ irCallTranslate = (ctx, {type, op, args}) ->
       translateIr ctx, op
   (jsCall op, (join classParams, (translateIr ctx, args)))
 
-addConstraintsFrom = (ctx, {id, type}, to) ->
-  if id and (typed = ctx.typeForId id) and
+addConstraintsFrom = (ctx, {name, type, scopeIndex}, to) ->
+  if scopeIndex? and (typed = ctx.savedDeclaration name, scopeIndex) and
       (_empty to.constraints) and
-      (_notEmpty typed.type.constraints)
-    addConstraints to, constraintsFromCanonicalType ctx, typed, type
+      (_notEmpty typed.type.type.constraints)
+    addConstraints to, constraintsFromCanonicalType ctx, typed.type, type
   else
     to
 
@@ -2986,16 +2994,17 @@ constraintsFromCanonicalType = (ctx, canonicalType, type) ->
   sub = matchType inferredType.type, (substitute ctx.substitution, type).type
   (substitute sub, inferredType).constraints
 
-irReference = (name, id, type, arity) ->
-  {ir: irReferenceTranslate, name, id, type, arity}
+irReference = (name, type, scopeIndex) ->
+  {ir: irReferenceTranslate, name, type, scopeIndex}
 
-irReferenceTranslate = (ctx, {name, id, type, arity}) ->
+irReferenceTranslate = (ctx, {name, type, scopeIndex}) ->
   if ctx.isMethod name, type
     translateIr ctx, (irMethod type, name)
   else
-    finalType = addConstraintsFrom ctx, {id, type}, substitute ctx.substitution, type
+    finalType = addConstraintsFrom ctx, {type, name: name, scopeIndex: scopeIndex}, substitute ctx.substitution, type
     classParams = dictsForConstraint ctx, finalType.constraints
     if classParams.length > 0
+      {arity} = ctx.savedDeclaration name, scopeIndex
       params = map validIdentifier, arity
       (irFunctionTranslate ctx,
         params: params
@@ -6637,6 +6646,30 @@ tests = [
     ff (f ""))
   """
   '(h 3)', 2
+
+  'overloaded reference'
+  """
+  Mappable (class [wrapper]
+    map (fn [what onto]
+      (: (Fn (Fn a b) (wrapper a) (wrapper b)))))
+
+  array-mappable (instance (Mappable Array)
+    map (macro [what over]
+      (: (Fn (Fn a b) (Array a) (Array b)))
+      (Js.method over "map" {what})))
+
+  g (fn [lines]
+    (map f lines))
+
+  f (fn [x]
+    x)
+
+  expand (fn [x]
+    gg
+    gg (g {""}))
+  """
+  '3', 3
+
 
 
   # TODO: support matching with the same name
