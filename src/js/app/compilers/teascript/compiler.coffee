@@ -3003,8 +3003,10 @@ addConstraintsFrom = (ctx, {name, type, scopeIndex}, to) ->
 
 constraintsFromCanonicalType = (ctx, canonicalType, type) ->
   inferredType = freshInstance ctx, canonicalType
-  sub = matchType inferredType.type, (substitute ctx.substitution, type).type
-  (substitute sub, inferredType).constraints
+  ctx.extendSubstitution matchType inferredType.type, (substitute ctx.substitution, type).type
+  reduceConstraints ctx, inferredType.constraints
+  console.log (printType (substitute ctx.substitution, inferredType))
+  (substitute ctx.substitution, inferredType).constraints
 
 irReference = (name, type, scopeIndex) ->
   {ir: irReferenceTranslate, name, type, scopeIndex}
