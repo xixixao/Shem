@@ -1298,15 +1298,16 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
           ctx.extendSubstitution substitutionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
   else
     # log name, "constraints", (substituteList ctx.substitution, constraints)
-    {success, error} = deferConstraints ctx,
-      (substituteList ctx.substitution, constraints),
-      currentType
-    if error
-      ctx.extendSubstitution error
-      return
-    [deferredConstraints, retainedConstraints] = success
-    # Finalizing type again after possibly added substitution when defer constraints
-    currentType = substitute ctx.substitution, type
+    if polymorphic
+      {success, error} = deferConstraints ctx,
+        (substituteList ctx.substitution, constraints),
+        currentType
+      if error
+        ctx.extendSubstitution error
+        return
+      [deferredConstraints, retainedConstraints] = success
+      # Finalizing type again after possibly added substitution when defer constraints
+      currentType = substitute ctx.substitution, type
     # log "assign type", name, (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
     if includesJsType currentType.type
       ctx.extendSubstitution substitutionFail "#{name}'s inferred type #{plainPrettyPrint currentType} includes Js"
