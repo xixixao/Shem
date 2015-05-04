@@ -419,8 +419,11 @@ class Context
   bindTypeVariables: (vars) ->
     addAllToSet @_scope().boundTypeVariables, vars
 
+  bindTypeVariablesToOuterScope: (vars) ->
+    addAllToSet @_outerScope().boundTypeVariables, vars
+
   allBoundTypeVariables: ->
-    substituteVarNames this, concatSets (for scope in @scopes
+    substituteVarNames this, concatSets (for scope in @scopes[...-1]
       scope.boundTypeVariables)...
 
   addToScopeConstraints: (constraints) ->
@@ -1220,7 +1223,6 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
 
   definedNames = ctx.definedNames()
 
-  # log "is deferriing", (print pattern), ctx.shouldDefer()
   # Make sure deferred names are added to scope so they are compiled within functions
   if ctx.shouldDefer()
     shouldDeclareFinally = ctx.isDeclared ctx.deferReason()[1]
@@ -1250,7 +1252,6 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
     if not ctx.isCurrentlyDeclared name
       ctx.declare name, id: id
     if deps.length > 0
-      # log "adding top level lhs to deferred #{name}", deps
       currentType = substitute ctx.substitution, type
       ctx.addToDeferred
         name: name
@@ -1279,7 +1280,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
       # Check the declared type
       declaredType = ctx.type name
       explicitType = freshInstance ctx, declaredType
-      updatedDeclaredType = quantifyUnbound ctx, (substitute ctx.substitution, explicitType)
+      updatedDeclaredType = quantifyUnbound ctx, (substitute ctx.substitution, explicitType) # to rename user-named type vars
       unify ctx, currentType.type, explicitType.type
       unifiedType = substitute ctx.substitution, explicitType
       inferredType = quantifyUnbound ctx, unifiedType
@@ -1523,8 +1524,8 @@ ms.fn = ms_fn = (ctx, call) ->
         withOrigin (ctx.freshTypeVariable star), param
       paramTypeVars = map newParamType, params
       paramTypes = map (__ toForAll, toConstrained), paramTypeVars
-      ctx.newLateScope()
       ctx.bindTypeVariables (map (({name}) -> name), paramTypeVars)
+      ctx.newLateScope()
       # log "adding types", (map _symbol, params), paramTypes
       ctx.declareTyped paramNames, paramTypes
       for param in params
@@ -1839,8 +1840,8 @@ ms.class = ms_class = (ctx, call) ->
     #   allDeclared = (ctx.isClass c for c in superClasses)
 
     methodDefinitions = pairs wheres
-    ctx.newScope()
     ctx.bindTypeVariables paramNames
+    ctx.newScope()
     definitionList ctx, methodDefinitions
     declarations = ctx.currentDeclarations()
     ctx.closeScope()
@@ -1996,7 +1997,7 @@ assignMethodTypes = (ctx, typeExpression, freshInstanceType, instanceName, class
     malformed ctx, typeExpression, 'Type doesn\'t match class type'
     return null
 
-  ctx.bindTypeVariables setToArray (findFree freshInstanceType)
+  ctx.bindTypeVariablesToOuterScope setToArray (findFree freshInstanceType)
   for name, {arity, type} of values classDeclaration.declarations
     freshType = freshInstance ctx, type
     instanceSpecificType = substitute sub, freshType
@@ -2509,7 +2510,7 @@ deferConstraints = (ctx, constraints, type) ->
     isSubset fixedVars, (findUnconstrained constraint)
   [deferred, retained] = partition isFixed, impliedConstraints
   quantifiedVars = findFree finalType = substitute ctx.substitution, type
-  impliedVars = concatSets (map findConstrained, retained)...
+  impliedVars = concatSets (map findConstrained, impliedConstraints)...
   validVars = concatSets quantifiedVars, impliedVars
   isAmbiguous = (constraint) ->
     not isSubset validVars, (findUnconstrained constraint)
@@ -2742,7 +2743,7 @@ nameCompile = (ctx, atom, symbol) ->
       id = (ctx.definitionName() and ctx.definitionId()) ?
         (ctx.currentDeclarationId symbol) ? ctx.freshId()
       type = toConstrained ctx.freshTypeVariable star
-      # ctx.bindTypeVariables [type.type.name]
+      ctx.bindTypeVariables [type.type.name]
       ctx.addToDefinedNames {name: symbol, id: id, type: type}
       type: type
       id: id
@@ -2762,7 +2763,7 @@ nameCompile = (ctx, atom, symbol) ->
       ctx.addToDeferredNames {name: symbol, type: (mapOrigin type, atom)}
       nameTranslate ctx, atom, symbol, type
     else
-      # log "deferring in rhs for #{symbol}", ctx._deferrableDefinition().name
+      # console.log "deferring because of #{symbol} rhs:", ctx._deferrableDefinition().name
       ctx.doDefer atom, symbol
       translation: deferredExpression()
 
@@ -3005,7 +3006,6 @@ constraintsFromCanonicalType = (ctx, canonicalType, type) ->
   inferredType = freshInstance ctx, canonicalType
   ctx.extendSubstitution matchType inferredType.type, (substitute ctx.substitution, type).type
   reduceConstraints ctx, inferredType.constraints
-  console.log (printType (substitute ctx.substitution, inferredType))
   (substitute ctx.substitution, inferredType).constraints
 
 irReference = (name, type, scopeIndex) ->
@@ -5267,7 +5267,6 @@ findMatchingDefinitions = (moduleName, reference) ->
 
 findMatchingDefinitionsOnType = (type, definitionLists) ->
   ctx = new Context
-  console.log definitionLists
   [typed, untyped] = unzip (for definitions, i in definitionLists
     isValid = (name, def) ->
       def.type? and not def.type.TempType
@@ -5512,10 +5511,12 @@ test = (testName, teaSource, result) ->
     log (collapse toHtml compiled.ast)
     if _notEmpty compiled.subs
       log map formatFail, compiled.subs
+      failure = yes
     if result isnt (got = eval compiled.compiled)
       log "'#{testName}' expected", result, "got", got
+      success = no
     else
-      success = yes
+      success = not failure
   catch e
     logError "Error in test |#{testName}|\n#{teaSource}\n", e
   success
@@ -6680,38 +6681,11 @@ tests = [
     (map f lines))
 
   f (fn [x]
-    x
-    y (show x))
+    x)
 
   expand (fn [x]
     gg
     gg (g {""}))
-  """
-  '3', 3
-
-  'overloaded reference 2'
-  """
-  Mappable (class [wrapper]
-    map (fn [what onto]
-      (: (Fn (Fn a b) (wrapper a) (wrapper b)))))
-
-  array-mappable (instance (Mappable Array)
-    map (macro [what over]
-      (: (Fn (Fn a b) (Array a) (Array b)))
-      (Js.method over "map" {what})))
-
-  Show (class [a]
-    show (fn [x] (: (Fn a String))))
-
-  show-string (instance (Show String)
-    show (fn [x] x))
-
-  g (fn [x]
-    (map f {}))
-
-  f (fn [x]
-    ""
-    y (show x))
   """
   '3', 3
 
