@@ -1006,7 +1006,7 @@ seqCompile = (ctx, form) ->
         else
           elemType
 
-    cond = (jsBinary (if hasSplat then '>=' else '=='),
+    cond = (jsBinary (if hasSplat then '>=' else '==='),
       (jsCall "seq_size", [sequence]), requiredElems)
     combinePatterns join [(precs: [(cond_ cond)])], compiledArgs
   else
