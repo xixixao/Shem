@@ -2509,7 +2509,7 @@ deferConstraints = (ctx, constraints, type) ->
     isSubset fixedVars, (findUnconstrained constraint)
   [deferred, retained] = partition isFixed, impliedConstraints
   quantifiedVars = findFree finalType = substitute ctx.substitution, type
-  impliedVars = concatSets (map findConstrained, retained)...
+  impliedVars = concatSets (map findConstrained, impliedConstraints)...
   validVars = concatSets quantifiedVars, impliedVars
   isAmbiguous = (constraint) ->
     not isSubset validVars, (findUnconstrained constraint)
