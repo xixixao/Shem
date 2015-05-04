@@ -1201,7 +1201,8 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
       # Force context reduction
       inferredType = (substitute ctx.substitution, expression.tea)
       deferConstraints ctx,
-        inferredType.constraints
+        inferredType.constraints,
+        inferredType.type
     translatedExpression
 
 # Pushes the deferring to the parent scope
@@ -1288,7 +1289,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
       isDeclaredConstraint = (c) ->
         entailed = entail ctx, unifiedType.constraints, c
       notDeclared = filter (__ _not, isDeclaredConstraint), checked = (substituteList ctx.substitution, constraints)
-      {success, error} = deferConstraints ctx, notDeclared
+      {success, error} = deferConstraints ctx, notDeclared, currentType
       if error
         ctx.extendSubstitution error
       else
@@ -1298,7 +1299,8 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
   else
     # log name, "constraints", (substituteList ctx.substitution, constraints)
     {success, error} = deferConstraints ctx,
-      (substituteList ctx.substitution, constraints)
+      (substituteList ctx.substitution, constraints),
+      currentType
     if error
       ctx.extendSubstitution error
       return
@@ -1307,7 +1309,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
     currentType = substitute ctx.substitution, type
     # log "assign type", name, (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
     if includesJsType currentType.type
-      ctx.extendSubstitution substitutionFail "#{name}'s inferred type includes JS"
+      ctx.extendSubstitution substitutionFail "#{name}'s inferred type #{plainPrettyPrint currentType} includes Js"
     else
       ctx.assignType name,
         if polymorphic
@@ -2496,7 +2498,7 @@ substituteVarNames = (ctx, varNames) ->
   findFreeInList map subbed, setToArray varNames
 
 # Returns deferred and retained constraints
-deferConstraints = (ctx, constraints) ->
+deferConstraints = (ctx, constraints, type) ->
   reducedConstraints = reduceConstraints ctx, constraints
   if not reducedConstraints.success
     return reducedConstraints
@@ -2506,9 +2508,17 @@ deferConstraints = (ctx, constraints) ->
     # log fixedVars, (printType constraint), (findUnconstrained constraint)
     isSubset fixedVars, (findUnconstrained constraint)
   [deferred, retained] = partition isFixed, impliedConstraints
-  # TODO: handle ambiguity when reducedConstraints include variables not in
-  # fixedVars or quantifiedVars
-  success: [deferred, retained]
+  quantifiedVars = findFree finalType = substitute ctx.substitution, type
+  isAmbiguous = (constraint) ->
+    not isSubset quantifiedVars, (findUnconstrained constraint)
+  [ambiguous, retained] = partition isAmbiguous, retained
+  if _notEmpty ambiguous
+    {error:
+      substitutionFail
+        message: "Constraint #{printType ambiguous[0]} is ambiguous for inferred type #{printType finalType}"
+        conflicts: [type.origin, ambiguous[0].origin]}
+  else
+    success: [deferred, retained]
 
 reduceConstraints = (ctx, constraints) ->
   normalized = normalizeConstraints ctx, constraints
@@ -6662,7 +6672,8 @@ tests = [
     (map f lines))
 
   f (fn [x]
-    x)
+    x
+    y (show x))
 
   expand (fn [x]
     gg
@@ -6670,7 +6681,31 @@ tests = [
   """
   '3', 3
 
+  'overloaded reference 2'
+  """
+  Mappable (class [wrapper]
+    map (fn [what onto]
+      (: (Fn (Fn a b) (wrapper a) (wrapper b)))))
 
+  array-mappable (instance (Mappable Array)
+    map (macro [what over]
+      (: (Fn (Fn a b) (Array a) (Array b)))
+      (Js.method over "map" {what})))
+
+  Show (class [a]
+    show (fn [x] (: (Fn a String))))
+
+  show-string (instance (Show String)
+    show (fn [x] x))
+
+  g (fn [x]
+    (map f {}))
+
+  f (fn [x]
+    ""
+    y (show x))
+  """
+  '3', 3
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
