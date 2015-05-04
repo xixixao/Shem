@@ -1352,7 +1352,7 @@ topLevelModule = (moduleName, defaultImports) -> (ctx, form) ->
 
 topLevelExpressionInModule = (defaultImports) -> (ctx, expression) ->
   (iife (concat [
-    toJsString 'use strict'
+    toJsString 'use strict;'
     (importAny defaultImports)
     [(jsReturn (topLevelExpression ctx, expression))]]))
 
