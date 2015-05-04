@@ -2509,8 +2509,10 @@ deferConstraints = (ctx, constraints, type) ->
     isSubset fixedVars, (findUnconstrained constraint)
   [deferred, retained] = partition isFixed, impliedConstraints
   quantifiedVars = findFree finalType = substitute ctx.substitution, type
+  impliedVars = concatSets (map findConstrained, retained)...
+  validVars = concatSets quantifiedVars, impliedVars
   isAmbiguous = (constraint) ->
-    not isSubset quantifiedVars, (findUnconstrained constraint)
+    not isSubset validVars, (findUnconstrained constraint)
   [ambiguous, retained] = partition isAmbiguous, retained
   if _notEmpty ambiguous
     {error:
@@ -4537,6 +4539,10 @@ findFreeInList = (list) ->
 # Free variables in LHS of implicit functional dependency
 findUnconstrained = (constraint) ->
   findFree constraint.types.types[0]
+
+# Bound variables in RHS of implicit functional dependency
+findConstrained = (constraint) ->
+  findFreeInList constraint.types.types[1...]
 
 freshInstance = (ctx, type) ->
   throw new Error "not a forall in freshInstance #{safePrintType type}" unless type and type.ForAll
