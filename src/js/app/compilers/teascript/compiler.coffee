@@ -496,8 +496,8 @@ class Context
   isPreTyped: (name) ->
     !!(@preDeclaredType name)
 
-  isFinallyTyped: (name) ->
-    !!@finalType name
+  isFinallyTyped: (name, scopeIndex) ->
+    !!@finalType name, scopeIndex
 
   declaredId: (name) ->
     (@_declaration name)?.id
@@ -510,8 +510,9 @@ class Context
   type: (name) ->
     (@_declaration name)?.type
 
-  finalType: (name) ->
-    (type = @type name) and (type not instanceof TempType) and type
+  finalType: (name, scopeIndex) ->
+    (type = (@savedDeclaration name, scopeIndex)?.type) and
+      (type not instanceof TempType) and type
 
   preDeclaredType: (name) ->
     (@_preDeclaration name)?.type
@@ -520,13 +521,23 @@ class Context
     cloneMap @_scope()
 
   assignType: (name, type) ->
-    if declaration = @_declarationInCurrentScope name
+    @assignTypeTo name, (@_declarationInCurrentScope name), type
+
+  assignTypeLate: (name, scopeIndex, type) ->
+    if scopeIndex isnt @currentScopeIndex()
+      @assignTypeTo name, (@savedDeclaration name, scopeIndex), type
+    else
+      @assignType name, type
+
+  assignTypeTo: (name, declaration, type) ->
+    if declaration
       if declaration.type and declaration.type not instanceof TempType
         throw new Error "assignType: #{name} already has a type"
       declaration.type = type
       @types[declaration.id] = type
     else
       throw new Error "assignType: #{name} is not declared"
+
 
   assignArity: (name, arity) ->
     (@_declarationInCurrentScope name).arity = arity
@@ -543,8 +554,8 @@ class Context
     declaration.final = no
     @_declare name, declaration
 
-  declareAsFinal: (name) ->
-    (@_declarationInCurrentScope name).final = yes
+  declareAsFinal: (name, scopeIndex) ->
+    (@savedDeclaration name, scopeIndex).final = yes
 
   _declare: (name, declaration) ->
     declaration.id ?= @freshId()
@@ -576,11 +587,11 @@ class Context
     @nameIndex++
 
   savedDeclaration: (name, scopeIndex) ->
-    if scopeIndex is 0
-      @_declaration name
-    else
+    if scopeIndex isnt @currentScopeIndex()
       saved = @savedScopes[scopeIndex]
       (lookupInMap saved.definitions, name) or @savedDeclaration name, saved.parent
+    else
+      @_declarationInCurrentScope name
 
   ## Deferring
 
@@ -589,6 +600,9 @@ class Context
 
   addToDeferred: (binding) ->
     @_scope().deferredBindings.push binding
+
+  addToParentDeferred: (binding) ->
+    @_outerScope().deferredBindings.push binding
 
   addToDefinedNames: (binding) ->
     @_currentDefinition()?.definedNames?.push binding
@@ -1254,6 +1268,7 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
       currentType = substitute ctx.substitution, type
       ctx.addToDeferred
         name: name
+        scopeIndex: ctx.currentScopeIndex()
         type: currentType
         constraints: constraints
         polymorphic: polymorphic
@@ -1269,11 +1284,11 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
   precs: precs ? []
   assigns: assigns ? []
 
-inferType = (ctx, name, type, constraints, polymorphic) ->
+inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
   # For explicitly typed bindings, we need to check that the inferred type
   #   corresponds to the annotated
   currentType = substitute ctx.substitution, type
-  if ctx.isFinallyTyped name
+  if ctx.isFinallyTyped name, scopeIndex or ctx.currentScopeIndex()
     # TODO: check class constraints
     if not includesJsType currentType.type
       # Check the declared type
@@ -1297,7 +1312,6 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
         if _notEmpty retainedConstraints
           ctx.extendSubstitution substitutionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
   else
-    # log name, "constraints", (substituteList ctx.substitution, constraints)
     if not ctx.isAtNonDeferrableDefinition()
       {success, error} = deferConstraints ctx,
         (substituteList ctx.substitution, constraints),
@@ -1312,12 +1326,12 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
     if includesJsType currentType.type
       ctx.extendSubstitution substitutionFail "#{name}'s inferred type #{plainPrettyPrint currentType} includes Js"
     else
-      ctx.assignType name,
+      ctx.assignTypeLate name, scopeIndex ? ctx.currentScopeIndex(),
         if polymorphic
           quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
         else
           toForAll currentType
-  ctx.declareAsFinal name
+  ctx.declareAsFinal name, scopeIndex ? ctx.currentScopeIndex()
   if deferredConstraints
     ctx.addToScopeConstraints deferredConstraints
 
@@ -1384,24 +1398,31 @@ resolveDeferredTypes = (ctx) ->
     groups = topologicallySortedGroups ctx.deferredBindings()
     for group in groups
       bindings = newMap()
+      shouldBeDeferred = no
       for binding in ctx.deferredBindings() when inSet group, binding.name
         added = (lookupOrAdd bindings, binding.name, (types: []))
+        added.scopeIndex = binding.scopeIndex
         added.types.push binding.type
         added.constraints = binding.constraints
         added.polymorphic = binding.polymorphic
         added.deps = binding.deps
         for dep in binding.deps
-          (lookupOrAdd bindings, dep.name, (types: [])).types.push dep.type
+          added = (lookupOrAdd bindings, dep.name, (types: []))
+          added.scopeIndex ?= dep.scopeIndex
+          added.types.push dep.type
 
       # names = concatConcatMaps map (({name, type}) -> newMapWith name, type), groupBindings
       # First get rid of instances of already resolved types
       unresolvedNames = newMap()
       for name, binding of values bindings
-        if canonicalType = ctx.finalType name
+        if canonicalType = ctx.finalType name, binding.scopeIndex
           for type in binding.types
             unify ctx, type.type, (mapOrigin (freshInstance ctx, canonicalType).type, type.type.origin)
         else
-          addToMap unresolvedNames, name, binding
+          if (ctx.isDeclared name) and (not ctx.isCurrentlyDeclared name) and not binding.deps
+            shouldBeDeferred = yes
+          else
+            addToMap unresolvedNames, name, binding
 
       # Now assign the same type to all occurences of the given type and unify
       for name, binding of values unresolvedNames
@@ -1413,25 +1434,28 @@ resolveDeferredTypes = (ctx) ->
           # log "done unifying one"
 
         # have to promote constraints from just compiled dependencies
-        depConstraints = concat (for dep in binding.deps or [] when cononicalType = ctx.finalType dep.name
+        depConstraints = concat (for dep in binding.deps or [] when cononicalType = ctx.finalType dep.name, binding.scopeIndex
           constraintsFromCanonicalType ctx, cononicalType, dep.type)
         allConstraints = (join binding.constraints or [], depConstraints)
 
-        # If the thing is not declared it must be coming from an outer scope
-        # add it is a missing name to the current definition
+        # ---- If the thing is not declared it must be coming from an outer scope
+        # ---- add it as a missing name to the current definition
+        # ^ that should happen automatically when we dont infer type
+        # Instead push the current deferred binding with deps to outer scope
 
-        if (not ctx.isCurrentlyDeclared name)
-          if ctx.isInTopScope()
-            # TODO: error missing name
-          else
-            # TODO: add origin to canonicalType
-            ctx.addToDeferredNames
-              name: name
-              type: addConstraints canonicalType, allConstraints
+        if shouldBeDeferred
+          # TODO: add origin to canonicalType
+          ctx.addToParentDeferred
+            name: name
+            scopeIndex: binding.scopeIndex
+            type: addConstraints canonicalType, allConstraints
+            constraints: allConstraints
+            polymorphic: binding.polymorphic
+            deps: binding.deps
         else
           # log binding.constraints, depConstraints
           inferType ctx, name, canonicalType,
-            allConstraints, binding.polymorphic
+            allConstraints, binding.polymorphic, binding.scopeIndex
   ctx.deferredBindings().length = 0 # clear
 
 compileDeferred = (ctx) ->
@@ -1521,6 +1545,7 @@ ms.fn = ms_fn = (ctx, call) ->
             docs: documentation
 
       newParamType = (param) ->
+        param.scope = ctx.currentScopeIndex()
         withOrigin (ctx.freshTypeVariable star), param
       paramTypeVars = map newParamType, params
       paramTypes = map (__ toForAll, toConstrained), paramTypeVars
@@ -2519,7 +2544,7 @@ deferConstraints = (ctx, constraints, type) ->
     {error:
       substitutionFail
         message: "Constraint #{printType ambiguous[0]} is ambiguous for inferred type #{printType finalType}"
-        conflicts: [type.origin, ambiguous[0].origin]}
+        conflicts: [type.type.origin, ambiguous[0].origin]}
   else
     success: [deferred, retained]
 
@@ -2760,7 +2785,7 @@ nameCompile = (ctx, atom, symbol) ->
         contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
-      ctx.addToDeferredNames {name: symbol, type: (mapOrigin type, atom)}
+      ctx.addToDeferredNames {name: symbol, type: (mapOrigin type, atom), scopeIndex: ctx.currentScopeIndex()}
       nameTranslate ctx, atom, symbol, type
     else
       # log "deferring in rhs for #{symbol}", ctx._deferrableDefinition().name
@@ -5411,7 +5436,7 @@ labelDocs = (source, params) ->
 
 finalizeTypes = (ctx, ast) ->
   visitExpressions ast, (expression) ->
-    if expression.label is 'name' and (type = (ctx.typeForId expression.id) or (ctx.finalType expression.symbol))
+    if expression.label is 'name' and expression.scope and (type = (ctx.finalType expression.symbol, expression.scope))
       expression.tea = type
     else if expression.tea
       expression.tea = substitute ctx.substitution, expression.tea
