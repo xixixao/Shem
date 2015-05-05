@@ -5536,10 +5536,12 @@ test = (testName, teaSource, result) ->
     log (collapse toHtml compiled.ast)
     if _notEmpty compiled.subs
       log map formatFail, compiled.subs
+      failure = yes
     if result isnt (got = eval compiled.compiled)
       log "'#{testName}' expected", result, "got", got
+      success = no
     else
-      success = yes
+      success = not failure
   catch e
     logError "Error in test |#{testName}|\n#{teaSource}\n", e
   success
