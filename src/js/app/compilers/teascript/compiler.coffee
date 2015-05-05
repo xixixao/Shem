@@ -6704,38 +6704,11 @@ tests = [
     (map f lines))
 
   f (fn [x]
-    x
-    y (show x))
+    x)
 
   expand (fn [x]
     gg
     gg (g {""}))
-  """
-  '3', 3
-
-  'overloaded reference 2'
-  """
-  Mappable (class [wrapper]
-    map (fn [what onto]
-      (: (Fn (Fn a b) (wrapper a) (wrapper b)))))
-
-  array-mappable (instance (Mappable Array)
-    map (macro [what over]
-      (: (Fn (Fn a b) (Array a) (Array b)))
-      (Js.method over "map" {what})))
-
-  Show (class [a]
-    show (fn [x] (: (Fn a String))))
-
-  show-string (instance (Show String)
-    show (fn [x] x))
-
-  g (fn [x]
-    (map f {}))
-
-  f (fn [x]
-    ""
-    y (show x))
   """
   '3', 3
 
