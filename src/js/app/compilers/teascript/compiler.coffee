@@ -307,8 +307,8 @@ class Context
   isAtSimpleDefinition: ->
     @isAtDefinition() and @definitionName()
 
-  # isAtDeferrableDefinition: ->
-  #   @isAtDefinition() and @_currentDefinition().deferrable
+  isAtNonDeferrableDefinition: ->
+    @isAtDefinition() and not @_currentDefinition().deferrable
 
   # isInsideSimpleDefinition: ->
   #   (definition = @_currentDefinition())
@@ -1298,7 +1298,7 @@ inferType = (ctx, name, type, constraints, polymorphic) ->
           ctx.extendSubstitution substitutionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
   else
     # log name, "constraints", (substituteList ctx.substitution, constraints)
-    if polymorphic
+    if not ctx.isAtNonDeferrableDefinition()
       {success, error} = deferConstraints ctx,
         (substituteList ctx.substitution, constraints),
         currentType
