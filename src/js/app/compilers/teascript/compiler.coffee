@@ -1441,7 +1441,7 @@ compileDeferred = (ctx) ->
     while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
       prevSize = ctx.deferred().length
       [expression, dependencyName, lhs, rhs] = deferred = ctx.deferred().shift()
-      if (ctx.isFinallyDeclared dependencyName)
+      if (ctx.isDeclared dependencyName)
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
         deferredCount = 0
       else
@@ -3006,7 +3006,6 @@ constraintsFromCanonicalType = (ctx, canonicalType, type) ->
   inferredType = freshInstance ctx, canonicalType
   ctx.extendSubstitution matchType inferredType.type, (substitute ctx.substitution, type).type
   reduceConstraints ctx, inferredType.constraints
-  console.log (printType (substitute ctx.substitution, inferredType))
   (substitute ctx.substitution, inferredType).constraints
 
 irReference = (name, type, scopeIndex) ->
@@ -5268,7 +5267,6 @@ findMatchingDefinitions = (moduleName, reference) ->
 
 findMatchingDefinitionsOnType = (type, definitionLists) ->
   ctx = new Context
-  console.log definitionLists
   [typed, untyped] = unzip (for definitions, i in definitionLists
     isValid = (name, def) ->
       def.type? and not def.type.TempType
