@@ -138,9 +138,9 @@ mapTyping = (fn, string) ->
   fn (ctx = new Context), ast
   expressions = []
   visitExpressions ast, (expression) ->
-    expressions.push "#{collapse toHtml expression} :: #{highlightType substitute ctx.substitution, expression.tea}" if expression.tea
+    expressions.push "#{collapse toHtml expression} :: #{highlightType expression.tea}" if expression.tea
   types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInDefinitions()
-  subs: printSubstitution ctx.substitution
+  #subs: printSubstitution ctx.substitution
   fails: map formatFail, ctx.substitution.fails
   ast: expressions
   deferred: ctx.deferredBindings()
@@ -417,10 +417,15 @@ class Context
       name
 
   bindTypeVariables: (vars) ->
-    addAllToSet @_scope().boundTypeVariables, vars
+    for {name, ref} in vars
+      addToMap @_scope().boundTypeVariables, name, ref
+
+  bindTypeVariableNames: (names) ->
+    for name in names
+      addToMap @_scope().boundTypeVariables, name, {}
 
   allBoundTypeVariables: ->
-    substituteVarNames this, concatSets (for scope in @scopes
+    substituteVarNames this, concatMaps (for scope in @scopes
       scope.boundTypeVariables)...
 
   addToScopeConstraints: (constraints) ->
@@ -962,7 +967,7 @@ tupleCompile = (ctx, form) ->
   # TODO: should we support bare records?
   #   [a: 2 b: 3]
   if not ctx.shouldDefer()
-    form.tea = markOrigin (tupleOfTypes map _tea, elems), form
+    form.tea = withOrigin (tupleOfTypes map _tea, elems), form
 
   if ctx.assignTo()
     combinePatterns compiledElems
@@ -1213,10 +1218,10 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
   else
     if ctx.isAtBareDefinition() and expression.tea
       # Force context reduction
-      inferredType = (substitute ctx.substitution, expression.tea)
+      inferredType = expression.tea#(substitute ctx.substitution, expression.tea)
       deferConstraints ctx,
         inferredType.constraints,
-        inferredType.type
+        inferredType
     translatedExpression
 
 # Pushes the deferring to the parent scope
@@ -1265,7 +1270,7 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
       ctx.declare name, id: id
     if deps.length > 0
       # log "adding top level lhs to deferred #{name}", deps
-      currentType = substitute ctx.substitution, type
+      currentType = type#substitute ctx.substitution, type
       ctx.addToDeferred
         name: name
         scopeIndex: ctx.currentScopeIndex()
@@ -1287,23 +1292,24 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
 inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
   # For explicitly typed bindings, we need to check that the inferred type
   #   corresponds to the annotated
-  currentType = substitute ctx.substitution, type
+  currentType = type# substitute ctx.substitution, type
   if ctx.isFinallyTyped name, scopeIndex or ctx.currentScopeIndex()
     # TODO: check class constraints
     if not includesJsType currentType.type
       # Check the declared type
       declaredType = ctx.type name
       explicitType = freshInstance ctx, declaredType
-      updatedDeclaredType = quantifyUnbound ctx, (substitute ctx.substitution, explicitType)
+      updatedDeclaredType = quantifyUnbound ctx, explicitType#(substitute ctx.substitution, explicitType)
       unify ctx, currentType.type, explicitType.type
-      unifiedType = substitute ctx.substitution, explicitType
+      unifiedType = explicitType# substitute ctx.substitution, explicitType
       inferredType = quantifyUnbound ctx, unifiedType
       if not typeEq inferredType, updatedDeclaredType
+        console.log currentType, (printType currentType)
         ctx.extendSubstitution substitutionFail "#{name}'s declared type is too general, inferred #{plainPrettyPrint inferredType}"
       # Context reduction
       isDeclaredConstraint = (c) ->
         entailed = entail ctx, unifiedType.constraints, c
-      notDeclared = filter (__ _not, isDeclaredConstraint), checked = (substituteList ctx.substitution, constraints)
+      notDeclared = filter (__ _not, isDeclaredConstraint), checked = constraints #(substituteList ctx.substitution, constraints)
       {success, error} = deferConstraints ctx, notDeclared, currentType
       if error
         ctx.extendSubstitution error
@@ -1314,14 +1320,14 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
   else
     if not ctx.isAtNonDeferrableDefinition()
       {success, error} = deferConstraints ctx,
-        (substituteList ctx.substitution, constraints),
+        constraints#(substituteList ctx.substitution, constraints),
         currentType
       if error
         ctx.extendSubstitution error
         return
       [deferredConstraints, retainedConstraints] = success
       # Finalizing type again after possibly added substitution when defer constraints
-      currentType = substitute ctx.substitution, type
+      currentType = type#substitute ctx.substitution, type
     # log "assign type", name, (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
     if includesJsType currentType.type
       ctx.extendSubstitution substitutionFail "#{name}'s inferred type #{plainPrettyPrint currentType} includes Js"
@@ -1485,7 +1491,6 @@ deferDeferred = (ctx) ->
         ctx.doDefer expression, dependencyName
 
 definitionPairCompile = (ctx, pattern, value) ->
-  # log "COMPILING", pattern
   ctx.definePattern pattern
   # log "deferrement before assign !!!", ctx.shouldDefer()
   compiled = expressionCompile ctx, value
@@ -1550,7 +1555,7 @@ ms.fn = ms_fn = (ctx, call) ->
       paramTypeVars = map newParamType, params
       paramTypes = map (__ toForAll, toConstrained), paramTypeVars
       ctx.newLateScope()
-      ctx.bindTypeVariables (map (({name}) -> name), paramTypeVars)
+      ctx.bindTypeVariables paramTypeVars
       # log "adding types", (map _symbol, params), paramTypes
       ctx.declareTyped paramNames, paramTypes
       for param in params
@@ -1866,11 +1871,10 @@ ms.class = ms_class = (ctx, call) ->
 
     methodDefinitions = pairs wheres
     ctx.newScope()
-    ctx.bindTypeVariables paramNames
+    ctx.bindTypeVariableNames paramNames
     definitionList ctx, methodDefinitions
     declarations = ctx.currentDeclarations()
     ctx.closeScope()
-
     for [name, def] in methodDefinitions
       (lookupInMap declarations, name.symbol)?.def = def
 
@@ -1991,7 +1995,7 @@ ms.instance = ms_instance = (ctx, call) ->
       ctx.newScope()
 
       assignMethodTypes ctx, instanceConstraint, freshInstanceType, instanceName,
-        classDefinition, instanceType, constraints
+        classDefinition
       definitions = pairs wheres
       methodsDeclarations = definitionList ctx,
         (prefixWithInstanceName ctx, definitions, instanceName)
@@ -2017,19 +2021,25 @@ ms.instance = ms_instance = (ctx, call) ->
 # with renamed type variables to avoid clashes
 assignMethodTypes = (ctx, typeExpression, freshInstanceType, instanceName, classDeclaration) ->
   # log "mguing", classDeclaration.constraint.types, freshInstanceType.type
-  sub = mostGeneralUnifier classDeclaration.constraint.types, freshInstanceType.type
-  if isFailed sub
+
+  # Fresh the bound variables in class type (A a) -> (A 5)
+  # Use the same substitution on the method types (Fn a String) -> (Fn 5 String)
+  classParams = findFree classDeclaration.constraint
+  freshingSub = mapMap ((kind) -> ctx.freshTypeVariable kind), classParams
+
+  freshedClassType = substitute freshingSub, classDeclaration.constraint.types
+  if isFailed mostGeneralUnifier freshedClassType, freshInstanceType.type
     malformed ctx, typeExpression, 'Type doesn\'t match class type'
     return null
 
-  ctx.bindTypeVariables setToArray (findFree freshInstanceType)
+  ctx.bindTypeVariableNames setToArray (findFree freshInstanceType)
   for name, {arity, type} of values classDeclaration.declarations
     freshType = freshInstance ctx, type
-    instanceSpecificType = substitute sub, freshType
+    instanceSpecificType = substitute freshingSub, freshType
     quantifiedType = quantifyUnbound ctx, instanceSpecificType
     # Prefix so the instance method doesn't shadow the class method
     prefixedName = instancePrefix instanceName, name
-    # Check against redefing a method
+    # TODO: Check against redefing a method
     ctx.preDeclare prefixedName,
       arity: arity
       type: quantifiedType
@@ -2519,6 +2529,13 @@ quantifyUnbound = (ctx, type) ->
   quantify vars, type
 
 substituteVarNames = (ctx, varNames) ->
+  concatSets (for name, ref of values varNames
+    if ref.val
+      findFree ref.val
+    else
+      newSetWith name)...
+
+substituteVarNames_pure = (ctx, varNames) ->
   subbed = (name) =>
     (inSub ctx.substitution, name) or new TypeVariable name
   findFreeInList map subbed, setToArray varNames
@@ -2529,12 +2546,12 @@ deferConstraints = (ctx, constraints, type) ->
   if not reducedConstraints.success
     return reducedConstraints
   fixedVars = ctx.allBoundTypeVariables()
-  impliedConstraints = substituteList ctx.substitution, reducedConstraints.success
+  impliedConstraints = reducedConstraints.success#substituteList ctx.substitution, reducedConstraints.success
   isFixed = (constraint) ->
     # log fixedVars, (printType constraint), (findUnconstrained constraint)
     isSubset fixedVars, (findUnconstrained constraint)
   [deferred, retained] = partition isFixed, impliedConstraints
-  quantifiedVars = findFree finalType = substitute ctx.substitution, type
+  quantifiedVars = findFree finalType = type#substitute ctx.substitution, type
   impliedVars = concatSets (map findConstrained, impliedConstraints)...
   validVars = concatSets quantifiedVars, impliedVars
   isAmbiguous = (constraint) ->
@@ -2561,7 +2578,7 @@ normalizeConstraints = (ctx, constraints) ->
   toNormalize = map id, constraints
   normalized = []
   while _notEmpty toNormalize
-    constraint = substitute ctx.substitution, toNormalize.shift()
+    constraint = toNormalize.shift()#substitute ctx.substitution, toNormalize.shift()
     if isNormalizedConstraint constraint
       normalized.push constraint
     else
@@ -2605,7 +2622,7 @@ simplifyConstraints = (ctx, constraints) ->
 
 # Whether constraints entail constraint
 entail = (ctx, constraints, constraint) ->
-  constraints = substituteList ctx.substitution, constraints
+  #constraints = substituteList ctx.substitution, constraints
   if entailedBySuperClasses ctx, constraints, constraint
     return yes
   instanceContraints = constraintsFromInstance ctx, constraint
@@ -2619,7 +2636,7 @@ entailedBySuperClasses = (ctx, constraints, constraint) ->
     for superClassConstraint in constraintsFromSuperClasses ctx, c
       # if typeEq superClassConstraint, constraint
       if (sub = constraintsEqual superClassConstraint, constraint)
-        ctx.extendSubstitution sub
+        #ctx.extendSubstitution sub
         return yes
   no
 
@@ -2637,12 +2654,12 @@ constraintsFromInstance = (ctx, constraint) ->
   {className, type} = constraint
   for instance in (ctx.classNamed className).instances
     freshed = freshInstance ctx, instance.type
-    # log "trying to find the instance", (printType instance.type.type), (printType constraint)
+    # log "trying to find the instance", (printType freshed.type), (printType constraint)
     substitution = toMatchTypes freshed.type.types, constraint.types
     if substitution
       # log substitution
       ctx.extendSubstitution substitution
-      return map ((c) -> substitute substitution, c), freshed.constraints
+      return freshed.constraints#map ((c) -> substitute substitution, c), freshed.constraints
   null
 
 instanceLookupFailed = (constraint) ->
@@ -2962,7 +2979,7 @@ irDefinition = (type, expression, reference, bare) ->
 #       is not a function then it can't need type class dictionaries
 #       ^.___ not necessarily, we could have a tuple of functions or similar
 irDefinitionTranslate = (ctx, {type, expression, reference, bare}) ->
-  finalType = substitute ctx.substitution, type
+  finalType = type#substitute ctx.substitution, type
   allConstraints = (addConstraintsFrom ctx,
     {type, name: reference?.name, scopeIndex: reference?.scopeIndex}, finalType).constraints
   reducedConstraints =
@@ -3006,7 +3023,7 @@ irCall = (type, op, args) ->
   {ir: irCallTranslate, type, op, args}
 
 irCallTranslate = (ctx, {type, op, args}) ->
-  finalType = addConstraintsFrom ctx, op, (substitute ctx.substitution, type)
+  finalType = addConstraintsFrom ctx, op, type#(substitute ctx.substitution, type)
   classParams =
     if op.ir is irReferenceTranslate and ctx.isMethod op.name, op.type
       []
@@ -3021,6 +3038,7 @@ irCallTranslate = (ctx, {type, op, args}) ->
 
 addConstraintsFrom = (ctx, {name, type, scopeIndex}, to) ->
   if scopeIndex? and (typed = ctx.savedDeclaration name, scopeIndex) and
+      typed.type and
       (_empty to.constraints) and
       (_notEmpty typed.type.type.constraints)
     addConstraints to, constraintsFromCanonicalType ctx, typed.type, type
@@ -3029,9 +3047,15 @@ addConstraintsFrom = (ctx, {name, type, scopeIndex}, to) ->
 
 constraintsFromCanonicalType = (ctx, canonicalType, type) ->
   inferredType = freshInstance ctx, canonicalType
-  ctx.extendSubstitution matchType inferredType.type, (substitute ctx.substitution, type).type
+  # console.log "canonicalType", canonicalType, type
+  # console.log (printType canonicalType)
+  # console.log (printType inferredType)
+  # console.log (printType type.type)
+  ctx.extendSubstitution matchType inferredType.type, type.type#(substitute ctx.substitution, type).type
+  # console.log "after", (printType inferredType.type)
   reduceConstraints ctx, inferredType.constraints
-  (substitute ctx.substitution, inferredType).constraints
+  #(substitute ctx.substitution, inferredType).constraints
+  inferredType.constraints
 
 irReference = (name, type, scopeIndex) ->
   {ir: irReferenceTranslate, name, type, scopeIndex}
@@ -3040,7 +3064,7 @@ irReferenceTranslate = (ctx, {name, type, scopeIndex}) ->
   if ctx.isMethod name, type
     translateIr ctx, (irMethod type, name)
   else
-    finalType = addConstraintsFrom ctx, {type, name: name, scopeIndex: scopeIndex}, substitute ctx.substitution, type
+    finalType = addConstraintsFrom ctx, {type, name: name, scopeIndex: scopeIndex}, type#substitute ctx.substitution, type
     classParams = dictsForConstraint ctx, finalType.constraints
     if classParams.length > 0
       {arity} = ctx.savedDeclaration name, scopeIndex
@@ -3056,7 +3080,7 @@ irMethod = (type, name) ->
   {ir: irMethodTranslate, type, name}
 
 irMethodTranslate = (ctx, {type, name}) ->
-  finalType = substitute ctx.substitution, type
+  finalType = type#substitute ctx.substitution, type
   # log "irmethod", name, finalType.constraints
   resolvedMethod =
     for dict in dictsForConstraint ctx, finalType.constraints
@@ -3166,7 +3190,7 @@ irJsCompatible = (type, expression) ->
   {ir: irJsCompatibleTranslate, type, expression}
 
 irJsCompatibleTranslate = (ctx, {type, expression}) ->
-  finalType = substitute ctx.substitution, type
+  finalType = type#substitute ctx.substitution, type
   translated = translateIr ctx, expression
   if isCustomCollectionType finalType
     (jsCall (jsAccess translated, 'toArray'), [])
@@ -4206,7 +4230,7 @@ isMapEmpty = (set) ->
 mapMap = (fn, set) ->
   initialized = newMap()
   for key, val of set.values
-    addToMap initialized, key, fn val
+    addToMap initialized, key, fn val, key
   initialized
 
 mapKeys = (fn, map) ->
@@ -4343,9 +4367,144 @@ nestedLookupInMap = (map, keys) ->
 
 # end of Set
 
-# Type inference and checker ala Mark Jones
+# Unification and substitution ala Atze Dijkstra
 
 unify = (ctx, t1, t2) ->
+  throw new Error "invalid args to unify" unless ctx instanceof Context and t1 and t2
+  mostGeneralUnifier t1, t2
+
+mostGeneralUnifier = (t1, t2) ->
+  if t1.TypeVariable and t2.TypeVariable and t1.name is t2.name
+    emptySubstitution()
+  else if t1.TypeVariable and t1.ref.val
+    mostGeneralUnifier t1.ref.val, t2
+  else if t2.TypeVariable and t2.ref.val
+    mostGeneralUnifier t1, t2.ref.val
+  else if t1.TypeVariable
+    bindVariable t1, t2
+  else if t2.TypeVariable
+    mostGeneralUnifier t2, t1
+  else if t1.TypeConstr and t2.TypeConstr and t1.name is t2.name
+    emptySubstitution()
+  else if t1.TypeApp and t2.TypeApp
+    s1 = mostGeneralUnifier t1.op, t2.op
+    s2 = mostGeneralUnifier t1.arg, t2.arg
+    joinSubs s1, s2 # only errors now
+  else if t1.Types and t2.Types
+    if t1.types.length isnt t2.types.length
+      unifyFail t1, t2
+    else if _notEmpty t1.types
+      s1 = mostGeneralUnifier t1.types[0], t2.types[0]
+      s2 = mostGeneralUnifier (new Types t1.types[1...]), (new Types t2.types[1...])
+      joinSubs s1, s2 # only errors now
+    else
+      emptySubstitution()
+  else
+    unifyFail t1, t2
+
+bindVariable = (variable, type) ->
+  if inSet (findFree type), variable.name
+    typeFail "Types cannot match: ", variable, type
+    # newMapWith variable.name, "occurs check failed"
+  else if not kindsEq (kind variable), (kind type)
+    # newMapWith variable.name, "kinds don't match for #{variable.name} and #{safePrintType type}"
+    typeFail "Kinds of types don't match: ", variable, type
+  else
+    variable.ref.val = type
+    newSubstitution()
+
+# Maybe substitution if the types match
+# t1 can be more general than t2
+toMatchTypes = (t1, t2) ->
+  substitution = matchType t1, t2
+  if _notEmpty substitution.fails
+    null
+  else
+    substitution
+
+# Returns possible failures
+matchType = (t1, t2) ->
+  if t1.TypeVariable and t1.ref.val
+    if typeEq t1.ref.val, t2
+      emptySubstitution()
+    else
+      unifyFail t1, t2
+  else if t1.TypeVariable and kindsEq (kind t1), (kind t2)
+    t1.ref.val = t2 #newSubstitution t1.name, t2
+    # console.log "attaching", t1.name, t2
+    # console.log "attached", (printType t2)
+    newSubstitution()
+  else if t2.TypeVariable and t2.ref.val
+    matchType t1, t2.ref.val
+  else if t1.TypeConstr and t2.TypeConstr and t1.name is t2.name
+    emptySubstitution()
+  else if t1.TypeApp and t2.TypeApp
+    s1 = matchType t1.op, t2.op
+    s2 = matchType t1.arg, t2.arg
+    subUnion s1, s2
+  else if t1.Types and t2.Types
+    if t1.types.length isnt t2.types.length
+      unifyFail t1, t2
+    else if _notEmpty t1.types
+      s1 = matchType t1.types[0], t2.types[0]
+      # We imply functional dependency of the form A a b c | a -> b c
+      # s2 = mostGeneralUnifier (new Types (substituteList s1, t1.types[1...])), (new Types t2.types[1...])
+      s2 = unifyImpliedParams t1, t2
+      subUnion s1, s2
+    else
+      emptySubstitution()
+  else
+    unifyFail t1, t2
+
+unifyImpliedParams = (t1, t2) ->
+  mostGeneralUnifier (new Types t1.types[1...]), (new Types t2.types[1...])
+
+# Used to convert between quantified and not quantified
+substitute = (substitution, type) ->
+  if type.TypeVariable
+    if type.ref.val
+      substitute substitution, type.ref.val
+    else
+      substitution.values and (lookupInMap substitution, type.name) or type # should not happen
+  else if type.QuantifiedVar
+    substitution[type.var] or type
+  else if type.TypeConstr
+    new TypeConstr type.name, type.kind
+  else if type.TypeApp
+    new TypeApp (substitute substitution, type.op),
+      (substitute substitution, type.arg)
+  else if type.ForAll
+    new ForAll type.kinds, (substitute substitution, type.type)
+  else if type.Constrained
+    new Constrained (substituteList substitution, type.constraints),
+      (substitute substitution, type.type)
+  else if type.ClassConstraint
+    new ClassConstraint type.className, substitute substitution, type.types
+  else if type.Types
+    new Types substituteList substitution, type.types
+  else
+    type
+
+findFree = (type) ->
+  if type.TypeVariable
+    if type.ref.val
+      findFree type.ref.val
+    else
+      newMapWith type.name, type.kind
+  else if type.TypeApp
+    concatMaps (findFree type.op), (findFree type.arg)
+  else if type.Constrained
+    concatMaps (findFree type.type), (findFreeInList type.constraints)
+  else if type.ClassConstraint
+    findFree type.types
+  else if type.Types
+    findFreeInList type.types
+  else
+    newMap()
+
+# Type inference and checker ala Mark Jones
+
+unify_pure = (ctx, t1, t2) ->
   throw new Error "invalid args to unify" unless ctx instanceof Context and t1 and t2
   # TODO: need to taint the other type
   # if (includesJsType t1) or (includesJsType t2)
@@ -4354,7 +4513,7 @@ unify = (ctx, t1, t2) ->
   ctx.extendSubstitution mostGeneralUnifier (substitute sub, t1), (substitute sub, t2)
 
 # Returns a substitution
-mostGeneralUnifier = (t1, t2) ->
+mostGeneralUnifier_pure = (t1, t2) ->
   if t1.TypeVariable
     bindVariable t1, t2
   else if t2.TypeVariable
@@ -4381,7 +4540,7 @@ mostGeneralUnifier = (t1, t2) ->
 unifyFail = (t1, t2) ->
   typeFail "Types don't match: ", t1, t2
 
-bindVariable = (variable, type) ->
+bindVariable_pure = (variable, type) ->
   if type.TypeVariable and variable.name is type.name
     emptySubstitution()
   else if inSet (findFree type), variable.name
@@ -4408,7 +4567,7 @@ sortBasedOnOriginPosition = (t1, t2) ->
 
 # Maybe substitution if the types match
 # t1 can be more general than t2
-toMatchTypes = (t1, t2) ->
+toMatchTypes_pure = (t1, t2) ->
   substitution = matchType t1, t2
   if _notEmpty substitution.fails
     null
@@ -4416,7 +4575,7 @@ toMatchTypes = (t1, t2) ->
     substitution
 
 # Returns a substitution
-matchType = (t1, t2) ->
+matchType_pure = (t1, t2) ->
   if t1.TypeVariable and kindsEq (kind t1), (kind t2)
     newSubstitution t1.name, t2
   else if t1.TypeConstr and t2.TypeConstr and
@@ -4449,10 +4608,13 @@ matchType = (t1, t2) ->
     unifyFail t1, t2
     # newMapWith "could not unify", [(safePrintType t1), (safePrintType t2)]
 
-unifyImpliedParams = (t1, t2) ->
+unifyImpliedParams_pure = (t1, t2) ->
   mostGeneralUnifier (new Types t1.types[1...]), (new Types t2.types[1...])
 
-joinSubs = (s1,s2) ->
+joinSubs = (s1, s2) ->
+  subUnion s1, s2
+
+joinSubs_pure = (s1,s2) ->
   subUnion s1, (mapSub ((type) -> substitute s1, type), s2)
 
 mergeSubs = (s1, s2) ->
@@ -4478,6 +4640,12 @@ subIntersection = (subA, subB) ->
 
 subUnion = (subA, subB) ->
   union = emptySubstitution()
+  union.start = subA.start + subB.start
+  union.fails = [].concat subB.fails, subA.fails
+  union
+
+subUnion_pure = (subA, subB) ->
+  union = emptySubstitution()
   start = Math.min (subStart subA), (subStart subB)
   end = Math.max (subLimit subA), (subLimit subB)
   union.start = start
@@ -4488,7 +4656,12 @@ subUnion = (subA, subB) ->
   union.fails = [].concat subB.fails, subA.fails
   union
 
-newSubstitution = (name, type) ->
+newSubstitution = ->
+  sub = emptySubstitution()
+  sub.start = 0
+  sub
+
+newSubstitution_pure = (name, type) ->
   sub = emptySubstitution()
   sub.vars[0] = type
   sub.start = name
@@ -4503,6 +4676,9 @@ substitutionFail = (failure) ->
   sub
 
 subLimit = (sub) ->
+  if sub.start is Infinity then -Infinity else sub.start
+
+subLimit_pure = (sub) ->
   if sub.start is Infinity then -Infinity else sub.start + sub.vars.length
 
 subStart = (sub) ->
@@ -4517,11 +4693,11 @@ inSub = (sub, name) ->
 emptySubstitution = ->
   start: Infinity
   fails: []
-  vars: []
+  #vars: []
 
 # Unlike in Jones, we simply use substitute for both variables and quantifieds
 # - variables are strings, wheres quantifieds are ints
-substitute = (substitution, type) ->
+substitute_pure = (substitution, type) ->
   if type.TypeVariable
     substitution.vars and (inSub substitution, type.name) or
       substitution.values and (lookupInMap substitution, type.name) or type
@@ -4546,7 +4722,7 @@ substitute = (substitution, type) ->
 substituteList = (substitution, list) ->
   map ((t) -> substitute substitution, t), list
 
-findFree = (type) ->
+findFree_pure = (type) ->
   if type.TypeVariable
     newMapWith type.name, type.kind
   else if type.TypeApp
@@ -4582,7 +4758,6 @@ freshName = (nameIndex) ->
   # (String.fromCharCode 97 + nameIndex % 25) + suffix
 
 copyOrigin = (to, from) ->
-  clone = cloneType to
   if to.Constrained
     copyOrigin to.type, from.type
     for c, i in to.constraints
@@ -4591,13 +4766,12 @@ copyOrigin = (to, from) ->
     if to.TypeApp
       copyOrigin to.op, from.op
       copyOrigin to.arg, from.arg
-    mutateMarkingOrigin clone, from.origin
-  clone
+    mutateMarkingOrigin to, from.origin
+  to
 
 mapOrigin = (type, expression) ->
-  clone = cloneType type
-  mutateMappingOrigin clone, expression
-  clone
+  mutateMappingOrigin type, expression
+  type
 
 mutateMappingOrigin = (type, expression) ->
   if type.Constrained
@@ -4610,8 +4784,9 @@ mutateMappingOrigin = (type, expression) ->
       mutateMappingOrigin type.arg, expression
     mutateMarkingOrigin type, expression
 
+# Used on builtin types
 markOrigin = (typeOrConstraint, expression) ->
-  clone = cloneType typeOrConstraint
+  clone = substitute newMap(), typeOrConstraint
   mutateMarkingOrigin clone, expression
   clone
 
@@ -4625,19 +4800,19 @@ mutateMarkingOrigin = (typeOrConstraint, expression) ->
 
 # Clones constrained types and parts of them
 # Class constraint arguments are not cloned
-cloneType = (t) ->
-  if t.TypeVariable
-    new TypeVariable t.name, t.kind
-  else if t.TypeConstr
-    new TypeConstr t.name, t.kind
-  else if t.QuantifiedVar
-    new QuantifiedVar t.var
-  else if t.TypeApp
-    new TypeApp (cloneType t.op), (cloneType t.arg)
-  else if t.ClassConstraint
-    new ClassConstraint t.className, t.types
-  else if t.Constrained
-    new Constrained (map cloneType, t.constraints), (cloneType t.type)
+# cloneType = (t) ->
+#   if t.TypeVariable
+#     new TypeVariable t.name, t.kind
+#   else if t.TypeConstr
+#     new TypeConstr t.name, t.kind
+#   else if t.QuantifiedVar
+#     new QuantifiedVar t.var
+#   else if t.TypeApp
+#     new TypeApp (cloneType t.op), (cloneType t.arg)
+#   else if t.ClassConstraint
+#     new ClassConstraint t.className, t.types
+#   else if t.Constrained
+#     new Constrained (map cloneType, t.constraints), (cloneType t.type)
 
 # Normalized constraint has a type which has type variable at its head
 #   that is either ordinary type variable or type variable standing for a constructor
@@ -4648,22 +4823,40 @@ isNormalizedConstraint = (constraint) ->
 isNormalizedConstraintArgument = (type) ->
   if type
     if type.TypeVariable
+      if type.ref.val
+        isNormalizedConstraintArgument type.ref.val
+      else
+        yes
+    else if type.TypeConstr
+      no
+    else if type.TypeApp
+      isNormalizedConstraintArgument type.op
+
+isNormalizedConstraintArgument_pure = (type) ->
+  if type
+    if type.TypeVariable
       yes
     else if type.TypeConstr
       no
     else if type.TypeApp
       isNormalizedConstraintArgument type.op
 
-
 includesJsType = (type) ->
-  if type.TypeConstr
+  if type.TypeVariable and type.ref.val
+    includesJsType type.ref.val
+  else if type.TypeConstr
     typeEq type, jsType
   else if type.TypeApp
     (includesJsType type.op) or (includesJsType type.arg)
 
 typeEq = (a, b) ->
-  if a.TypeVariable and b.TypeVariable or
-      a.TypeConstr and b.TypeConstr
+  if a.TypeVariable and b.TypeVariable and a.name is b.name
+    yes
+  else if a.TypeVariable and a.ref.val
+    typeEq a.ref.val, b
+  else if b.TypeVariable and b.ref.val
+    typeEq a, b.ref.val
+  else if a.TypeConstr and b.TypeConstr
     a.name is b.name
   else if a.QuantifiedVar and b.QuantifiedVar
     a.var is b.var
@@ -4773,7 +4966,7 @@ class TempKind
   constructor: ->
 
 class TypeVariable
-  constructor: (@name, @kind) ->
+  constructor: (@name, @kind, @ref = {}) ->
     @TypeVariable = yes
 class TypeConstr
   constructor: (@name, @kind) ->
@@ -4812,7 +5005,7 @@ toConstrained = (type) ->
   new Constrained [], type
 
 toForAll = (type) ->
-  new ForAll [], type
+  new ForAll [], substitute newMap(), type
 
 quantifyAll = (type) ->
   quantify (findFree type), type
@@ -4895,10 +5088,13 @@ forallToHumanReadable = (type) ->
 
 printType = (type) ->
   if type.TypeVariable
-    if /^[0-9]/.test type.name
-      "_#{type.name}"
+    if type.ref.val
+      printType type.ref.val
     else
-      "#{type.name}"
+      if /^[0-9]/.test type.name
+        "_#{type.name}"
+      else
+        "#{type.name}"
   else if type.QuantifiedVar
     "#{type.var}"
   else if type.TypeConstr
