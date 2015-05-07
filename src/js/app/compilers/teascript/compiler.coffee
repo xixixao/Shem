@@ -1304,7 +1304,6 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
       unifiedType = explicitType# substitute ctx.substitution, explicitType
       inferredType = quantifyUnbound ctx, unifiedType
       if not typeEq inferredType, updatedDeclaredType
-        console.log currentType, (printType currentType)
         ctx.extendSubstitution substitutionFail "#{name}'s declared type is too general, inferred #{plainPrettyPrint inferredType}"
       # Context reduction
       isDeclaredConstraint = (c) ->
@@ -2587,8 +2586,6 @@ normalizeConstraints = (ctx, constraints) ->
       if instanceContraints
         toNormalize.push instanceContraints...
       else
-        # TODO: propogate this as standard error
-        # throw new Error "no instance found to satisfy #{safePrintType constraint}"
         return error: instanceLookupFailed constraint
       after = subLimit ctx.substitution
       # There was a functional dependency, renormalize
@@ -3049,8 +3046,8 @@ constraintsFromCanonicalType = (ctx, canonicalType, type) ->
   inferredType = freshInstance ctx, canonicalType
   # console.log "canonicalType", canonicalType, type
   # console.log (printType canonicalType)
-  # console.log (printType inferredType)
-  # console.log (printType type.type)
+  # console.log (JSON.stringify inferredType)
+  # console.log (JSON.stringify type.type)
   ctx.extendSubstitution matchType inferredType.type, type.type#(substitute ctx.substitution, type).type
   # console.log "after", (printType inferredType.type)
   reduceConstraints ctx, inferredType.constraints
@@ -4429,13 +4426,15 @@ matchType = (t1, t2) ->
       emptySubstitution()
     else
       unifyFail t1, t2
+  else if t2.TypeVariable and t2.ref.val
+    matchType t1, t2.ref.val
+  else if t1.TypeVariable and t2.TypeVariable and t1.name is t2.name
+    emptySubstitution()
   else if t1.TypeVariable and kindsEq (kind t1), (kind t2)
     t1.ref.val = t2 #newSubstitution t1.name, t2
     # console.log "attaching", t1.name, t2
     # console.log "attached", (printType t2)
     newSubstitution()
-  else if t2.TypeVariable and t2.ref.val
-    matchType t1, t2.ref.val
   else if t1.TypeConstr and t2.TypeConstr and t1.name is t2.name
     emptySubstitution()
   else if t1.TypeApp and t2.TypeApp
@@ -4449,15 +4448,29 @@ matchType = (t1, t2) ->
       s1 = matchType t1.types[0], t2.types[0]
       # We imply functional dependency of the form A a b c | a -> b c
       # s2 = mostGeneralUnifier (new Types (substituteList s1, t1.types[1...])), (new Types t2.types[1...])
-      s2 = unifyImpliedParams t1, t2
-      subUnion s1, s2
+      if isFailed s1
+        s1
+      else
+        unifyImpliedParams t1, t2
     else
       emptySubstitution()
   else
     unifyFail t1, t2
 
+# We need to check that the unification succeeds first before performing
+# it on the actual types
 unifyImpliedParams = (t1, t2) ->
-  mostGeneralUnifier (new Types t1.types[1...]), (new Types t2.types[1...])
+  types1 = new Types t1.types[1...]
+  types2 = new Types t2.types[1...]
+  makeSub = (types) ->
+    mapMap ((kind, name) -> new TypeVariable name, kind, {}), findFree types
+  subbed1 = substitute (makeSub types1), types1
+  subbed2 = substitute (makeSub types2), types2
+  if isFailed (sub = mostGeneralUnifier subbed1, subbed2)
+    sub
+  else
+    mostGeneralUnifier types1, types2
+
 
 # Used to convert between quantified and not quantified
 substitute = (substitution, type) ->
@@ -4501,6 +4514,23 @@ findFree = (type) ->
     findFreeInList type.types
   else
     newMap()
+
+# findRefs = (type) ->
+#   if type.TypeVariable
+#     newMapWith type.name, type
+#   else if type.TypeApp
+#     concatMaps (findRefs type.op), (findRefs type.arg)
+#   else if type.Constrained
+#     concatMaps (findRefs type.type), (findRefsInList type.constraints)
+#   else if type.ClassConstraint
+#     findRefs type.types
+#   else if type.Types
+#     findRefsInList type.types
+#   else
+#     newMap()
+
+# findRefsInList = (list) ->
+#   concatMaps (map findRefs, list)...
 
 # Type inference and checker ala Mark Jones
 
@@ -4796,7 +4826,7 @@ withOrigin = (typeOrConstraint, expression) ->
   typeOrConstraint
 
 mutateMarkingOrigin = (typeOrConstraint, expression) ->
-  typeOrConstraint.origin = expression
+  # typeOrConstraint.origin = expression
 
 # Clones constrained types and parts of them
 # Class constraint arguments are not cloned
@@ -5109,6 +5139,8 @@ printType = (type) ->
     "(: #{(map printType, join [type.type], type.constraints).join ' '})"
   else if type.TempType
     "(. #{printType type.type})"
+  else if type.Types
+    (map printType, type.types).join ' '
   else if Array.isArray type
     "\"#{listOf type}\""
   else if type is undefined
@@ -5117,7 +5149,9 @@ printType = (type) ->
     throw new Error "Unrecognized type in printType"
 
 collectArgs = (type) ->
-  if type.TypeApp
+  if type.TypeVariable and type.ref.val
+    collectArgs type.ref.val
+  else if type.TypeApp
     op = collectArgs type.op
     arg = collectArgs type.arg
     if (Array.isArray op) and (Array.isArray arg) and
@@ -6907,6 +6941,16 @@ tests = [
   expand (fn [x]
     gg
     gg (g {""}))
+  """
+  '3', 3
+
+  'defer in subdefinition'
+  """
+  f (fn [x]
+    ""
+    g (fn [y]
+      ((fn [x] x) h))
+    h ((fn [x] x) x))
   """
   '3', 3
 
