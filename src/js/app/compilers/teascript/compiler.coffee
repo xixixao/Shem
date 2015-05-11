@@ -620,7 +620,7 @@ class Context
     @_currentDefinition()?.definedNames ? []
 
   usedNames: ->
-    (@_currentDefinition() or @_scope()).usedNames ? []
+    (@_currentDeferrableDefinition() or @_scope()).usedNames ? []
 
   setUsedNames: (usedNames) ->
     @_scope().usedNames = usedNames
@@ -2100,8 +2100,11 @@ ms.match = ms_match = (ctx, call) ->
         " in #{ctx.definitionName()}"
       else
         ""
-    compiledCases = conditional (for [pattern, result] in pairs cases
 
+    # mark all used as used (remember them)
+    oldUsed = ctx.usedNames()
+    compiledResults = (for [pattern, result] in pairs cases
+      ctx.setUsedNames []
       ctx.newScope() # for variables defined inside pattern
       ctx.defineNonDeferrablePattern pattern
       {precs, assigns} = patternCompile ctx, pattern, subject, no
@@ -2112,18 +2115,30 @@ ms.match = ms_match = (ctx, call) ->
       ctx.resetAssignTo()
       ctx.leaveDefinition()
       ctx.closeScope()
+      branchUsedNames = ctx.usedNames()
 
       if ctx.shouldDefer()
         continue
 
-      # TODO: we need to check that
-      # log "unifying in match", result, resultType, result.tea
       unify ctx, resultType, result.tea.type
       constraints.push result.tea.constraints...
       varNames.push (findDeclarables precs)...
 
-      matchBranchTranslate precs, assigns, compiledResult
-    ), "throw new Error('match failed to match#{errorMessage}');" #TODO: what subject?
+      [branchUsedNames, precs, assigns, compiledResult])
+
+    [usedNames] = unzip compiledResults
+    lifting = map (findDeps ctx), usedNames
+    jointlyUsed = intersectSets lifting
+
+    compiledCases = conditional (for [used, precs, assigns, compiledResult], i in compiledResults
+      lifted = lifting[i]
+      [conds, assigns] = matchBranchTranslate precs, assigns, compiledResult
+      [conds, join (findDefinitions ctx, (setToArray (subtractSets lifted, jointlyUsed))),
+        assigns])
+    , "throw new Error('match failed to match#{errorMessage}');" #TODO: what subject?
+
+    ctx.setUsedNames join oldUsed, setToArray jointlyUsed
+
     translationCache = ctx.resetAssignTo()
     call.tea = new Constrained constraints, resultType
     assignCompile ctx, call, iife concat (filter _is, [
@@ -2131,12 +2146,10 @@ ms.match = ms_match = (ctx, call) ->
       varList varNames
       compiledCases])
 
-
-
 # Creates the condition and body of a branch inside match macro
 matchBranchTranslate = (precs, assigns, compiledResult) ->
   {conds, preassigns} = constructCond precs
-  [hoistedWheres, furtherHoistable] = hoistWheres [], assigns #hoistWheres hoistableWheres, assigns
+  # [hoistedWheres, furtherHoistable] = hoistWheres [], assigns #hoistWheres hoistableWheres, assigns
 
   [conds, concat [
     (map compileVariableAssignment, (join preassigns, assigns))
@@ -2223,7 +2236,7 @@ ms.cond = ms_cond = (ctx, call) ->
 
   doneConds = termsCompileExpectingType ctx, (markOrigin boolType, call), conds
 
-  # mark all used as used (or remember them)
+  # mark all used as used (remember them)
   oldUsed = ctx.usedNames()
 
   compiledResults = for result in results
