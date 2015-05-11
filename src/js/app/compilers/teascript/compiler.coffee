@@ -778,7 +778,10 @@ callKnownCompile = (ctx, call) ->
   if not paramNames
     # log "deferring in known call #{operator.symbol}"
     ctx.doDefer operator, operator.symbol
-    return assignCompile ctx, call, deferredExpression()
+    if ctx.assignTo()
+      return {}
+    else
+      return assignCompile ctx, call, deferredExpression()
   positionalParams = filter ((param) -> not (lookupInMap labeledArgs, param)), paramNames
   nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
 
@@ -1588,10 +1591,11 @@ ms.fn = ms_fn = (ctx, call) ->
           deferredExpression()
         else
           # Typing
-          call.tea =
+          op = _operator call
+          call.tea = op.tea =
             if body and body.tea
               new Constrained (join body.tea.constraints, deferredConstraints),
-                withOrigin (typeFn paramTypeVars..., body.tea?.type), call
+                withOrigin (typeFn paramTypeVars..., body.tea?.type), op
             else if explicitType
               (copyOrigin (freshInstance ctx, explicitType), compiledType)
           # """λ#{paramNames.length}(function (#{listOf paramNames}) {
