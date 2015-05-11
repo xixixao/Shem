@@ -234,7 +234,7 @@ class Context
       definedNames: []
       usedNames: []
       deferrable: yes
-      _defer: undefined
+      _defers: []
 
   bareDefine: ->
     @definePattern()
@@ -667,8 +667,7 @@ class Context
 
   doDefer: (expression, dependencyName) ->
     definition = @_deferrableDefinition()
-    definition._defer =
-      (@_deferReasonOf definition) or [expression, dependencyName, @currentScopeIndex()]
+    definition._defers.push [expression, dependencyName, @currentScopeIndex()]
 
   deferReason: ->
     @_deferReasonOf @_deferrableDefinition()
@@ -677,7 +676,7 @@ class Context
     !!(@_deferReasonOf @_deferrableDefinition())
 
   _deferReasonOf: (definition) ->
-    definition?._defer
+    definition?._defers[0]
 
   addDeferredDefinition: ([expression, dependencyName, useScopeIndex, lhs, rhs]) ->
     @_scope().deferred.push [expression, dependencyName, useScopeIndex, lhs, rhs]
@@ -1564,9 +1563,9 @@ ms.fn = ms_fn = (ctx, call) ->
 
       #log "compiling wheres", pairs wheres
       compiledWheres = definitionListCompile ctx, pairs wheres
+
       # 1. Construct dependency graph
       # 2. Add to context
-
       ctx.setAuxiliaryDefinitions compiledWheres
       # compiledWheres = concat filter _is, compiledWheres
 
