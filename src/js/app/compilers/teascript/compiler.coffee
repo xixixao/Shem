@@ -603,7 +603,7 @@ class Context
   addToDeferredNames: (binding) ->
     @_deferrableDefinition().deferredBindings.push binding
 
-  addToDeferred: (binding) ->
+  addToDeferredBindings: (binding) ->
     @_scope().deferredBindings.push binding
 
   addToParentDeferred: (binding) ->
@@ -666,11 +666,9 @@ class Context
     "i#{@variableIndex++}"
 
   doDefer: (expression, dependencyName) ->
-    @_setDeferIn @_deferrableDefinition(), expression, dependencyName
-
-  _setDeferIn: (definition, expression, dependencyName) ->
+    definition = @_deferrableDefinition()
     definition._defer =
-      (@_deferReasonOf definition) or [expression, dependencyName]
+      (@_deferReasonOf definition) or [expression, dependencyName, @currentScopeIndex()]
 
   deferReason: ->
     @_deferReasonOf @_deferrableDefinition()
@@ -681,8 +679,8 @@ class Context
   _deferReasonOf: (definition) ->
     definition?._defer
 
-  addDeferredDefinition: ([expression, dependencyName, lhs, rhs]) ->
-    @_scope().deferred.push [expression, dependencyName, lhs, rhs]
+  addDeferredDefinition: ([expression, dependencyName, useScopeIndex, lhs, rhs]) ->
+    @_scope().deferred.push [expression, dependencyName, useScopeIndex, lhs, rhs]
 
   deferred: ->
     @_scope().deferred
@@ -1271,7 +1269,7 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
     if deps.length > 0
       # log "adding top level lhs to deferred #{name}", deps
       currentType = type#substitute ctx.substitution, type
-      ctx.addToDeferred
+      ctx.addToDeferredBindings
         name: name
         scopeIndex: ctx.currentScopeIndex()
         type: currentType
@@ -1279,7 +1277,7 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
         polymorphic: polymorphic
         deps: deps#(map (({name}) -> name), deps)
       # for dep in deps
-      #   ctx.addToDeferred {name: dep.name, type: dep.type, reversed: name}
+      #   ctx.addToDeferredBindings {name: dep.name, type: dep.type, reversed: name}
       if not ctx.isTyped name
         ctx.assignType name, (new TempType type)
     else
@@ -1469,8 +1467,9 @@ compileDeferred = (ctx) ->
     deferredCount = 0
     while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
       prevSize = ctx.deferred().length
-      [expression, dependencyName, lhs, rhs] = deferred = ctx.deferred().shift()
-      if (ctx.isDeclared dependencyName)
+      [expression, dependencyName, useScope, lhs, rhs] = deferred = ctx.deferred().shift()
+      if useScope isnt ctx.currentScopeIndex() and (ctx.isDeclared dependencyName) or
+          (ctx.isFinallyDeclared dependencyName)
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
         deferredCount = 0
       else
