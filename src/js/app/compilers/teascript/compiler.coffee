@@ -4530,6 +4530,17 @@ findFree = (type) ->
   else
     newMap()
 
+freshenType = (type) ->
+  if type.TypeVariable
+    if type.ref.val
+      freshenType type.ref.val
+    else
+      new TypeVariable type.name, type.kind
+  else if type.TypeApp
+    new TypeApp (freshenType type.op), (freshenType type.arg)
+  else
+    type
+
 # findRefs = (type) ->
 #   if type.TypeVariable
 #     newMapWith type.name, type
@@ -5545,7 +5556,7 @@ findMatchingDefinitionsOnType = (type, definitionLists) ->
     #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
     # [typed, notTyped] = partitionMap typesUnify, validDefinitions
     scoreAndPrint = (def) ->
-      freshedType = substitute newMap(), type.type
+      freshedType = freshenType type.type
       checkedType = (freshInstance ctx, def.type).type
       sub = mostGeneralUnifier checkedType, freshedType
       if isFailed sub
