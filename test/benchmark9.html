@@ -5512,7 +5512,6 @@ unifyImpliedParams = function(t1, t2) {
 };
 
 joinSubs = function(s1, s2) {
-  console.log(s1.vars.length, s2.vars.length);
   return subUnion(s1, mapSub((function(type) {
     return substitute(s1, type);
   }), s2));
