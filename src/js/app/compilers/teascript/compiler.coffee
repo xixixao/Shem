@@ -4379,7 +4379,7 @@ nestedLookupInMap = (map, keys) ->
 
 unify = (ctx, t1, t2) ->
   throw new Error "invalid args to unify" unless ctx instanceof Context and t1 and t2
-  mostGeneralUnifier t1, t2
+  ctx.extendSubstitution mostGeneralUnifier t1, t2
 
 mostGeneralUnifier = (t1, t2) ->
   if t1.TypeVariable and t2.TypeVariable and t1.name is t2.name
@@ -4837,7 +4837,7 @@ withOrigin = (typeOrConstraint, expression) ->
   typeOrConstraint
 
 mutateMarkingOrigin = (typeOrConstraint, expression) ->
-  # typeOrConstraint.origin = expression
+  typeOrConstraint.origin = expression
 
 # Clones constrained types and parts of them
 # Class constraint arguments are not cloned
@@ -5541,11 +5541,13 @@ findMatchingDefinitionsOnType = (type, definitionLists) ->
     #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
     # [typed, notTyped] = partitionMap typesUnify, validDefinitions
     scoreAndPrint = (def) ->
-      sub = mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
+      freshedType = substitute newMap(), type.type
+      checkedType = (freshInstance ctx, def.type).type
+      sub = mostGeneralUnifier checkedType, freshedType
       if isFailed sub
         score = -Infinity
       else
-        score = -((subMagnitude sub) + i * 100)
+        score = -((subMagnitude checkedType, freshedType) + i * 100)
       type: plainPrettyPrint def.type#score + ' ' +
       arity: def.arity
       docs: def.docs
@@ -5559,9 +5561,10 @@ findMatchingDefinitionsOnType = (type, definitionLists) ->
   # allDefs = concatMaps typed, notTyped # TODO: don't use object key ordering for ordering
   # values mapMap (__ plainPrettyPrint, _type), allDefs
 
-subMagnitude = (sub) ->
+subMagnitude = (candidate, subject) ->
+  subs = join (findSubstitutions candidate), (findSubstitutions subject)
   magnitude = 0
-  for s in sub.vars when s
+  for s in subs
     magnitude +=
       if s.TypeApp
         opName = actualOpName s.op
@@ -5572,6 +5575,14 @@ subMagnitude = (sub) ->
       else
         2
   magnitude
+
+findSubstitutions = (type) ->
+  if type.TypeVariable and type.ref.val
+    [type.ref.val]
+  else if type.TypeApp
+    join (findSubstitutions type.op), (findSubstitutions type.arg)
+  else
+    []
 
 actualOpName = (type) ->
   type.name ? actualOpName type.op
