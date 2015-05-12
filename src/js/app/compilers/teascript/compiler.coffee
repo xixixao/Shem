@@ -1844,9 +1844,26 @@ callJsMethodCompile = (ctx, call) ->
   labelOperator dotMethod
   call.tea = toConstrained markOrigin jsType, call
   if object
-    (jsMethod (termCompile ctx, object), dotMethod.symbol[1...], (termsCompile ctx, args))
+    if /^.-/.test dotMethod.symbol
+      (jsAccess (termCompile ctx, object), dotMethod.symbol[2...])
+    else
+      (jsMethod (termCompile ctx, object), dotMethod.symbol[1...], (termsCompile ctx, args))
   else
     malformed ctx, call, 'Missing an object'
+    jsNoop()
+
+ms['set!'] = ms_doset = (ctx, call) ->
+  # (set! (.innerHTML e) "Ahoj")
+  [what, to] = _arguments call
+  if what
+    whatCompiled = termCompile ctx, what
+  if to
+    toCompiled = termCompile ctx, to
+
+  call.tea = toConstrained markOrigin jsType, call
+  if whatCompiled and toCompiled
+    (jsAssign whatCompiled, toCompiled)
+  else
     jsNoop()
 
 # Adds a class to the scope or defers if superclass doesn't exist
@@ -2456,7 +2473,7 @@ simpleMacro = (macroFn) ->
     callTyping ctx, call
     assignCompile ctx, call, macroFn args...
 
-for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method']
+for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method', 'assign']
   do (jsMethod) ->
     ms["Js.#{jsMethod}"] = (ctx, call) ->
       call.tea = toConstrained jsType
@@ -3248,7 +3265,7 @@ isModuleAccess = (atom) ->
   /^\w+\./.test atom.symbol
 
 isDotAccess = (atom) ->
-  /^\.\w+/.test atom.symbol
+  /^\.-?\w+/.test atom.symbol
 
 isLabel = (atom) ->
   /[^\\]:$/.test atom.symbol
