@@ -1830,7 +1830,7 @@ ms['::'] = ms_typed_expression = (ctx, call) ->
     constraints = []
     expression = constraintSeq
   compiledType = new Constrained constraints, typeCompile ctx, type
-  if name = ctx.definitionName()
+  if ctx.isAtSimpleDefinition()
     preDeclareExplicitlyTyped ctx, compiledType, docs
   call.tea = compiledType
   assignCompile ctx, call, (termCompile ctx, expression)
