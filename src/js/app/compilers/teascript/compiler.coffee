@@ -6881,6 +6881,20 @@ tests = [
   """
   '(f (Just 4))', 4
 
+  'lifting into match from a call'
+  """
+  Maybe (data [a]
+    None
+    Just [value: a])
+
+  f (fn [x]
+    (match x
+      None 0
+      (Just [y z]) g)
+    g (y z))
+  """
+  '(f (Just [(fn [w] w) 2]))', 2
+
   'shadowing'
   """
   f (macro [n]
