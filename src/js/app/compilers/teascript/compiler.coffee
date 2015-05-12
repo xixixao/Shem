@@ -787,44 +787,43 @@ callKnownCompile = (ctx, call) ->
 
   if nonLabeledArgs.length > positionalParams.length
     malformed ctx, call, "Too many arguments to #{operator.symbol}"
-  else
-    extraParamNames = positionalParams[nonLabeledArgs.length..]
-    extraParams = map token_, ("_#{n}" for n in extraParamNames)
-    positionalArgs = map id, nonLabeledArgs # copy
-    extraArgs = map id, extraParams
-    argsInOrder = (for param in paramNames
-      (lookupInMap labeledArgs, param) or
-        positionalArgs.shift() or
-        extraArgs.shift())
-    sortedCall = (call_ operator,  argsInOrder)
+  extraParamNames = positionalParams[nonLabeledArgs.length..]
+  extraParams = map token_, ("_#{n}" for n in extraParamNames)
+  positionalArgs = map id, nonLabeledArgs # copy
+  extraArgs = map id, extraParams
+  argsInOrder = (for param in paramNames
+    (lookupInMap labeledArgs, param) or
+      positionalArgs.shift() or
+      extraArgs.shift())
+  sortedCall = (call_ operator,  argsInOrder)
 
-    if ctx.assignTo()
-      if isCapital operator
-        if args.length < paramNames.length and nonLabeledArgs.length > 0
-          malformed ctx, call, "curried constructor pattern"
-        else
-          compiled = callConstructorPattern ctx, sortedCall, extraParamNames
-          retrieve call, sortedCall
-          compiled
+  if ctx.assignTo()
+    if isCapital operator
+      if args.length < paramNames.length and nonLabeledArgs.length > 0
+        malformed ctx, call, "curried constructor pattern"
       else
-        malformed ctx, call, "function patterns not supported"
-    else
-      if nonLabeledArgs.length < positionalParams.length
-        # log "currying known call"
-        lambda = (fn_ extraParams, sortedCall)
-        compiled = callMacroCompile ctx, lambda
-        retrieve call, lambda
-        # TODO: massive hack, erase inserted scope, will have to figure out how to fix this better
-        ctx.savedScopes[ctx.savedScopes.length - 1].definitions = newMap()
-        compiled
-      else
-        compiled =
-          if ctx.isMacroDeclared operator.symbol
-            callMacroCompile ctx, sortedCall
-          else
-            callSaturatedKnownCompile ctx, sortedCall
+        compiled = callConstructorPattern ctx, sortedCall, extraParamNames
         retrieve call, sortedCall
         compiled
+    else
+      malformed ctx, call, "function patterns not supported"
+  else
+    if nonLabeledArgs.length < positionalParams.length
+      # log "currying known call"
+      lambda = (fn_ extraParams, sortedCall)
+      compiled = callMacroCompile ctx, lambda
+      retrieve call, lambda
+      # TODO: massive hack, erase inserted scope, will have to figure out how to fix this better
+      ctx.savedScopes[ctx.savedScopes.length - 1].definitions = newMap()
+      compiled
+    else
+      compiled =
+        if ctx.isMacroDeclared operator.symbol
+          callMacroCompile ctx, sortedCall
+        else
+          callSaturatedKnownCompile ctx, sortedCall
+      retrieve call, sortedCall
+      compiled
 
 callConstructorPattern = (ctx, call, extraParamNames) ->
   operator = _operator call
@@ -1328,14 +1327,14 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
       # Finalizing type again after possibly added substitution when defer constraints
       currentType = type#substitute ctx.substitution, type
     # log "assign type", name, (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
-    if includesJsType currentType.type
-      ctx.extendSubstitution substitutionFail "#{name}'s inferred type #{plainPrettyPrint currentType} includes Js"
-    else
-      ctx.assignTypeLate name, scopeIndex ? ctx.currentScopeIndex(),
-        if polymorphic
-          quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
-        else
-          toForAll currentType
+    # if includesJsType currentType.type
+    #   ctx.extendSubstitution substitutionFail "#{name}'s inferred type #{plainPrettyPrint currentType} includes Js"
+    # else
+    ctx.assignTypeLate name, scopeIndex ? ctx.currentScopeIndex(),
+      if polymorphic
+        quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
+      else
+        toForAll currentType
   ctx.declareAsFinal name, scopeIndex ? ctx.currentScopeIndex()
   if deferredConstraints
     ctx.addToScopeConstraints deferredConstraints
@@ -2618,6 +2617,7 @@ normalizeConstraints = (ctx, constraints) ->
       if instanceContraints
         toNormalize.push instanceContraints...
       else
+        console.log constraint
         return error: instanceLookupFailed constraint
       after = subLimit ctx.substitution
       # There was a functional dependency, renormalize
@@ -2787,6 +2787,7 @@ atomCompile = (ctx, atom) ->
           nameCompile) ctx, atom, symbol
   if type
     atom.tea = mapOrigin type, atom
+    console.log type, atom if symbol is 'brum'
   atom.id = id if id?
   atom.scope = ctx.currentScopeIndex()
   if ctx.isOperator()
@@ -3241,7 +3242,7 @@ isComment = (expression) ->
   (isCall expression) and ('#' is _symbol _operator expression)
 
 isCall = (expression) ->
-  (isForm expression) and (isEmptyForm expression) and
+  (isForm expression) and (isNotEmptyForm expression) and
     expression[0].symbol is '('
 
 isRecord = (expression) ->
@@ -3255,7 +3256,7 @@ isSeq = (expression) ->
 isTuple = (expression) ->
   (isForm expression) and expression[0].symbol is '['
 
-isEmptyForm = (form) ->
+isNotEmptyForm = (form) ->
   (_terms form).length > 0
 
 isForm = (expression) ->
