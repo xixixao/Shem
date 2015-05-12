@@ -1595,7 +1595,7 @@ ms.fn = ms_fn = (ctx, call) ->
           call.tea = op.tea =
             if body and body.tea
               new Constrained (join body.tea.constraints, deferredConstraints),
-                withOrigin (typeFn paramTypeVars..., body.tea?.type), op
+                withOrigin (typeFn paramTypeVars..., body.tea?.type), call
             else if explicitType
               (copyOrigin (freshInstance ctx, explicitType), compiledType)
           # """λ#{paramNames.length}(function (#{listOf paramNames}) {
