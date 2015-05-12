@@ -2695,7 +2695,7 @@ instanceLookupFailed = (constraint) ->
   [first, second] = sortBasedOnOriginPosition constraint, constraint.types.types[0]
   substitutionFail
     message: "No instance found to satisfy #{safePrintType constraint}"
-    conflicts: [first.origin, second.origin]
+    conflicts: [(originOf first), (originOf second)]
 
 _names = (list) ->
   map _symbol, list
@@ -4629,14 +4629,19 @@ typeFail = (message, t1, t2) ->
   [first, second] = sortBasedOnOriginPosition t1, t2
   substitutionFail
     message: "#{message} #{(safePrintType first)}, #{(safePrintType second)}"
-    conflicts: [first.origin, second.origin]
+    conflicts: [(originOf first), (originOf second)]
 
 sortBasedOnOriginPosition = (t1, t2) ->
-  if t1.origin?.start > t2.origin?.start
+  if (originOf t1)?.start > (originOf t2)?.start
     [t2, t1]
   else
     [t1, t2]
 
+originOf = (type) ->
+  if type.TypeVariable and type.ref.val
+    originOf type.ref.val
+  else
+    type.origin
 
 # Maybe substitution if the types match
 # t1 can be more general than t2
