@@ -5567,6 +5567,9 @@ findMatchingDefinitions = (moduleName, reference) ->
   removeFromMap topScope, 'is-null-or-undefined'
   addToMap topScope, '{}',
     type: quantifyAll toConstrained new TypeApp arrayType, (new TypeVariable 'a', star)
+  # TODO: suggest function calls, possibly given prefix
+  # addToMap topScope, '(sqrt )',
+  #   type: quantifyAll toConstrained numType
   findMatchingDefinitionsOnType type, join scoped, [topScope]
 
 findMatchingDefinitionsOnType = (type, definitionLists) ->
@@ -5578,12 +5581,13 @@ findMatchingDefinitionsOnType = (type, definitionLists) ->
     # typesUnify = (def) ->
     #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
     # [typed, notTyped] = partitionMap typesUnify, validDefinitions
+    UNTYPED_PENALTY = -1000000
     scoreAndPrint = (def) ->
       freshedType = freshenType type.type
       checkedType = (freshInstance ctx, def.type).type
       sub = mostGeneralUnifier checkedType, freshedType
       if isFailed sub
-        score = -Infinity
+        score = UNTYPED_PENALTY
       else
         score = -((subMagnitude checkedType, freshedType) + i * 100)
       type: plainPrettyPrint def.type#score + ' ' +
@@ -5592,7 +5596,7 @@ findMatchingDefinitionsOnType = (type, definitionLists) ->
       rawType: def.type
       score: score
     isTyped = (completion) ->
-      completion.score isnt -Infinity
+      completion.score isnt UNTYPED_PENALTY
 
     partitionMap isTyped, (mapMap scoreAndPrint, validDefinitions))
   values concatMaps typed..., untyped...
