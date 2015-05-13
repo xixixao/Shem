@@ -906,10 +906,12 @@ callTyping = (ctx, call) ->
   op = _operator call
   return if not all (tea for {tea} in terms)
   call.tea =
-    if terms.length is 1
-      # terms = join terms, [tea: toConstrained (markOrigin (ctx.freshTypeVariable star), call)]
+    if (_validTerms call).length is 1
       callZeroInfer ctx, op, op.tea
     else
+      # Fake a function call for empty parens
+      if terms.length is 1
+        terms = join terms, [tea: toConstrained (markOrigin (ctx.freshTypeVariable star), call)]
       callInfer ctx, (_operator call), terms
 
 callInfer = (ctx, operator, terms) ->
