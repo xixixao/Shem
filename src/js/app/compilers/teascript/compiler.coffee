@@ -1313,20 +1313,17 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
       isDeclaredConstraint = (c) ->
         entailed = entail ctx, unifiedType.constraints, c
       notDeclared = filter (__ _not, isDeclaredConstraint), checked = constraints #(substituteList ctx.substitution, constraints)
-      {success, error} = deferConstraints ctx, notDeclared, currentType
-      if error
-        ctx.extendSubstitution error
-      else
+      {success} = deferConstraints ctx, notDeclared, currentType
+      if success
         [deferredConstraints, retainedConstraints] = success
         if _notEmpty retainedConstraints
           ctx.extendSubstitution substitutionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
   else
     if not ctx.isAtNonDeferrableDefinition()
-      {success, error} = deferConstraints ctx,
+      {success} = deferConstraints ctx,
         constraints#(substituteList ctx.substitution, constraints),
         currentType
-      if error
-        ctx.extendSubstitution error
+      if not success
         return
       [deferredConstraints, retainedConstraints] = success
       # Finalizing type again after possibly added substitution when defer constraints
@@ -2217,6 +2214,8 @@ ms.format = ms_format = (ctx, call) ->
     s: stringType
     c: charType
   [formatStringToken, args...] = _arguments call
+  if not formatStringToken
+    return malformed ctx, call, 'Format string required.'
   compiledArgs = termsCompile ctx, args
   if not all map _tea, args
     call.tea = toConstrained stringType
@@ -2577,6 +2576,12 @@ substituteVarNames_pure = (ctx, varNames) ->
 
 # Returns deferred and retained constraints
 deferConstraints = (ctx, constraints, type) ->
+  result = tryDeferConstraints ctx, constraints, type
+  if result.error
+    ctx.extendSubstitution result.error
+  result
+
+tryDeferConstraints = (ctx, constraints, type) ->
   reducedConstraints = reduceConstraints ctx, constraints
   if not reducedConstraints.success
     return reducedConstraints
@@ -2593,10 +2598,9 @@ deferConstraints = (ctx, constraints, type) ->
     not isSubset validVars, (findUnconstrained constraint)
   [ambiguous, retained] = partition isAmbiguous, retained
   if _notEmpty ambiguous
-    {error:
-      substitutionFail
-        message: "Constraint #{printType ambiguous[0]} is ambiguous for inferred type #{printType finalType}"
-        conflicts: [type.type.origin, ambiguous[0].origin]}
+    {error: substitutionFail
+      message: "Constraint #{printType ambiguous[0]} is ambiguous for inferred type #{printType finalType}"
+      conflicts: [type.type.origin, ambiguous[0].origin]}
   else
     success: [deferred, retained]
 
