@@ -5614,7 +5614,7 @@ subMagnitude = (candidate, subject) ->
       if s.TypeApp
         opName = actualOpName s.op
         if opName is 'Fn'
-          6
+          20
         else
           3
       else
