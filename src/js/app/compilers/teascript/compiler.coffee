@@ -894,8 +894,11 @@ callUnknownTranslate = (ctx, translatedOperator, call) ->
 
   callTyping ctx, call
   # "_#{args.length}(#{translatedOperator}, #{argList})"
-  assignCompile ctx, call,
-    (jsCall "_#{args.length}", (join [translatedOperator], argList))
+  if ctx.assignTo()
+    malformed ctx, call, 'Invalid pattern'
+  else
+    assignCompile ctx, call,
+      (jsCall "_#{args.length}", (join [translatedOperator], argList))
 
 callTyping = (ctx, call) ->
   return if ctx.shouldDefer()
