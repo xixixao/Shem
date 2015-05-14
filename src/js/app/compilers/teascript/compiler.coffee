@@ -2336,7 +2336,7 @@ findDefinitions = (ctx, names) ->
 
 addSiblingDefines = (ctx, nameSet) ->
   auxiliaries = ctx.auxiliaries()
-  arrayToSet concat (for name of values auxiliaries
+  arrayToSet concat (for name of values nameSet
     (lookupInMap auxiliaries, name)?.defines)
 
 findDeps = (ctx) -> (names) ->
