@@ -613,14 +613,18 @@ class Context
     @_currentDefinition()?.definedNames?.push binding
 
   addToUsedNames: (name) ->
-    (@_currentDeferrableDefinition() or
-      (@_scopeOfDeclared @scopes.length - 1, name)).usedNames?.push name
+    # log "adding", name, ((print @_currentDeferrableDefinition()?.pattern) or
+    #   (@_scopeOfDeclared @scopes.length - 1, name)?.index)
+    # (@_currentDeferrableDefinition() or
+    #   (@_scopeOfDeclared @scopes.length - 1, name)).usedNames?.push name
+    (@_scopeOfDeclared @scopes.length - 1, name).usedNames.push name
 
   definedNames: ->
     @_currentDefinition()?.definedNames ? []
 
   usedNames: ->
-    (@_currentDeferrableDefinition() or @_scope()).usedNames ? []
+    # (@_currentDeferrableDefinition() or @_scope()).usedNames ? []
+    @_scope().usedNames
 
   setUsedNames: (usedNames) ->
     @_scope().usedNames = usedNames
@@ -1218,6 +1222,7 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
     translation = map compileVariableAssignment, (join translationCache, assigns)
     translation.usedNames = ctx.usedNames()
     translation.definedNames = (name for {name} in ctx.definedNames())
+    ctx.setUsedNames []
     translation
   else
     if ctx.isAtBareDefinition() and expression.tea
@@ -2310,12 +2315,19 @@ findDefinitions = (ctx, names) ->
 
 findDeps = (ctx) -> (names) ->
   auxiliaries = ctx.auxiliaries()
-  arrayToSet reverse join names, auxiliaryDependencies auxiliaries, names
+  depSet = newSet()
+  auxiliaryDependencies auxiliaries, names, depSet
+  arrayToSet reverse setToArray depSet
 
-auxiliaryDependencies = (graph, names) ->
-  concat (for name in names
-    join (deps = ((lookupInMap graph, name)?.deps or [])),
-      auxiliaryDependencies graph, deps)
+auxiliaryDependencies = (graph, names, allSet) ->
+  for name in names
+    if not inSet allSet, name
+      addToSet allSet, name
+      auxiliaryDependencies graph, ((lookupInMap graph, name)?.deps or []), allSet
+  return
+  # concat (for name in names
+  #   join (deps = ((lookupInMap graph, name)?.deps or [])),
+  #     auxiliaryDependencies graph, deps)
 
 ms.syntax = ms_syntax = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare a new syntax macro'
@@ -2626,7 +2638,6 @@ normalizeConstraints = (ctx, constraints) ->
       if instanceContraints
         toNormalize.push instanceContraints...
       else
-        console.log constraint
         return error: instanceLookupFailed constraint
       after = subLimit ctx.substitution
       # There was a functional dependency, renormalize
@@ -2796,7 +2807,6 @@ atomCompile = (ctx, atom) ->
           nameCompile) ctx, atom, symbol
   if type
     atom.tea = mapOrigin type, atom
-    console.log type, atom if symbol is 'brum'
   atom.id = id if id?
   atom.scope = ctx.currentScopeIndex()
   if ctx.isOperator()
@@ -7040,6 +7050,25 @@ tests = [
     h ((fn [x] x) x))
   """
   '3', 3
+
+  'dont lift when used in function'
+  """
+  Maybe (data [a]
+    None
+    Some [value: a])
+
+  f (fn [x]
+    (match x
+      None (g 4)
+      (Some v) h)
+    h 45
+    hh h
+    g (fn [x]
+      h)
+    p (fn [x] (p x)))
+  """
+  '(f None)', 45
+
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
