@@ -383,6 +383,7 @@ class Context
     @savedScopes[closedScope.index] =
       parent: @currentScopeIndex()
       definitions: cloneMap closedScope
+      boundTypeVariables: closedScope.boundTypeVariables
 
   currentScopeIndex: ->
     @_scope().index
@@ -425,8 +426,21 @@ class Context
       addToMap @_scope().boundTypeVariables, name, {}
 
   allBoundTypeVariables: ->
-    substituteVarNames this, concatMaps (for scope in @scopes
-      scope.boundTypeVariables)...
+    @allBoundTypeVariablesAt @currentScopeIndex()
+
+  allBoundTypeVariablesAt: (scopeIndex) ->
+    substituteVarNames this, concatMaps (
+      if scopeIndex is @currentScopeIndex()
+        @boundTypeVariablesInCurrentScopes()
+      else
+        join (while scope = @savedScopes[scopeIndex]
+            scopeIndex = scope.parent
+            scope.boundTypeVariables),
+          @boundTypeVariablesInCurrentScopes())...
+
+  boundTypeVariablesInCurrentScopes: ->
+    for scope in @scopes
+      scope.boundTypeVariables
 
   addToScopeConstraints: (constraints) ->
     @_scope().deferredConstraints.push constraints...
@@ -1231,6 +1245,7 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
       deferConstraints ctx,
         inferredType.constraints,
         inferredType
+        ctx.currentScopeIndex()
     translatedExpression
 
 # Pushes the deferring to the parent scope
@@ -1299,10 +1314,12 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
   assigns: assigns ? []
 
 inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
+  scopeIndex ?= ctx.currentScopeIndex()
   # For explicitly typed bindings, we need to check that the inferred type
   #   corresponds to the annotated
   currentType = type# substitute ctx.substitution, type
-  if ctx.isFinallyTyped name, scopeIndex or ctx.currentScopeIndex()
+
+  if ctx.isFinallyTyped name, scopeIndex
     # TODO: check class constraints
     if not includesJsType currentType.type
       # Check the declared type
@@ -1318,7 +1335,7 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
       isDeclaredConstraint = (c) ->
         entailed = entail ctx, unifiedType.constraints, c
       notDeclared = filter (__ _not, isDeclaredConstraint), checked = constraints #(substituteList ctx.substitution, constraints)
-      {success} = deferConstraints ctx, notDeclared, currentType
+      {success} = deferConstraints ctx, notDeclared, currentType, scopeIndex
       if success
         [deferredConstraints, retainedConstraints] = success
         if _notEmpty retainedConstraints
@@ -1328,21 +1345,21 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
       {success} = deferConstraints ctx,
         constraints#(substituteList ctx.substitution, constraints),
         currentType
+        scopeIndex
       if not success
         return
       [deferredConstraints, retainedConstraints] = success
       # Finalizing type again after possibly added substitution when defer constraints
       currentType = type#substitute ctx.substitution, type
-    # log "assign type", name, (printType (addConstraints currentType, retainedConstraints)), (printType quantifyUnbound ctx, (addConstraints currentType, retainedConstraints))
     # if includesJsType currentType.type
     #   ctx.extendSubstitution substitutionFail "#{name}'s inferred type #{plainPrettyPrint currentType} includes Js"
     # else
-    ctx.assignTypeLate name, scopeIndex ? ctx.currentScopeIndex(),
+    ctx.assignTypeLate name, scopeIndex,
       if polymorphic
         quantifyUnbound ctx, (addConstraints currentType, retainedConstraints)
       else
         toForAll currentType
-  ctx.declareAsFinal name, scopeIndex ? ctx.currentScopeIndex()
+  ctx.declareAsFinal name, scopeIndex
   if deferredConstraints
     ctx.addToScopeConstraints deferredConstraints
 
@@ -1459,10 +1476,14 @@ resolveDeferredTypes = (ctx) ->
           ctx.addToParentDeferred
             name: name
             scopeIndex: binding.scopeIndex
-            type: addConstraints canonicalType, allConstraints
+            type: finalType = addConstraints canonicalType, allConstraints
             constraints: allConstraints
             polymorphic: binding.polymorphic
             deps: binding.deps
+          ctx.addToDeferredNames
+            name: name
+            scopeIndex: binding.scopeIndex
+            type: finalType
         else
           # log binding.constraints, depConstraints
           inferType ctx, name, canonicalType,
@@ -2141,7 +2162,6 @@ ms.match = ms_match = (ctx, call) ->
       ctx.leaveDefinition()
       ctx.closeScope()
       branchUsedNames = ctx.usedNames()
-      console.log (print pattern), branchUsedNames
 
       if ctx.shouldDefer()
         continue
@@ -2595,17 +2615,17 @@ substituteVarNames_pure = (ctx, varNames) ->
   findFreeInList map subbed, setToArray varNames
 
 # Returns deferred and retained constraints
-deferConstraints = (ctx, constraints, type) ->
-  result = tryDeferConstraints ctx, constraints, type
+deferConstraints = (ctx, constraints, type, scopeIndex) ->
+  result = tryDeferConstraints ctx, constraints, type, scopeIndex
   if result.error
     ctx.extendSubstitution result.error
   result
 
-tryDeferConstraints = (ctx, constraints, type) ->
+tryDeferConstraints = (ctx, constraints, type, scopeIndex) ->
   reducedConstraints = reduceConstraints ctx, constraints
   if not reducedConstraints.success
     return reducedConstraints
-  fixedVars = ctx.allBoundTypeVariables()
+  fixedVars = ctx.allBoundTypeVariablesAt scopeIndex
   impliedConstraints = reducedConstraints.success#substituteList ctx.substitution, reducedConstraints.success
   isFixed = (constraint) ->
     # log fixedVars, (printType constraint), (findUnconstrained constraint)
@@ -7076,6 +7096,26 @@ tests = [
     p (fn [x] (p x)))
   """
   '(f None)', 45
+
+  'ambiguity on deferred non polymorphic'
+  """
+  Show (class [a]
+    show (fn [x] (: (Fn a String))))
+
+  show-string (instance (Show String)
+    show (fn [x] x))
+
+  f (fn [x]
+    (g x))
+
+  g (fn [y]
+    "")
+
+  expand (fn [z w]
+    ""
+    d (f (show w)))
+  """
+  '(expand 3 "2")', ""
 
 
   # TODO: support matching with the same name
