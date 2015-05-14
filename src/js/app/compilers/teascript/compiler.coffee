@@ -2141,6 +2141,7 @@ ms.match = ms_match = (ctx, call) ->
       ctx.leaveDefinition()
       ctx.closeScope()
       branchUsedNames = ctx.usedNames()
+      console.log (print pattern), branchUsedNames
 
       if ctx.shouldDefer()
         continue
@@ -2151,9 +2152,9 @@ ms.match = ms_match = (ctx, call) ->
 
       [branchUsedNames, precs, assigns, compiledResult])
 
-    [usedNames] = unzip compiledResults
-    lifting = map (findDeps ctx), usedNames
-    jointlyUsed = intersectSets lifting
+    [usedNameLists] = unzip compiledResults
+    lifting = map (findDeps ctx), usedNameLists
+    jointlyUsed = addSiblingDefines ctx, intersectSets lifting
 
     compiledCases = conditional (for [used, precs, assigns, compiledResult], i in compiledResults
       lifted = lifting[i]
@@ -2313,17 +2314,24 @@ findDefinitions = (ctx, names) ->
     else
       [])
 
+addSiblingDefines = (ctx, nameSet) ->
+  auxiliaries = ctx.auxiliaries()
+  arrayToSet concat (for name of values auxiliaries
+    (lookupInMap auxiliaries, name)?.defines)
+
 findDeps = (ctx) -> (names) ->
   auxiliaries = ctx.auxiliaries()
   depSet = newSet()
-  auxiliaryDependencies auxiliaries, names, depSet
-  arrayToSet reverse setToArray depSet
+  depList = []
+  auxiliaryDependencies auxiliaries, names, depSet, depList
+  arrayToSet reverse depList
 
-auxiliaryDependencies = (graph, names, allSet) ->
+auxiliaryDependencies = (graph, names, allSet, allList) ->
   for name in names
+    allList.push name
     if not inSet allSet, name
       addToSet allSet, name
-      auxiliaryDependencies graph, ((lookupInMap graph, name)?.deps or []), allSet
+      auxiliaryDependencies graph, ((lookupInMap graph, name)?.deps or []), allSet, allList
   return
   # concat (for name in names
   #   join (deps = ((lookupInMap graph, name)?.deps or [])),
