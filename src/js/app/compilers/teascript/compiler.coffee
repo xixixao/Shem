@@ -383,6 +383,7 @@ class Context
     @savedScopes[closedScope.index] =
       parent: @currentScopeIndex()
       definitions: cloneMap closedScope
+      deferredConstraints: closedScope.deferredConstraints
       boundTypeVariables: closedScope.boundTypeVariables
 
   currentScopeIndex: ->
@@ -443,6 +444,10 @@ class Context
       scope.boundTypeVariables
 
   addToScopeConstraints: (constraints) ->
+    # (if scopeIndex is @currentScopeIndex()
+    #   @_scope()
+    # else
+    #   @savedScopes[scopeIndex])
     @_scope().deferredConstraints.push constraints...
 
   currentScopeConstraints: ->
@@ -539,6 +544,9 @@ class Context
   currentDeclarations: ->
     cloneMap @_scope()
 
+  scopeIndexOfDeclaration: (name) ->
+    (@_scopeOfDeclared @scopes.length - 1, name).index
+
   assignType: (name, type) ->
     @assignTypeTo name, (@_declarationInCurrentScope name), type
 
@@ -556,7 +564,6 @@ class Context
       @types[declaration.id] = type
     else
       throw new Error "assignType: #{name} is not declared"
-
 
   assignArity: (name, arity) ->
     (@_declarationInCurrentScope name).arity = arity
@@ -1296,7 +1303,8 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
       # log "adding top level lhs to deferred #{name}", deps
       currentType = type#substitute ctx.substitution, type
       ctx.addToDeferredBindings
-        name: name
+        name: scopedName name, ctx.currentScopeIndex()
+        id: name
         scopeIndex: ctx.currentScopeIndex()
         type: currentType
         constraints: constraints
@@ -1308,7 +1316,8 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
         ctx.assignType name, (new TempType type)
     else
       # Ready for typing since there are no missing dependencies
-      inferType ctx, name, type, constraints, polymorphic
+      deferredConstraints = inferType ctx, name, type, constraints, polymorphic
+      ctx.addToScopeConstraints deferredConstraints
 
   precs: precs ? []
   assigns: assigns ? []
@@ -1360,8 +1369,7 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
       else
         toForAll currentType
   ctx.declareAsFinal name, scopeIndex
-  if deferredConstraints
-    ctx.addToScopeConstraints deferredConstraints
+  return deferredConstraints or []
 
 # Old comment:
 # here I will create type schemes for all definitions
@@ -1424,30 +1432,39 @@ definitionListCompile = (ctx, pairs) ->
 resolveDeferredTypes = (ctx) ->
   if _notEmpty ctx.deferredBindings()
     groups = topologicallySortedGroups ctx.deferredBindings()
+    allDeferredConstraints = newMap()
+    deferredToParent = newSet()
     for group in groups
       bindings = newMap()
       shouldBeDeferred = no
       for binding in ctx.deferredBindings() when inSet group, binding.name
         added = (lookupOrAdd bindings, binding.name, (types: []))
+        added.id = binding.id
         added.scopeIndex = binding.scopeIndex
         added.types.push binding.type
         added.constraints = binding.constraints
         added.polymorphic = binding.polymorphic
         added.deps = binding.deps
         for dep in binding.deps
-          added = (lookupOrAdd bindings, dep.name, (types: []))
-          added.scopeIndex ?= dep.scopeIndex
-          added.types.push dep.type
+          addedDep = (lookupOrAdd bindings, dep.name, (types: []))
+          addedDep.id ?= dep.id
+          addedDep.scopeIndex ?= dep.scopeIndex
+          addedDep.types.push dep.type
+          if dep.defining
+            depDeferredConstraints = lookupInMap allDeferredConstraints, dep.scopeIndex
+            # If depDeferredConstraints is null the dependency must be mutually dependant
+            added.constraints = join added.constraints, depDeferredConstraints or []
 
       # names = concatConcatMaps map (({name, type}) -> newMapWith name, type), groupBindings
       # First get rid of instances of already resolved types
       unresolvedNames = newMap()
       for name, binding of values bindings
-        if canonicalType = ctx.finalType name, binding.scopeIndex
+        if canonicalType = ctx.finalType binding.id, binding.scopeIndex
           for type in binding.types
             unify ctx, type.type, (mapOrigin (freshInstance ctx, canonicalType).type, type.type.origin)
         else
-          if (ctx.isDeclared name) and (not ctx.isCurrentlyDeclared name) and not binding.deps
+          if (ctx.isDeclared binding.id) and (not ctx.isCurrentlyDeclared binding.id) and not binding.deps or
+              inSet deferredToParent, name
             shouldBeDeferred = yes
           else
             addToMap unresolvedNames, name, binding
@@ -1462,32 +1479,40 @@ resolveDeferredTypes = (ctx) ->
           # log "done unifying one"
 
         # have to promote constraints from just compiled dependencies
-        depConstraints = concat (for dep in binding.deps or [] when cononicalType = ctx.finalType dep.name, binding.scopeIndex
+        depConstraints = concat (for dep in binding.deps or [] when cononicalType = ctx.finalType dep.id, dep.scopeIndex
           constraintsFromCanonicalType ctx, cononicalType, dep.type)
         allConstraints = (join binding.constraints or [], depConstraints)
 
-        # ---- If the thing is not declared it must be coming from an outer scope
-        # ---- add it as a missing name to the current definition
-        # ^ that should happen automatically when we dont infer type
-        # Instead push the current deferred binding with deps to outer scope
+        # If the thing is not declared it must be coming from an outer scope
+        # add it as a missing name to the current definition
+        # (must be done explicitly because of constraints)
+        # also push the current deferred binding with deps to outer scope
 
         if shouldBeDeferred
           # TODO: add origin to canonicalType
           ctx.addToParentDeferred
             name: name
+            id: binding.id
             scopeIndex: binding.scopeIndex
             type: finalType = addConstraints canonicalType, allConstraints
             constraints: allConstraints
             polymorphic: binding.polymorphic
             deps: binding.deps
+          # log "defer", name, binding.scopeIndex
           ctx.addToDeferredNames
             name: name
+            id: binding.id
             scopeIndex: binding.scopeIndex
             type: finalType
+            defining: yes
+          addToSet deferredToParent, name
         else
           # log binding.constraints, depConstraints
-          inferType ctx, name, canonicalType,
+          # log "type", name, binding.id, binding.scopeIndex
+          deferredConstraints = inferType ctx, binding.id, canonicalType,
             allConstraints, binding.polymorphic, binding.scopeIndex
+          addToMap allDeferredConstraints, binding.scopeIndex, deferredConstraints
+
   ctx.deferredBindings().length = 0 # clear
 
 compileDeferred = (ctx) ->
@@ -2879,12 +2904,19 @@ nameCompile = (ctx, atom, symbol) ->
         contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
-      ctx.addToDeferredNames {name: symbol, type: (mapOrigin type, atom), scopeIndex: ctx.currentScopeIndex()}
+      ctx.addToDeferredNames
+        name: scopedName symbol, ctx.scopeIndexOfDeclaration symbol
+        id: symbol
+        type: (mapOrigin type, atom)
+        scopeIndex: ctx.currentScopeIndex()
       nameTranslate ctx, atom, symbol, type
     else
       # log "deferring in rhs for #{symbol}", ctx._deferrableDefinition().name
       ctx.doDefer atom, symbol
       translation: deferredExpression()
+
+scopedName = (name, scopeIndex) ->
+  "#{name}_#{scopeIndex}"
 
 constPattern = (ctx, symbol) ->
   exp = ctx.assignTo()
@@ -7114,6 +7146,22 @@ tests = [
   expand (fn [z w]
     ""
     d (f (show w)))
+  """
+  '(expand 3 "2")', ""
+
+  'shadowing in resolve deferred types'
+  """
+  f (fn [x]
+    (g x))
+
+  g (fn [y]
+    "")
+
+  d 4
+
+  expand (fn [z w]
+    ""
+    d (f 3))
   """
   '(expand 3 "2")', ""
 
