@@ -2162,8 +2162,8 @@ ms.match = ms_match = (ctx, call) ->
     # To make sure all results have the same type
     resultType = ctx.freshTypeVariable star
 
-    # ctx.setGroupTranslation()
     ctx.setAssignTo subjectCompiled
+    ctx.cacheAssignTo()
     varNames = []
     constraints = []
     errorMessage =
