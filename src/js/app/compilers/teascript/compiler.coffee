@@ -1451,7 +1451,7 @@ resolveDeferredTypes = (ctx) ->
           addedDep.scopeIndex ?= dep.scopeIndex
           addedDep.types.push dep.type
           if dep.defining
-            depDeferredConstraints = lookupInMap allDeferredConstraints, dep.scopeIndex
+            depDeferredConstraints = lookupInMap allDeferredConstraints, dep.name
             # If depDeferredConstraints is null the dependency must be mutually dependant
             added.constraints = join added.constraints, depDeferredConstraints or []
 
@@ -1511,7 +1511,7 @@ resolveDeferredTypes = (ctx) ->
           # log "type", name, binding.id, binding.scopeIndex
           deferredConstraints = inferType ctx, binding.id, canonicalType,
             allConstraints, binding.polymorphic, binding.scopeIndex
-          addToMap allDeferredConstraints, binding.scopeIndex, deferredConstraints
+          addToMap allDeferredConstraints, name, deferredConstraints
 
   ctx.deferredBindings().length = 0 # clear
 
@@ -3089,13 +3089,14 @@ irDefinition = (type, expression, reference, bare) ->
 #       ^.___ not necessarily, we could have a tuple of functions or similar
 irDefinitionTranslate = (ctx, {type, expression, reference, bare}) ->
   finalType = type#substitute ctx.substitution, type
-  allConstraints = (addConstraintsFrom ctx,
-    {type, name: reference?.name, scopeIndex: reference?.scopeIndex}, finalType).constraints
+  # allConstraints = (addConstraintsFrom ctx,
+  #   {type, name: reference?.name, scopeIndex: reference?.scopeIndex}, finalType).constraints
+
   reducedConstraints =
-    # if declaredType = ctx.typeForId id
-    #   constraintsFromCanonicalType ctx, declaredType, finalType
-    # else
-      (reduceConstraints ctx, allConstraints).success
+    if reference
+      constraintsFromReference ctx, {type, name: reference.name, scopeIndex: reference.scopeIndex}
+    else
+      (reduceConstraints ctx, finalType.constraints).success
   if not reducedConstraints
     return jsNoop()
   if bare and _notEmpty reducedConstraints
@@ -3154,6 +3155,14 @@ addConstraintsFrom = (ctx, {name, type, scopeIndex}, to) ->
   else
     to
 
+constraintsFromReference = (ctx, {name, type, scopeIndex}) ->
+  if scopeIndex? and (typed = ctx.savedDeclaration name, scopeIndex) and
+      typed.type and
+      (_notEmpty typed.type.type.constraints)
+    constraintsFromCanonicalType ctx, typed.type, type
+  else
+    []
+
 constraintsFromCanonicalType = (ctx, canonicalType, type) ->
   inferredType = freshInstance ctx, canonicalType
   # console.log "canonicalType", canonicalType, type
@@ -3162,7 +3171,12 @@ constraintsFromCanonicalType = (ctx, canonicalType, type) ->
   # console.log (JSON.stringify type.type)
   ctx.extendSubstitution matchType inferredType.type, type.type#(substitute ctx.substitution, type).type
   # console.log "after", (printType inferredType.type)
+
   reduceConstraints ctx, inferredType.constraints
+  # We also need to match dependent variables
+  for c1 in inferredType.constraints
+    for c2 in type.constraints
+      constraintsEqual c1, c2
   #(substitute ctx.substitution, inferredType).constraints
   inferredType.constraints
 
