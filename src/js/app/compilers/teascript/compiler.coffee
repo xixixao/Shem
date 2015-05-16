@@ -2451,7 +2451,8 @@ ms['`'] = ms_quote = (ctx, call) ->
             ctx.setAssignTo (jsAccess (jsCall "_terms", [matched]), i)
             precs = matchAst term
             ctx.resetAssignTo()
-            precs)
+            termsCheck = precs: [(cond_ (jsAccess matched, "length"))]
+            combinePatterns [termsCheck, precs])
       else
         commedAtom ast, ->
           ast.label = 'const'
