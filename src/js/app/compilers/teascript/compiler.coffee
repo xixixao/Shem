@@ -1275,11 +1275,10 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
   if ctx.shouldDefer()
     shouldDeclareFinally = ctx.isDeclared ctx.deferReason()[1]
     for {name, id} in definedNames
-      if not ctx.isFinallyCurrentlyDeclared name
-        if shouldDeclareFinally
-          ctx.declare name, id: id
-        else
-          ctx.preDeclare name, id: id
+      if shouldDeclareFinally and (not ctx.isFinallyCurrentlyDeclared name)
+        ctx.declare name, id: id
+      else if not ctx.isCurrentlyDeclared name
+        ctx.preDeclare name, id: id
     #log "exiting pattern early", pattern, "for", ctx.shouldDefer()
     return {}
 
