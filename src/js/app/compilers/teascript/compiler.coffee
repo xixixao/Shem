@@ -514,6 +514,10 @@ class Context
   isFinallyCurrentlyDeclared: (name) ->
     (@_declarationInCurrentScope name)?.final
 
+  isFinallyDeclaredCurrentlyTyped: (name) ->
+    declaration = (@_declarationInCurrentScope name)
+    declaration?.final and declaration?.type
+
   isTyped: (name) ->
     !!@type name
 
@@ -1295,8 +1299,11 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
   for {name, id, type} in definedNames
     deps = ctx.deferredNames()
 
-    # TODO: this is because functions might declare arity before being declared
-    if not ctx.isCurrentlyDeclared name
+    # Name clash
+    if (ctx.isFinallyDeclaredCurrentlyTyped name)
+      malformed ctx, pattern, "#{name} is already declared"
+    else if not ctx.isCurrentlyDeclared name
+      # TODO: this is because functions might declare arity before being declared
       ctx.declare name, id: id
     if deps.length > 0
       # log "adding top level lhs to deferred #{name}", deps
@@ -1678,13 +1685,10 @@ preDeclareExplicitlyTyped = (ctx, type, docs) ->
   if ctx.isPreTyped name
     # TODO: unify explicit types like in inferType
     explicitType = ctx.preDeclaredType name
-  if (ctx.isFinallyCurrentlyDeclared name) and (ctx.declaredId name) isnt id
-    malformed ctx, ctx.definitionPattern(), 'This name is already taken'
-  else
-    ctx.preDeclare name,
-      id: id
-      type: explicitType
-      docs: extractDocs docs
+  ctx.preDeclare name,
+    id: id
+    type: explicitType
+    docs: extractDocs docs
   explicitType
 
 preDeclarePatterns = (ctx, patterns) ->
