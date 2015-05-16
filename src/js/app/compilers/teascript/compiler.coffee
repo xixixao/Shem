@@ -2859,7 +2859,8 @@ atomCompile = (ctx, atom) ->
         else
           nameCompile) ctx, atom, symbol
   if type
-    atom.tea = mapOrigin type, atom
+    markOrigin type.type, atom # only for simple types
+    atom.tea = type
   atom.id = id if id?
   atom.scope = ctx.currentScopeIndex()
   if ctx.isOperator()
@@ -2876,7 +2877,7 @@ nameCompile = (ctx, atom, symbol) ->
   if exp = ctx.assignTo()
     if atom.label is 'const'
       if contextType
-        type: freshInstance ctx, ctx.type symbol
+        type: mapOrigin (freshInstance ctx, ctx.type symbol), atom
         pattern: constPattern ctx, symbol
       else
         # log "deferring in pattern for #{symbol}"
@@ -2897,7 +2898,7 @@ nameCompile = (ctx, atom, symbol) ->
   else
     # Name typed, use a fresh instance
     if contextType and contextType not instanceof TempType
-      type = freshInstance ctx, contextType
+      type = mapOrigin (freshInstance ctx, contextType), atom
       nameTranslate ctx, atom, symbol, type
     # In sub-scope (function) only defer compilation for declarations in current scope
     else if ((not ctx.isCurrentlyDeclared symbol) and (ctx.isDeclared symbol)) or
@@ -4958,7 +4959,7 @@ mutateMappingOrigin = (type, expression) ->
 
 # Used on builtin types
 markOrigin = (typeOrConstraint, expression) ->
-  clone = substitute newMap(), typeOrConstraint
+  clone = cloneType typeOrConstraint
   mutateMarkingOrigin clone, expression
   clone
 
@@ -4969,6 +4970,9 @@ withOrigin = (typeOrConstraint, expression) ->
 
 mutateMarkingOrigin = (typeOrConstraint, expression) ->
   typeOrConstraint.origin = expression
+
+cloneType = (type) ->
+  substitute newMap(), type
 
 # Clones constrained types and parts of them
 # Class constraint arguments are not cloned
