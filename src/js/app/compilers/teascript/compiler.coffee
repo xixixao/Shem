@@ -3266,8 +3266,9 @@ instanceDictFor = (ctx, constraint) ->
     # TODO: support lookup of composite types, by traversing left depth-first
     if toMatchTypes (freshInstance ctx, type).type.types, constraint.types
       return validIdentifier name
-  throw new Error "no instance for #{safePrintType constraint}"
-  # return {}
+  ctx.extendSubstitution instanceLookupFailed constraint
+  # throw new Error "no instance for #{safePrintType constraint}"
+  return 'undefined'
 
 irFunction = ({name, params, body}) ->
   {ir: irFunctionTranslate, name, params, body}
