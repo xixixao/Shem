@@ -2349,7 +2349,7 @@ ms.cond = ms_cond = (ctx, call) ->
       jsNoop()
 
 findDefinitionsIncludingDeps = (ctx, names) ->
-  findDefinitions ctx, setToArray (findDeps ctx) names
+  findDefinitions ctx, reverse setToArray (findDeps ctx) names
 
 findDefinitions = (ctx, names) ->
   auxiliaries = ctx.auxiliaries()
