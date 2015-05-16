@@ -5612,7 +5612,8 @@ subtractContexts = (ctx, what) ->
   classes = subtractMaps ctx._scope().classes, what._scope().classes
   macros = subtractMaps ctx._scope().macros, what._scope().macros
   savedScopes = ctx.savedScopes
-  {definitions, typeNames, classes, macros, savedScopes}
+  nameIndex = ctx.nameIndex
+  {definitions, typeNames, classes, macros, savedScopes, nameIndex}
 
 injectedContext = (modulesToInject) ->
   ctx = new Context
@@ -5634,6 +5635,7 @@ injectContext = (ctx, compiledModule, moduleName, names) ->
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
   ctx.scopeIndex += compiledModule.savedScopes.length
+  ctx.nameIndex += compiledModule.nameIndex
   ctx
 
 collectRequiresFor = (name) ->
