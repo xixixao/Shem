@@ -1402,8 +1402,9 @@ topLevel = (ctx, form) ->
     throw new Error "Missing definition at top level"
 
 topLevelModule = (moduleName, defaultImports) -> (ctx, form) ->
-  [jsVarDeclaration (validIdentifier moduleName),
-    (exportAll ctx, (join (importAny defaultImports), (topLevel ctx, form)))]
+  ctx.setModuleName moduleName
+  [(jsAssign (jsAccess "Shem", (validIdentifier moduleName)),
+    (exportAll ctx, (join (importAny defaultImports), (topLevel ctx, form))))]
 
 topLevelExpressionInModule = (defaultImports) -> (ctx, expression) ->
   (iife (concat [
@@ -2256,9 +2257,10 @@ ms.req = ms_req = (ctx, call) ->
 
 imports = (moduleName, names) ->
   validModuleName = validIdentifier moduleName
-  for name in names
-    validName = validIdentifier name
-    jsVarDeclaration validName, (jsAccess validModuleName, validName)
+  join [(jsVarDeclaration validModuleName, (jsAccess "Shem", validModuleName))],
+    for name in names
+      validName = validIdentifier name
+      jsVarDeclaration validName, (jsAccess validModuleName, validName)
 
 ms.format = ms_format = (ctx, call) ->
   typeTable =
@@ -2813,6 +2815,8 @@ dictConstructorFunction = (dictName, fieldNames, additionalFields = []) ->
     name: dictName
     params: (map validIdentifier, allFieldNames)
     body: paramAssigns)
+  # Not necessary
+  # [(jsVarDeclaration dictName, (iife [constrFn, (jsReturn dictName)]))]
   [constrFn]
 
 dictAccessors = (constrName, dictName, fieldNames) ->
@@ -5477,6 +5481,7 @@ var _0 = function (fn) {
   }
 }
 ;
+var Shem = Shem || {};
 """
 
 
