@@ -1402,8 +1402,7 @@ topLevel = (ctx, form) ->
     throw new Error "Missing definition at top level"
 
 topLevelModule = (moduleName, defaultImports) -> (ctx, form) ->
-  ctx.setModuleName moduleName
-  [(jsAssign (jsAccess "Shem", (validIdentifier moduleName)),
+  [(jsAssignStatement (jsAccess "Shem", (validIdentifier moduleName)),
     (exportAll ctx, (join (importAny defaultImports), (topLevel ctx, form))))]
 
 topLevelExpressionInModule = (defaultImports) -> (ctx, expression) ->
@@ -2257,10 +2256,9 @@ ms.req = ms_req = (ctx, call) ->
 
 imports = (moduleName, names) ->
   validModuleName = validIdentifier moduleName
-  join [(jsVarDeclaration validModuleName, (jsAccess "Shem", validModuleName))],
-    for name in names
-      validName = validIdentifier name
-      jsVarDeclaration validName, (jsAccess validModuleName, validName)
+  for name in names
+    validName = validIdentifier name
+    jsVarDeclaration validName, (jsAccess (jsAccess "Shem", validModuleName), validName)
 
 ms.format = ms_format = (ctx, call) ->
   typeTable =
