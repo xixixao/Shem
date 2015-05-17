@@ -1838,7 +1838,7 @@ findDataType = (ctx, typeArgLists, typeParams, dataName) ->
   fieldTypes: (map ((types) -> if types then substituteList freshingSub, types), fieldTypes)
 
 ms.record = ms_record = (ctx, call) ->
-    args = _arguments call
+    args = _validArguments call
     hasName = requireName ctx, 'Name required to declare new record'
     if isTuple args[0]
       [typeParamTuple, args...] = args
@@ -3236,7 +3236,11 @@ dictForConstraint = (ctx, constraint) ->
 findSubClassParam = (ctx, constraint) ->
   toClassName = (c) -> c.className
   classParams = ctx.classParamsForType constraint
-  throw new Error "No params for #{safePrintType constraint}" unless classParams
+  if not classParams
+    ctx.extendSubstitution substitutionFail
+      message: "Constraint #{printType constraint} is ambiguous"
+      conflicts: [constraint.origin]
+    return {}
   # return "{}" unless classParams
   for className, dict of values classParams
     if chain = findSuperClassChain ctx, className, constraint.className
