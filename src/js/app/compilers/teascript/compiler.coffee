@@ -1788,7 +1788,7 @@ ms.data = ms_data = (ctx, call) ->
         else
           (jsNew identifier, []))
       constrFunction = dictConstructorFunction identifier, paramNames
-      accessors = dictAccessors constr.symbol, identifier, paramNames
+      accessors = dictAccessors constr.symbol, identifier, paramNames, defs.length
       (concat [constrFunction, accessors, [constrValue]]))
 
 findDataType = (ctx, typeArgLists, typeParams, dataName) ->
@@ -2817,7 +2817,7 @@ dictConstructorFunction = (dictName, fieldNames, additionalFields = []) ->
   # [(jsVarDeclaration dictName, (iife [constrFn, (jsReturn dictName)]))]
   [constrFn]
 
-dictAccessors = (constrName, dictName, fieldNames) ->
+dictAccessors = (constrName, dictName, fieldNames, numConstructors) ->
   accessors = fieldNames.map (name) ->
     accessorName = "#{dictName}-#{name}"
     errorMessage = "throw new Error('Expected #{constrName},
@@ -2825,9 +2825,12 @@ dictAccessors = (constrName, dictName, fieldNames) ->
     (jsVarDeclaration (validIdentifier accessorName), (jsFunction
       name: (validIdentifier accessorName)
       params: ["dict"]
-      body: [(jsConditional [
-          ["dict instanceof #{validIdentifier constrName}",
-            [(jsReturn (jsAccess "dict", name))]]], errorMessage)]))
+      body: [if numConstructors > 1
+          (jsConditional [
+            ["dict instanceof #{validIdentifier constrName}",
+              [(jsReturn (jsAccess "dict", name))]]], errorMessage)
+        else
+          (jsReturn (jsAccess "dict", name))]))
 
 requireName = (ctx, message) ->
   if ctx.isAtDefinition()
