@@ -87,7 +87,6 @@ constantLabeling = (atom) ->
     ['string', -> /^"/.test symbol]
     ['char', -> /^\\/.test symbol]
     ['regex', -> /^\/.*\/[gmi]?$/.test symbol]
-    ['const', -> /^[A-Z]([^\s\.-]|-(?=[A-Z]))*$/.test symbol] # TODO: instead label based on context
     ['paren', -> symbol in ['(', ')']]
     ['bracket', -> symbol in ['[', ']']]
     ['brace', -> symbol in ['{', '}']]
@@ -2879,7 +2878,8 @@ nameCompile = (ctx, atom, symbol) ->
   contextType = ctx.type symbol
   # log "nameCompile", symbol, ctx.isInsideLateScope(), (printType contextType), ctx.isDeclared symbol
   if exp = ctx.assignTo()
-    if atom.label is 'const'
+    if isConst atom
+      atom.label = 'const'
       if contextType
         type: mapOrigin (freshInstance ctx, ctx.type symbol), atom
         pattern: constPattern ctx, symbol
@@ -2935,7 +2935,8 @@ nameTranslate = (ctx, atom, symbol, type) ->
   id = ctx.declarationId symbol
   ctx.addToUsedNames symbol
   translation =
-    if atom.label is 'const'
+    if isConst atom
+      atom.label = 'const'
       switch symbol
         when 'True' then 'true'
         when 'False' then 'false'
@@ -3370,6 +3371,9 @@ isModuleAccess = (atom) ->
 
 isDotAccess = (atom) ->
   /^\.-?\w+/.test atom.symbol
+
+isConst = (atom) ->
+   /^[A-Z]([^\s\.-]|-(?=[A-Z]))*$/.test atom.symbol # TODO: instead label based on context
 
 isLabel = (atom) ->
   /[^\\]:$/.test atom.symbol
@@ -7194,6 +7198,20 @@ tests = [
   """
   '(expand 3 "2")', ""
 
+  'using constructor in deferred definition'
+  """
+  Maybe (data [a]
+    None
+    Just [value: a])
+
+  test (fn []
+    (Just x)
+    x (test2))
+
+  test2 (fn []
+    42)
+  """
+  "(Just-value (test))", 42
 
   # TODO: support matching with the same name
   #       to implement this we need the iife to take as arguments all variables
