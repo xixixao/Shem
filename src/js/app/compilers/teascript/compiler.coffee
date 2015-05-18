@@ -2345,7 +2345,8 @@ ms.cond = ms_cond = (ctx, call) ->
       jsNoop()
 
 findDefinitionsIncludingDeps = (ctx, names) ->
-  findDefinitions ctx, reverse setToArray (findDeps ctx) names
+  # console.log names, ((findDeps ctx) names), (setToArray ((findDeps ctx) names)), (lookupInMap ctx.auxiliaries(), 'lines').deps if 'lines' in names
+  findDefinitions ctx, setToArray (findDeps ctx) names
 
 findDefinitions = (ctx, names) ->
   auxiliaries = ctx.auxiliaries()
