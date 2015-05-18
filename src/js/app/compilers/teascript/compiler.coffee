@@ -2843,7 +2843,7 @@ fakeCompile = (ctx, token) ->
     token.tea = toConstrained ctx.freshTypeVariable star
     token.scope = ctx.currentScopeIndex()
     ctx.markMalformed()
-    jsNoop()
+    assignCompile ctx, token, jsNoop()
 
 atomCompile = (ctx, atom) ->
   {symbol, label} = atom
