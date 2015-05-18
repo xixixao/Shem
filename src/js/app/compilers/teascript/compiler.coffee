@@ -664,7 +664,7 @@ class Context
     for def in compiledDefinitions when def.definedNames
       for defined in def.definedNames
         addToMap auxiliaries, defined,
-          deps: def.usedNames
+          deps: unique def.usedNames
           defines: def.definedNames
           definition: def
     @_scope().auxiliaries = auxiliaries
@@ -2378,21 +2378,18 @@ addSiblingDefines = (ctx, nameSet) ->
 
 findDeps = (ctx) -> (names) ->
   auxiliaries = ctx.auxiliaries()
-  depSet = newSet()
-  depList = []
-  auxiliaryDependencies auxiliaries, names, depSet, depList
-  arrayToSet reverse depList
+  arrayToSet auxiliaryDependencies auxiliaries, names
 
-auxiliaryDependencies = (graph, names, allSet, allList) ->
-  for name in names
-    allList.push name
-    if not inSet allSet, name
-      addToSet allSet, name
-      auxiliaryDependencies graph, ((lookupInMap graph, name)?.deps or []), allSet, allList
-  return
-  # concat (for name in names
-  #   join (deps = ((lookupInMap graph, name)?.deps or [])),
-  #     auxiliaryDependencies graph, deps)
+auxiliaryDependencies = (graph, names) ->
+  nameSet = newSet()
+  nameStack = map id, names
+  nodes = []
+  while name = nameStack.pop() when not inSet nameSet, name
+    addToSet nameSet, name
+    if node = (lookupInMap graph, name)
+      nodes.push name: name, deps: map ((name) -> {name}), node.deps
+      nameStack.push node.deps...
+  concat map setToArray, topologicallySortedGroups nodes
 
 ms.syntax = ms_syntax = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare a new syntax macro'
