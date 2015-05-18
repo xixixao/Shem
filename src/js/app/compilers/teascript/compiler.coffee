@@ -1361,7 +1361,7 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
         currentType
         scopeIndex
       if not success
-        return
+        return []
       [deferredConstraints, retainedConstraints] = success
       # Finalizing type again after possibly added substitution when defer constraints
       currentType = type#substitute ctx.substitution, type
@@ -1481,8 +1481,8 @@ resolveDeferredTypes = (ctx) ->
           # log "done unifying one"
 
         # have to promote constraints from just compiled dependencies
-        depConstraints = concat (for dep in binding.deps or [] when cononicalType = ctx.finalType dep.id, dep.scopeIndex
-          constraintsFromCanonicalType ctx, cononicalType, dep.type)
+        depConstraints = concat (for dep in binding.deps or [] when not dep.defining and depCanonicalType = ctx.finalType dep.id, dep.scopeIndex
+          constraintsFromCanonicalType ctx, depCanonicalType, dep.type)
         allConstraints = (join binding.constraints or [], depConstraints)
 
         # If the thing is not declared it must be coming from an outer scope
@@ -1657,7 +1657,7 @@ ms.fn = ms_fn = (ctx, call) ->
           #   return #{compiledBody};
           # })"""
           (irFunction
-            name: (ctx.definitionName() if ctx.isAtSimpleDefinition())
+            name: name
             params: paramNames
             body: (join nonLiftedWheres, [(jsReturn compiledBody)]))
             # (jsCall "λ#{paramNames.length}", [
