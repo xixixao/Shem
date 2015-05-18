@@ -207,14 +207,20 @@ class Context
     @classParams = newMap()
     @types = []
     @isMalformed = no
+    @importedModules = newSet()
     @_requested = newMap()
 
   req: (moduleName, names) ->
     addToMap @_requested, moduleName, names
+    if not inSet @importedModules, moduleName
+      @_requesting = yes
 
   requested: ->
     if @_requested.size > 0
       @_requested
+
+  isRequesting: ->
+    @_requesting
 
   markMalformed: ->
     @isMalformed = yes
@@ -1418,7 +1424,13 @@ definitionListCompile = (ctx, pairs) ->
       malformed ctx, lhs, 'missing value in definition'
       # TODO: take into account fakes (using better pairs function) and new lines
       rhs = fake_()
-    definitionPairCompile ctx, lhs, rhs)
+    compiled = definitionPairCompile ctx, lhs, rhs
+    if ctx.isRequesting()
+      break
+    compiled)
+
+  if ctx.isRequesting()
+    []
 
   shouldRecompile = yes
   while shouldRecompile
@@ -1482,6 +1494,7 @@ resolveDeferredTypes = (ctx) ->
 
         # have to promote constraints from just compiled dependencies
         depConstraints = concat (for dep in binding.deps or [] when not dep.defining and depCanonicalType = ctx.finalType dep.id, dep.scopeIndex
+          # TODO: add origin
           constraintsFromCanonicalType ctx, depCanonicalType, dep.type)
         allConstraints = (join binding.constraints or [], depConstraints)
 
@@ -2345,8 +2358,7 @@ ms.cond = ms_cond = (ctx, call) ->
       jsNoop()
 
 findDefinitionsIncludingDeps = (ctx, names) ->
-  # console.log names, ((findDeps ctx) names), (setToArray ((findDeps ctx) names)), (lookupInMap ctx.auxiliaries(), 'lines').deps if 'lines' in names
-  findDefinitions ctx, setToArray (findDeps ctx) names
+  findDefinitions ctx, setToArray (findDeps ctx) unique names
 
 findDefinitions = (ctx, names) ->
   auxiliaries = ctx.auxiliaries()
@@ -5671,6 +5683,7 @@ injectContext = (ctx, compiledModule, moduleName, names) ->
   topScope.classes = concatMaps topScope.classes, classes
   ctx.scopeIndex += compiledModule.savedScopes.length
   ctx.nameIndex += compiledModule.nameIndex
+  addToSet ctx.importedModules, moduleName
   ctx
 
 collectRequiresFor = (name) ->
@@ -5912,6 +5925,9 @@ _stringValue = ({symbol}) -> symbol[1...-1]
 _symbol = ({symbol}) -> symbol
 
 # Utils
+
+unique = (list) ->
+  setToArray arrayToSet list
 
 join = (seq1, seq2) ->
   seq1.concat seq2
