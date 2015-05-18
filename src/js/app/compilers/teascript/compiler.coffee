@@ -939,7 +939,7 @@ callTyping = (ctx, call) ->
     else
       # Fake a function call for empty parens
       if terms.length is 1
-        terms = join terms, [tea: toConstrained (markOrigin (ctx.freshTypeVariable star), call)]
+        terms = join terms, [tea: toConstrained (withOrigin (ctx.freshTypeVariable star), call)]
       callInfer ctx, (_operator call), terms
 
 callInfer = (ctx, operator, terms) ->
@@ -2867,7 +2867,6 @@ atomCompile = (ctx, atom) ->
         else
           nameCompile) ctx, atom, symbol
   if type
-    markOrigin type.type, atom # only for simple types
     atom.tea = type
   atom.id = id if id?
   atom.scope = ctx.currentScopeIndex()
@@ -2896,7 +2895,7 @@ nameCompile = (ctx, atom, symbol) ->
       atom.label = 'name'
       id = (ctx.definitionName() and ctx.definitionId()) ?
         (ctx.currentDeclarationId symbol) ? ctx.freshId()
-      type = toConstrained ctx.freshTypeVariable star
+      type = toConstrained withOrigin (ctx.freshTypeVariable star), atom
       # ctx.bindTypeVariables [type.type.name]
       ctx.addToDefinedNames {name: symbol, id: id, type: type}
       type: type
@@ -2960,17 +2959,17 @@ namespacedNameCompile = (ctx, atom, symbol) ->
       "window.#{symbol['global.'.length...]}"
     else
       symbol
-  type: toConstrained jsType
+  type: toConstrained markOrigin jsType, atom
   pattern: precs: []
 
 numericalCompile = (ctx, atom, symbol) ->
   translation = if symbol[0] is '~' then (jsUnary "-", symbol[1...]) else symbol
-  type: toConstrained numType
+  type: toConstrained markOrigin numType, atom
   translation: translation
   pattern: literalPattern ctx, translation
 
 regexCompile = (ctx, atom, symbol) ->
-  type: toConstrained regexType
+  type: toConstrained markOrigin regexType, atom
   translation: symbol
   pattern:
     if ctx.assignTo()
@@ -2993,12 +2992,12 @@ charCompile = (ctx, atom, symbol) ->
     else
       malformed ctx, atom, 'Unrecognized character'
       ''
-  type: toConstrained charType
+  type: toConstrained markOrigin charType, atom
   translation: translation
   pattern: literalPattern ctx, translation
 
 stringCompile = (ctx, atom, symbol) ->
-  type: toConstrained stringType
+  type: toConstrained markOrigin stringType, atom
   translation: symbol
   pattern: literalPattern ctx, symbol
 
