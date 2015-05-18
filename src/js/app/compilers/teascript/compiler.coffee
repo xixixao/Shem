@@ -2666,7 +2666,7 @@ tryDeferConstraints = (ctx, constraints, type, scopeIndex) ->
   if _notEmpty ambiguous
     {error: substitutionFail
       message: "Constraint #{printType ambiguous[0]} is ambiguous for inferred type #{printType finalType}"
-      conflicts: [type.type.origin, ambiguous[0].origin]}
+      conflicts: [(originOf type.type), (originOf ambiguous[0])]}
   else
     success: [deferred, retained]
 
