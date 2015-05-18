@@ -1396,10 +1396,7 @@ topLevelExpression = (ctx, expression) ->
     (irDefinition expression.tea, compiled, null, yes)
 
 topLevel = (ctx, form) ->
-  if (terms = _validTerms form).length % 2 == 0
-    definitionList ctx, pairs terms
-  else
-    throw new Error "Missing definition at top level"
+  definitionList ctx, spaceSeparatedPairs form
 
 topLevelModule = (moduleName, defaultImports) -> (ctx, form) ->
   [(jsAssignStatement (jsAccess "Shem", (validIdentifier moduleName)),
@@ -3407,6 +3404,29 @@ isExpression = (node) ->
 
 _labeled = (list) ->
   pairsLeft isLabel, list
+
+spaceSeparatedPairs = (nodes) ->
+  isNewLine = (token) ->
+    token.symbol is '\n'
+  pairs = []
+  for node in nodes
+    newLine = isNewLine node
+    expression = isExpressionOrFake node
+    if not lhs and expression and not newLine
+      lhs = node
+      space = no
+    else if lhs and (expression and not newLine or
+        space and newLine)
+      pairs.push [lhs, node]
+      lhs = no
+    else if lhs and newLine
+      pairs.push [lhs, fake_()]
+      lhs = no
+    else if not expression
+      space = yes
+  if lhs
+    pairs.push [lhs, fake_()]
+  pairs
 
 pairsLeft = (leftTest, list) ->
   listToPairsWith list, (item, next) ->
