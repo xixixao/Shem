@@ -1,0 +1,1788 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+
+  <meta charset="utf-8">
+</head>
+
+<body>
+
+  <script type="text/javascript">
+var $listize = function (list) {
+  if (list.length === 0) {
+   return {length: 0};
+  }
+  return and_(list[0], $listize(list.slice(1)));
+};
+
+var and_ = function (x, xs) {
+  if (typeof xs === "undefined" || xs === null) {
+    throw new Error('Second argument to & must be a sequence');
+  }
+  if (Immutable.List.isList(xs)) {
+    return xs.unshift(x);
+  }
+  if (Immutable.Set.isSet(xs)) {
+    return xs.add(x);
+  }
+  if (typeof xs == 'string' || xs instanceof String) {
+    if (xs === '' && !(typeof x == 'string' || x instanceof String)) {
+      return [x];
+    } else {
+      return x + xs;
+    }
+  }
+  if (xs.unshift) {
+    return [x].concat(xs);
+  }// cases for other sequences
+  return {
+    head: x,
+    tail: xs
+  };
+};
+
+var seq_size = function (xs) {
+  if (typeof xs === "undefined" || xs === null) {
+    throw new Error('Pattern matching on size of undefined');
+  }
+  if (xs.size !== null) {
+    return xs.size;
+  }
+  if (xs.length !== null) {
+    return xs.length;
+  }
+  return 1 + seq_size(xs.tail);
+};
+
+var seq_at = function (i, xs) {
+  if (typeof xs === "undefined" || xs === null) {
+    throw new Error('Pattern matching required sequence got undefined');
+  }
+  if (Immutable.Iterable.isIterable(xs)) {
+    if (i >= xs.size) {
+      throw new Error('Pattern matching required a list of size at least ' + (i + 1));
+    }
+    return xs.get(i);
+  }
+  if (xs.length !== null) {
+    if (i >= xs.length) {
+      throw new Error('Pattern matching required a list of size at least ' + (i + 1));
+    }
+    return xs[i];
+  }
+  if (i === 0) {
+    return xs.head;
+  }
+  return seq_at(i - 1, xs.tail);
+};
+
+var seq_splat = function (from, leave, xs) {
+  if (xs.slice) {
+    return xs.slice(from, (xs.size || xs.length) - leave);
+  }
+  return $listSlice(from, seq_size(xs) - leave - from, xs);
+};
+
+// temporary, will be replaced by typed 0-argument function
+var $empty = function (xs) {
+  if (typeof xs === "undefined" || xs === null) {
+    throw new Error('Empty needs a sequence');
+  }
+  if (typeof xs == 'string' || xs instanceof String) {
+    return "";
+  }
+  if (xs.unshift) {
+    return [];
+  }
+  if ('length' in xs) {
+    return $listize([]);
+  } // cases for other sequences
+  return {};
+};
+
+var $listSlice = function (from, n, xs) {
+  if (n === 0) {
+    return $listize([]);
+  }
+  if (from === 0) {
+    return and_(xs.head, $listSlice(from, n - 1, xs.tail));
+  }
+  return $listSlice(from - 1, n, xs.tail);
+};
+
+var show__list = function (x) {
+  var t = [];
+  while (x.length !== 0) {
+    t.push(x.head);
+    x = x.tail;
+  }
+  return t;
+};
+
+var is__null__or__undefined = function (jsValue) {
+  return typeof jsValue === "undefined" || jsValue === null;
+};var _1 = function (fn, a) {
+  if (fn._ === 1 || !fn._ && fn.length === 1) {
+    return fn(a);
+  } else if (fn._ > 1 || !fn._ && fn.length > 1) {
+    return function (b) {
+      return _2(fn, a, b);
+    };
+  } else {
+    return _1(fn(), a);
+  }
+};
+
+var _2 = function (fn, a, b) {
+  if (fn._ === 2 || !fn._ && fn.length === 2) {
+    return fn(a, b);
+  } else if (fn._ > 2 || !fn._ && fn.length > 2) {
+    return function (c) {
+      return _3(fn, a, b, c);
+    };
+  } else {
+    return _1(_1(fn, a), b);
+  }
+};
+
+var _3 = function (fn, a, b, c) {
+  if (fn._ === 3 || !fn._ && fn.length === 3) {
+    return fn(a, b, c);
+  } else if (fn._ > 3 || !fn._ && fn.length > 3) {
+    return function (d) {
+      return _4(fn, a, b, c, d);
+    };
+  } else {
+    return _1(_2(fn, a, b), c);
+  }
+};
+
+var _4 = function (fn, a, b, c, d) {
+  if (fn._ === 4 || !fn._ && fn.length === 4) {
+    return fn(a, b, c, d);
+  } else if (fn._ > 4 || !fn._ && fn.length > 4) {
+    return function (e) {
+      return _5(fn, a, b, c, d, e);
+    };
+  } else {
+    return _1(_3(fn, a, b, c), d);
+  }
+};
+
+var _5 = function (fn, a, b, c, d, e) {
+  if (fn._ === 5 || !fn._ && fn.length === 5) {
+    return fn(a, b, c, d, e);
+  } else if (fn._ > 5 || !fn._ && fn.length > 5) {
+    return function (f) {
+      return _6(fn, a, b, c, d, e, f);
+    };
+  } else {
+    return _1(_4(fn, a, b, c, d), e);
+  }
+};
+
+var _6 = function (fn, a, b, c, d, e, f) {
+  if (fn._ === 6 || !fn._ && fn.length === 6) {
+    return fn(a, b, c, d, e, f);
+  } else if (fn._ > 6 || !fn._ && fn.length > 6) {
+    return function (g) {
+      return _7(fn, a, b, c, d, e, f, g);
+    };
+  } else {
+    return _1(_5(fn, a, b, c, d, e), f);
+  }
+};
+
+var _7 = function (fn, a, b, c, d, e, f, g) {
+  if (fn._ === 7 || !fn._ && fn.length === 7) {
+    return fn(a, b, c, d, e, f, g);
+  } else if (fn._ > 7 || !fn._ && fn.length > 7) {
+    return function (h) {
+      return _8(fn, a, b, c, d, e, f, g, h);
+    };
+  } else {
+    return _1(_6(fn, a, b, c, d, e, f), g);
+  }
+};
+
+var _8 = function (fn, a, b, c, d, e, f, g, h) {
+  if (fn._ === 8 || !fn._ && fn.length === 8) {
+    return fn(a, b, c, d, e, f, g, h);
+  } else if (fn._ > 8 || !fn._ && fn.length > 8) {
+    return function (i) {
+      return _9(fn, a, b, c, d, e, f, g, h, i);
+    };
+  } else {
+    return _1(_7(fn, a, b, c, d, e, f, g), h);
+  }
+};
+
+var _9 = function (fn, a, b, c, d, e, f, g, h, i) {
+  if (fn._ === 9 || !fn._ && fn.length === 9) {
+    return fn(a, b, c, d, e, f, g, h, i);
+  } else if (fn._ > 9 || !fn._ && fn.length > 9) {
+    return function (undefined) {
+      return _10(fn, a, b, c, d, e, f, g, h, i);
+    };
+  } else {
+    return _1(_8(fn, a, b, c, d, e, f, g, h), i);
+  }
+};var λ0 = function (fn) {
+  fn._ = 0;
+  return fn;
+};
+
+var λ1 = function (fn) {
+  fn._ = 1;
+  return fn;
+};
+
+var λ2 = function (fn) {
+  fn._ = 2;
+  return fn;
+};
+
+var λ3 = function (fn) {
+  fn._ = 3;
+  return fn;
+};
+
+var λ4 = function (fn) {
+  fn._ = 4;
+  return fn;
+};
+
+var λ5 = function (fn) {
+  fn._ = 5;
+  return fn;
+};
+
+var λ6 = function (fn) {
+  fn._ = 6;
+  return fn;
+};
+
+var λ7 = function (fn) {
+  fn._ = 7;
+  return fn;
+};
+
+var λ8 = function (fn) {
+  fn._ = 8;
+  return fn;
+};
+
+var λ9 = function (fn) {
+  fn._ = 9;
+  return fn;
+};var _0 = function (fn) {
+  if (fn._ === 0 || !fn._ && fn.length === 0) {
+    return fn();
+  } else if (fn._ > 0 || !fn._ && fn.length > 0) {
+    return function (a) {
+      return _1(fn, a);
+    };
+  }
+}
+;/**
+ *  Copyright (c) 2014-2015, Facebook, Inc.
+ *  All rights reserved.
+ *
+ *  This source code is licensed under the BSD-style license found in the
+ *  LICENSE file in the root directory of this source tree. An additional grant
+ *  of patent rights can be found in the PATENTS file in the same directory.
+ *
+ * I removed the loader code for nodejs and amd because it was clashing with require js for now
+ * I also changed context to window, to make sure it registers when evaling
+ */
+!function(t,e){window.Immutable=e()}(this,function(){"use strict";function t(t,e){e&&(t.prototype=Object.create(e.prototype)),t.prototype.constructor=t}function e(t){return t.value=!1,t}function r(t){t&&(t.value=!0)}function n(){}function i(t,e){e=e||0;for(var r=Math.max(0,t.length-e),n=Array(r),i=0;r>i;i++)n[i]=t[i+e];return n}function o(t){return void 0===t.size&&(t.size=t.__iterate(s)),t.size}function u(t,e){return e>=0?+e:o(t)+ +e}function s(){return!0}function a(t,e,r){return(0===t||void 0!==r&&-r>=t)&&(void 0===e||void 0!==r&&e>=r)}function h(t,e){return c(t,e,0)}function f(t,e){return c(t,e,e)}function c(t,e,r){return void 0===t?r:0>t?Math.max(0,e+t):void 0===e?t:Math.min(e,t)}function _(t){return y(t)?t:O(t)}function p(t){return d(t)?t:x(t)}function v(t){return m(t)?t:k(t)}function l(t){return y(t)&&!g(t)?t:A(t)}function y(t){return!(!t||!t[vr])}function d(t){return!(!t||!t[lr])}function m(t){return!(!t||!t[yr])}function g(t){return d(t)||m(t)}function w(t){return!(!t||!t[dr])}function S(t){this.next=t}function z(t,e,r,n){var i=0===t?e:1===t?r:[e,r];return n?n.value=i:n={value:i,done:!1},n}function I(){return{value:void 0,done:!0}}function b(t){return!!M(t)}function q(t){return t&&"function"==typeof t.next}function D(t){var e=M(t);return e&&e.call(t)}function M(t){var e=t&&(Sr&&t[Sr]||t[zr]);return"function"==typeof e?e:void 0}function E(t){return t&&"number"==typeof t.length}function O(t){return null===t||void 0===t?T():y(t)?t.toSeq():C(t)}function x(t){return null===t||void 0===t?T().toKeyedSeq():y(t)?d(t)?t.toSeq():t.fromEntrySeq():W(t)}function k(t){return null===t||void 0===t?T():y(t)?d(t)?t.entrySeq():t.toIndexedSeq():B(t)}function A(t){return(null===t||void 0===t?T():y(t)?d(t)?t.entrySeq():t:B(t)).toSetSeq()}function j(t){this._array=t,this.size=t.length}function R(t){var e=Object.keys(t);this._object=t,this._keys=e,this.size=e.length}function U(t){this._iterable=t,this.size=t.length||t.size;}function K(t){this._iterator=t,this._iteratorCache=[]}function L(t){return!(!t||!t[br])}function T(){return qr||(qr=new j([]))}function W(t){var e=Array.isArray(t)?new j(t).fromEntrySeq():q(t)?new K(t).fromEntrySeq():b(t)?new U(t).fromEntrySeq():"object"==typeof t?new R(t):void 0;if(!e)throw new TypeError("Expected Array or iterable object of [k, v] entries, or keyed object: "+t);return e}function B(t){var e=J(t);if(!e)throw new TypeError("Expected Array or iterable object of values: "+t);return e}function C(t){var e=J(t)||"object"==typeof t&&new R(t);if(!e)throw new TypeError("Expected Array or iterable object of values, or keyed object: "+t);return e}function J(t){return E(t)?new j(t):q(t)?new K(t):b(t)?new U(t):void 0}function P(t,e,r,n){var i=t._cache;if(i){for(var o=i.length-1,u=0;o>=u;u++){var s=i[r?o-u:u];if(e(s[1],n?s[0]:u,t)===!1)return u+1}return u}return t.__iterateUncached(e,r)}function H(t,e,r,n){var i=t._cache;if(i){var o=i.length-1,u=0;return new S(function(){var t=i[r?o-u:u];return u++>o?I():z(e,n?t[0]:u-1,t[1])})}return t.__iteratorUncached(e,r)}function N(){throw TypeError("Abstract")}function V(){}function Y(){}function Q(){}function X(t,e){if(t===e||t!==t&&e!==e)return!0;if(!t||!e)return!1;if("function"==typeof t.valueOf&&"function"==typeof e.valueOf){if(t=t.valueOf(),e=e.valueOf(),t===e||t!==t&&e!==e)return!0;if(!t||!e)return!1}return"function"==typeof t.equals&&"function"==typeof e.equals&&t.equals(e)?!0:!1}function F(t,e){return e?G(e,t,"",{"":t}):Z(t)}function G(t,e,r,n){return Array.isArray(e)?t.call(n,r,k(e).map(function(r,n){return G(t,r,n,e)})):$(e)?t.call(n,r,x(e).map(function(r,n){return G(t,r,n,e)})):e}function Z(t){return Array.isArray(t)?k(t).map(Z).toList():$(t)?x(t).map(Z).toMap():t}function $(t){return t&&(t.constructor===Object||void 0===t.constructor)}function tt(t){return t>>>1&1073741824|3221225471&t}function et(t){if(t===!1||null===t||void 0===t)return 0;if("function"==typeof t.valueOf&&(t=t.valueOf(),t===!1||null===t||void 0===t))return 0;if(t===!0)return 1;var e=typeof t;if("number"===e){var r=0|t;for(r!==t&&(r^=4294967295*t);t>4294967295;)t/=4294967295,r^=t;return tt(r)}return"string"===e?t.length>jr?rt(t):nt(t):"function"==typeof t.hashCode?t.hashCode():it(t)}function rt(t){var e=Kr[t];return void 0===e&&(e=nt(t),Ur===Rr&&(Ur=0,Kr={}),Ur++,Kr[t]=e),e}function nt(t){for(var e=0,r=0;t.length>r;r++)e=31*e+t.charCodeAt(r)|0;return tt(e)}function it(t){var e;if(xr&&(e=Dr.get(t),void 0!==e))return e;if(e=t[Ar],void 0!==e)return e;if(!Or){if(e=t.propertyIsEnumerable&&t.propertyIsEnumerable[Ar],void 0!==e)return e;if(e=ot(t),void 0!==e)return e}if(e=++kr,1073741824&kr&&(kr=0),xr)Dr.set(t,e);else{if(void 0!==Er&&Er(t)===!1)throw Error("Non-extensible objects are not allowed as keys.");if(Or)Object.defineProperty(t,Ar,{enumerable:!1,configurable:!1,writable:!1,value:e});else if(void 0!==t.propertyIsEnumerable&&t.propertyIsEnumerable===t.constructor.prototype.propertyIsEnumerable)t.propertyIsEnumerable=function(){return this.constructor.prototype.propertyIsEnumerable.apply(this,arguments)},t.propertyIsEnumerable[Ar]=e;else{if(void 0===t.nodeType)throw Error("Unable to set a non-enumerable property on object.");t[Ar]=e}}return e}function ot(t){if(t&&t.nodeType>0)switch(t.nodeType){case 1:return t.uniqueID;case 9:return t.documentElement&&t.documentElement.uniqueID}}function ut(t,e){if(!t)throw Error(e)}function st(t){ut(t!==1/0,"Cannot perform this action with an infinite size.")}function at(t,e){this._iter=t,this._useKeys=e,this.size=t.size}function ht(t){this._iter=t,this.size=t.size}function ft(t){this._iter=t,this.size=t.size}function ct(t){this._iter=t,this.size=t.size}function _t(t){var e=jt(t);return e._iter=t,e.size=t.size,e.flip=function(){return t},e.reverse=function(){var e=t.reverse.apply(this);return e.flip=function(){return t.reverse()},e},e.has=function(e){return t.includes(e)},e.includes=function(e){return t.has(e)},e.cacheResult=Rt,e.__iterateUncached=function(e,r){var n=this;return t.__iterate(function(t,r){return e(r,t,n)!==!1},r)},e.__iteratorUncached=function(e,r){if(e===wr){
+var n=t.__iterator(e,r);return new S(function(){var t=n.next();if(!t.done){var e=t.value[0];t.value[0]=t.value[1],t.value[1]=e}return t})}return t.__iterator(e===gr?mr:gr,r)},e}function pt(t,e,r){var n=jt(t);return n.size=t.size,n.has=function(e){return t.has(e)},n.get=function(n,i){var o=t.get(n,cr);return o===cr?i:e.call(r,o,n,t)},n.__iterateUncached=function(n,i){var o=this;return t.__iterate(function(t,i,u){return n(e.call(r,t,i,u),i,o)!==!1},i)},n.__iteratorUncached=function(n,i){var o=t.__iterator(wr,i);return new S(function(){var i=o.next();if(i.done)return i;var u=i.value,s=u[0];return z(n,s,e.call(r,u[1],s,t),i)})},n}function vt(t,e){var r=jt(t);return r._iter=t,r.size=t.size,r.reverse=function(){return t},t.flip&&(r.flip=function(){var e=_t(t);return e.reverse=function(){return t.flip()},e}),r.get=function(r,n){return t.get(e?r:-1-r,n)},r.has=function(r){return t.has(e?r:-1-r)},r.includes=function(e){return t.includes(e)},r.cacheResult=Rt,r.__iterate=function(e,r){var n=this;return t.__iterate(function(t,r){return e(t,r,n)},!r)},r.__iterator=function(e,r){return t.__iterator(e,!r)},r}function lt(t,e,r,n){var i=jt(t);return n&&(i.has=function(n){var i=t.get(n,cr);return i!==cr&&!!e.call(r,i,n,t)},i.get=function(n,i){var o=t.get(n,cr);return o!==cr&&e.call(r,o,n,t)?o:i}),i.__iterateUncached=function(i,o){var u=this,s=0;return t.__iterate(function(t,o,a){return e.call(r,t,o,a)?(s++,i(t,n?o:s-1,u)):void 0},o),s},i.__iteratorUncached=function(i,o){var u=t.__iterator(wr,o),s=0;return new S(function(){for(;;){var o=u.next();if(o.done)return o;var a=o.value,h=a[0],f=a[1];if(e.call(r,f,h,t))return z(i,n?h:s++,f,o)}})},i}function yt(t,e,r){var n=Lt().asMutable();return t.__iterate(function(i,o){n.update(e.call(r,i,o,t),0,function(t){return t+1})}),n.asImmutable()}function dt(t,e,r){var n=d(t),i=(w(t)?Ie():Lt()).asMutable();t.__iterate(function(o,u){i.update(e.call(r,o,u,t),function(t){return t=t||[],t.push(n?[u,o]:o),t})});var o=At(t);return i.map(function(e){return Ot(t,o(e))})}function mt(t,e,r,n){var i=t.size;if(a(e,r,i))return t;var o=h(e,i),s=f(r,i);if(o!==o||s!==s)return mt(t.toSeq().cacheResult(),e,r,n);var c=s-o;0>c&&(c=0);var _=jt(t);return _.size=0===c?c:t.size&&c||void 0,!n&&L(t)&&c>=0&&(_.get=function(e,r){return e=u(this,e),e>=0&&c>e?t.get(e+o,r):r}),_.__iterateUncached=function(e,r){var i=this;if(0===c)return 0;if(r)return this.cacheResult().__iterate(e,r);var u=0,s=!0,a=0;return t.__iterate(function(t,r){return s&&(s=u++<o)?void 0:(a++,e(t,n?r:a-1,i)!==!1&&a!==c)}),a},_.__iteratorUncached=function(e,r){if(c&&r)return this.cacheResult().__iterator(e,r);var i=c&&t.__iterator(e,r),u=0,s=0;return new S(function(){for(;u++<o;)i.next();if(++s>c)return I();var t=i.next();return n||e===gr?t:e===mr?z(e,s-1,void 0,t):z(e,s-1,t.value[1],t)})},_}function gt(t,e,r){var n=jt(t);return n.__iterateUncached=function(n,i){var o=this;if(i)return this.cacheResult().__iterate(n,i);var u=0;return t.__iterate(function(t,i,s){return e.call(r,t,i,s)&&++u&&n(t,i,o)}),u},n.__iteratorUncached=function(n,i){var o=this;if(i)return this.cacheResult().__iterator(n,i);var u=t.__iterator(wr,i),s=!0;return new S(function(){if(!s)return I();var t=u.next();if(t.done)return t;var i=t.value,a=i[0],h=i[1];return e.call(r,h,a,o)?n===wr?t:z(n,a,h,t):(s=!1,I())})},n}function wt(t,e,r,n){var i=jt(t);return i.__iterateUncached=function(i,o){var u=this;if(o)return this.cacheResult().__iterate(i,o);var s=!0,a=0;return t.__iterate(function(t,o,h){return s&&(s=e.call(r,t,o,h))?void 0:(a++,i(t,n?o:a-1,u))}),a},i.__iteratorUncached=function(i,o){var u=this;if(o)return this.cacheResult().__iterator(i,o);var s=t.__iterator(wr,o),a=!0,h=0;return new S(function(){var t,o,f;do{if(t=s.next(),t.done)return n||i===gr?t:i===mr?z(i,h++,void 0,t):z(i,h++,t.value[1],t);var c=t.value;o=c[0],f=c[1],a&&(a=e.call(r,f,o,u))}while(a);return i===wr?t:z(i,o,f,t)})},i}function St(t,e){var r=d(t),n=[t].concat(e).map(function(t){return y(t)?r&&(t=p(t)):t=r?W(t):B(Array.isArray(t)?t:[t]),t}).filter(function(t){return 0!==t.size});if(0===n.length)return t;if(1===n.length){var i=n[0];if(i===t||r&&d(i)||m(t)&&m(i))return i;}var o=new j(n);return r?o=o.toKeyedSeq():m(t)||(o=o.toSetSeq()),o=o.flatten(!0),o.size=n.reduce(function(t,e){if(void 0!==t){var r=e.size;if(void 0!==r)return t+r}},0),o}function zt(t,e,r){var n=jt(t);return n.__iterateUncached=function(n,i){function o(t,a){var h=this;t.__iterate(function(t,i){return(!e||e>a)&&y(t)?o(t,a+1):n(t,r?i:u++,h)===!1&&(s=!0),!s},i)}var u=0,s=!1;return o(t,0),u},n.__iteratorUncached=function(n,i){var o=t.__iterator(n,i),u=[],s=0;return new S(function(){for(;o;){var t=o.next();if(t.done===!1){var a=t.value;if(n===wr&&(a=a[1]),e&&!(e>u.length)||!y(a))return r?t:z(n,s++,a,t);u.push(o),o=a.__iterator(n,i)}else o=u.pop()}return I()})},n}function It(t,e,r){var n=At(t);return t.toSeq().map(function(i,o){return n(e.call(r,i,o,t))}).flatten(!0)}function bt(t,e){var r=jt(t);return r.size=t.size&&2*t.size-1,r.__iterateUncached=function(r,n){var i=this,o=0;return t.__iterate(function(t){return(!o||r(e,o++,i)!==!1)&&r(t,o++,i)!==!1},n),o},r.__iteratorUncached=function(r,n){var i,o=t.__iterator(gr,n),u=0;return new S(function(){return(!i||u%2)&&(i=o.next(),i.done)?i:u%2?z(r,u++,e):z(r,u++,i.value,i)})},r}function qt(t,e,r){e||(e=Ut);var n=d(t),i=0,o=t.toSeq().map(function(e,n){return[n,e,i++,r?r(e,n,t):e]}).toArray();return o.sort(function(t,r){return e(t[3],r[3])||t[2]-r[2]}).forEach(n?function(t,e){o[e].length=2}:function(t,e){o[e]=t[1]}),n?x(o):m(t)?k(o):A(o)}function Dt(t,e,r){if(e||(e=Ut),r){var n=t.toSeq().map(function(e,n){return[e,r(e,n,t)]}).reduce(function(t,r){return Mt(e,t[1],r[1])?r:t});return n&&n[0]}return t.reduce(function(t,r){return Mt(e,t,r)?r:t})}function Mt(t,e,r){var n=t(r,e);return 0===n&&r!==e&&(void 0===r||null===r||r!==r)||n>0}function Et(t,e,r){var n=jt(t);return n.size=new j(r).map(function(t){return t.size}).min(),n.__iterate=function(t,e){for(var r,n=this.__iterator(gr,e),i=0;!(r=n.next()).done&&t(r.value,i++,this)!==!1;);return i},n.__iteratorUncached=function(t,n){var i=r.map(function(t){return t=_(t),D(n?t.reverse():t)}),o=0,u=!1;return new S(function(){var r;return u||(r=i.map(function(t){
+return t.next()}),u=r.some(function(t){return t.done})),u?I():z(t,o++,e.apply(null,r.map(function(t){return t.value})))})},n}function Ot(t,e){return L(t)?e:t.constructor(e)}function xt(t){if(t!==Object(t))throw new TypeError("Expected [K, V] tuple: "+t)}function kt(t){return st(t.size),o(t)}function At(t){return d(t)?p:m(t)?v:l}function jt(t){return Object.create((d(t)?x:m(t)?k:A).prototype)}function Rt(){return this._iter.cacheResult?(this._iter.cacheResult(),this.size=this._iter.size,this):O.prototype.cacheResult.call(this)}function Ut(t,e){return t>e?1:e>t?-1:0}function Kt(t){var e=D(t);if(!e){if(!E(t))throw new TypeError("Expected iterable or array-like: "+t);e=D(_(t))}return e}function Lt(t){return null===t||void 0===t?Qt():Tt(t)?t:Qt().withMutations(function(e){var r=p(t);st(r.size),r.forEach(function(t,r){return e.set(r,t)})})}function Tt(t){return!(!t||!t[Lr])}function Wt(t,e){this.ownerID=t,this.entries=e}function Bt(t,e,r){this.ownerID=t,this.bitmap=e,this.nodes=r}function Ct(t,e,r){this.ownerID=t,this.count=e,this.nodes=r}function Jt(t,e,r){this.ownerID=t,this.keyHash=e,this.entries=r}function Pt(t,e,r){this.ownerID=t,this.keyHash=e,this.entry=r}function Ht(t,e,r){this._type=e,this._reverse=r,this._stack=t._root&&Vt(t._root)}function Nt(t,e){return z(t,e[0],e[1])}function Vt(t,e){return{node:t,index:0,__prev:e}}function Yt(t,e,r,n){var i=Object.create(Tr);return i.size=t,i._root=e,i.__ownerID=r,i.__hash=n,i.__altered=!1,i}function Qt(){return Wr||(Wr=Yt(0))}function Xt(t,r,n){var i,o;if(t._root){var u=e(_r),s=e(pr);if(i=Ft(t._root,t.__ownerID,0,void 0,r,n,u,s),!s.value)return t;o=t.size+(u.value?n===cr?-1:1:0)}else{if(n===cr)return t;o=1,i=new Wt(t.__ownerID,[[r,n]])}return t.__ownerID?(t.size=o,t._root=i,t.__hash=void 0,t.__altered=!0,t):i?Yt(o,i):Qt()}function Ft(t,e,n,i,o,u,s,a){return t?t.update(e,n,i,o,u,s,a):u===cr?t:(r(a),r(s),new Pt(e,i,[o,u]))}function Gt(t){return t.constructor===Pt||t.constructor===Jt}function Zt(t,e,r,n,i){if(t.keyHash===n)return new Jt(e,n,[t.entry,i]);var o,u=(0===r?t.keyHash:t.keyHash>>>r)&fr,s=(0===r?n:n>>>r)&fr,a=u===s?[Zt(t,e,r+ar,n,i)]:(o=new Pt(e,n,i),
+s>u?[t,o]:[o,t]);return new Bt(e,1<<u|1<<s,a)}function $t(t,e,r,i){t||(t=new n);for(var o=new Pt(t,et(r),[r,i]),u=0;e.length>u;u++){var s=e[u];o=o.update(t,0,void 0,s[0],s[1])}return o}function te(t,e,r,n){for(var i=0,o=0,u=Array(r),s=0,a=1,h=e.length;h>s;s++,a<<=1){var f=e[s];void 0!==f&&s!==n&&(i|=a,u[o++]=f)}return new Bt(t,i,u)}function ee(t,e,r,n,i){for(var o=0,u=Array(hr),s=0;0!==r;s++,r>>>=1)u[s]=1&r?e[o++]:void 0;return u[n]=i,new Ct(t,o+1,u)}function re(t,e,r){for(var n=[],i=0;r.length>i;i++){var o=r[i],u=p(o);y(o)||(u=u.map(function(t){return F(t)})),n.push(u)}return ie(t,e,n)}function ne(t){return function(e,r,n){return e&&e.mergeDeepWith&&y(r)?e.mergeDeepWith(t,r):t?t(e,r,n):r}}function ie(t,e,r){return r=r.filter(function(t){return 0!==t.size}),0===r.length?t:0!==t.size||t.__ownerID||1!==r.length?t.withMutations(function(t){for(var n=e?function(r,n){t.update(n,cr,function(t){return t===cr?r:e(t,r,n)})}:function(e,r){t.set(r,e)},i=0;r.length>i;i++)r[i].forEach(n)}):t.constructor(r[0])}function oe(t,e,r,n){var i=t===cr,o=e.next();if(o.done){var u=i?r:t,s=n(u);return s===u?t:s}ut(i||t&&t.set,"invalid keyPath");var a=o.value,h=i?cr:t.get(a,cr),f=oe(h,e,r,n);return f===h?t:f===cr?t.remove(a):(i?Qt():t).set(a,f)}function ue(t){return t-=t>>1&1431655765,t=(858993459&t)+(t>>2&858993459),t=t+(t>>4)&252645135,t+=t>>8,t+=t>>16,127&t}function se(t,e,r,n){var o=n?t:i(t);return o[e]=r,o}function ae(t,e,r,n){var i=t.length+1;if(n&&e+1===i)return t[e]=r,t;for(var o=Array(i),u=0,s=0;i>s;s++)s===e?(o[s]=r,u=-1):o[s]=t[s+u];return o}function he(t,e,r){var n=t.length-1;if(r&&e===n)return t.pop(),t;for(var i=Array(n),o=0,u=0;n>u;u++)u===e&&(o=1),i[u]=t[u+o];return i}function fe(t){var e=le();if(null===t||void 0===t)return e;if(ce(t))return t;var r=v(t),n=r.size;return 0===n?e:(st(n),n>0&&hr>n?ve(0,n,ar,null,new _e(r.toArray())):e.withMutations(function(t){t.setSize(n),r.forEach(function(e,r){return t.set(r,e)})}))}function ce(t){return!(!t||!t[Pr])}function _e(t,e){this.array=t,this.ownerID=e}function pe(t,e){function r(t,e,r){
+return 0===e?n(t,r):i(t,e,r)}function n(t,r){var n=r===s?a&&a.array:t&&t.array,i=r>o?0:o-r,h=u-r;return h>hr&&(h=hr),function(){if(i===h)return Vr;var t=e?--h:i++;return n&&n[t]}}function i(t,n,i){var s,a=t&&t.array,h=i>o?0:o-i>>n,f=(u-i>>n)+1;return f>hr&&(f=hr),function(){for(;;){if(s){var t=s();if(t!==Vr)return t;s=null}if(h===f)return Vr;var o=e?--f:h++;s=r(a&&a[o],n-ar,i+(o<<n))}}}var o=t._origin,u=t._capacity,s=ze(u),a=t._tail;return r(t._root,t._level,0)}function ve(t,e,r,n,i,o,u){var s=Object.create(Hr);return s.size=e-t,s._origin=t,s._capacity=e,s._level=r,s._root=n,s._tail=i,s.__ownerID=o,s.__hash=u,s.__altered=!1,s}function le(){return Nr||(Nr=ve(0,0,ar))}function ye(t,r,n){if(r=u(t,r),r>=t.size||0>r)return t.withMutations(function(t){0>r?we(t,r).set(0,n):we(t,0,r+1).set(r,n)});r+=t._origin;var i=t._tail,o=t._root,s=e(pr);return r>=ze(t._capacity)?i=de(i,t.__ownerID,0,r,n,s):o=de(o,t.__ownerID,t._level,r,n,s),s.value?t.__ownerID?(t._root=o,t._tail=i,t.__hash=void 0,t.__altered=!0,t):ve(t._origin,t._capacity,t._level,o,i):t}function de(t,e,n,i,o,u){var s=i>>>n&fr,a=t&&t.array.length>s;if(!a&&void 0===o)return t;var h;if(n>0){var f=t&&t.array[s],c=de(f,e,n-ar,i,o,u);return c===f?t:(h=me(t,e),h.array[s]=c,h)}return a&&t.array[s]===o?t:(r(u),h=me(t,e),void 0===o&&s===h.array.length-1?h.array.pop():h.array[s]=o,h)}function me(t,e){return e&&t&&e===t.ownerID?t:new _e(t?t.array.slice():[],e)}function ge(t,e){if(e>=ze(t._capacity))return t._tail;if(1<<t._level+ar>e){for(var r=t._root,n=t._level;r&&n>0;)r=r.array[e>>>n&fr],n-=ar;return r}}function we(t,e,r){var i=t.__ownerID||new n,o=t._origin,u=t._capacity,s=o+e,a=void 0===r?u:0>r?u+r:o+r;if(s===o&&a===u)return t;if(s>=a)return t.clear();for(var h=t._level,f=t._root,c=0;0>s+c;)f=new _e(f&&f.array.length?[void 0,f]:[],i),h+=ar,c+=1<<h;c&&(s+=c,o+=c,a+=c,u+=c);for(var _=ze(u),p=ze(a);p>=1<<h+ar;)f=new _e(f&&f.array.length?[f]:[],i),h+=ar;var v=t._tail,l=_>p?ge(t,a-1):p>_?new _e([],i):v;if(v&&p>_&&u>s&&v.array.length){f=me(f,i);for(var y=f,d=h;d>ar;d-=ar){var m=_>>>d&fr;y=y.array[m]=me(y.array[m],i)}y.array[_>>>ar&fr]=v}if(u>a&&(l=l&&l.removeAfter(i,0,a)),s>=p)s-=p,a-=p,h=ar,f=null,l=l&&l.removeBefore(i,0,s);else if(s>o||_>p){for(c=0;f;){var g=s>>>h&fr;if(g!==p>>>h&fr)break;g&&(c+=(1<<h)*g),h-=ar,f=f.array[g]}f&&s>o&&(f=f.removeBefore(i,h,s-c)),f&&_>p&&(f=f.removeAfter(i,h,p-c)),c&&(s-=c,a-=c)}return t.__ownerID?(t.size=a-s,t._origin=s,t._capacity=a,t._level=h,t._root=f,t._tail=l,t.__hash=void 0,t.__altered=!0,t):ve(s,a,h,f,l)}function Se(t,e,r){for(var n=[],i=0,o=0;r.length>o;o++){var u=r[o],s=v(u);s.size>i&&(i=s.size),y(u)||(s=s.map(function(t){return F(t)})),n.push(s)}return i>t.size&&(t=t.setSize(i)),ie(t,e,n)}function ze(t){return hr>t?0:t-1>>>ar<<ar}function Ie(t){return null===t||void 0===t?De():be(t)?t:De().withMutations(function(e){var r=p(t);st(r.size),r.forEach(function(t,r){return e.set(r,t)})})}function be(t){return Tt(t)&&w(t)}function qe(t,e,r,n){var i=Object.create(Ie.prototype);return i.size=t?t.size:0,i._map=t,i._list=e,i.__ownerID=r,i.__hash=n,i}function De(){return Yr||(Yr=qe(Qt(),le()))}function Me(t,e,r){var n,i,o=t._map,u=t._list,s=o.get(e),a=void 0!==s;if(r===cr){if(!a)return t;u.size>=hr&&u.size>=2*o.size?(i=u.filter(function(t,e){return void 0!==t&&s!==e}),n=i.toKeyedSeq().map(function(t){return t[0]}).flip().toMap(),t.__ownerID&&(n.__ownerID=i.__ownerID=t.__ownerID)):(n=o.remove(e),i=s===u.size-1?u.pop():u.set(s,void 0))}else if(a){if(r===u.get(s)[1])return t;n=o,i=u.set(s,[e,r])}else n=o.set(e,u.size),i=u.set(u.size,[e,r]);return t.__ownerID?(t.size=n.size,t._map=n,t._list=i,t.__hash=void 0,t):qe(n,i)}function Ee(t){return null===t||void 0===t?ke():Oe(t)?t:ke().unshiftAll(t)}function Oe(t){return!(!t||!t[Qr])}function xe(t,e,r,n){var i=Object.create(Xr);return i.size=t,i._head=e,i.__ownerID=r,i.__hash=n,i.__altered=!1,i}function ke(){return Fr||(Fr=xe(0))}function Ae(t){return null===t||void 0===t?Ke():je(t)?t:Ke().withMutations(function(e){var r=l(t);st(r.size),r.forEach(function(t){return e.add(t)})})}function je(t){return!(!t||!t[Gr])}function Re(t,e){
+return t.__ownerID?(t.size=e.size,t._map=e,t):e===t._map?t:0===e.size?t.__empty():t.__make(e)}function Ue(t,e){var r=Object.create(Zr);return r.size=t?t.size:0,r._map=t,r.__ownerID=e,r}function Ke(){return $r||($r=Ue(Qt()))}function Le(t){return null===t||void 0===t?Be():Te(t)?t:Be().withMutations(function(e){var r=l(t);st(r.size),r.forEach(function(t){return e.add(t)})})}function Te(t){return je(t)&&w(t)}function We(t,e){var r=Object.create(tn);return r.size=t?t.size:0,r._map=t,r.__ownerID=e,r}function Be(){return en||(en=We(De()))}function Ce(t,e){var r,n=function(o){if(o instanceof n)return o;if(!(this instanceof n))return new n(o);if(!r){r=!0;var u=Object.keys(t);He(i,u),i.size=u.length,i._name=e,i._keys=u,i._defaultValues=t}this._map=Lt(o)},i=n.prototype=Object.create(rn);return i.constructor=n,n}function Je(t,e,r){var n=Object.create(Object.getPrototypeOf(t));return n._map=e,n.__ownerID=r,n}function Pe(t){return t._name||t.constructor.name||"Record"}function He(t,e){try{e.forEach(Ne.bind(void 0,t))}catch(r){}}function Ne(t,e){Object.defineProperty(t,e,{get:function(){return this.get(e)},set:function(t){ut(this.__ownerID,"Cannot set on an immutable record."),this.set(e,t)}})}function Ve(t,e){if(t===e)return!0;if(!y(e)||void 0!==t.size&&void 0!==e.size&&t.size!==e.size||void 0!==t.__hash&&void 0!==e.__hash&&t.__hash!==e.__hash||d(t)!==d(e)||m(t)!==m(e)||w(t)!==w(e))return!1;if(0===t.size&&0===e.size)return!0;var r=!g(t);if(w(t)){var n=t.entries();return e.every(function(t,e){var i=n.next().value;return i&&X(i[1],t)&&(r||X(i[0],e))})&&n.next().done}var i=!1;if(void 0===t.size)if(void 0===e.size)"function"==typeof t.cacheResult&&t.cacheResult();else{i=!0;var o=t;t=e,e=o}var u=!0,s=e.__iterate(function(e,n){return(r?t.has(e):i?X(e,t.get(n,cr)):X(t.get(n,cr),e))?void 0:(u=!1,!1)});return u&&t.size===s}function Ye(t,e,r){if(!(this instanceof Ye))return new Ye(t,e,r);if(ut(0!==r,"Cannot step a Range by 0"),t=t||0,void 0===e&&(e=1/0),r=void 0===r?1:Math.abs(r),t>e&&(r=-r),this._start=t,this._end=e,this._step=r,this.size=Math.max(0,Math.ceil((e-t)/r-1)+1),
+0===this.size){if(nn)return nn;nn=this}}function Qe(t,e){if(!(this instanceof Qe))return new Qe(t,e);if(this._value=t,this.size=void 0===e?1/0:Math.max(0,e),0===this.size){if(on)return on;on=this}}function Xe(t,e){var r=function(r){t.prototype[r]=e[r]};return Object.keys(e).forEach(r),Object.getOwnPropertySymbols&&Object.getOwnPropertySymbols(e).forEach(r),t}function Fe(t,e){return e}function Ge(t,e){return[e,t]}function Ze(t){return function(){return!t.apply(this,arguments)}}function $e(t){return function(){return-t.apply(this,arguments)}}function tr(t){return"string"==typeof t?JSON.stringify(t):t}function er(){return i(arguments)}function rr(t,e){return e>t?1:t>e?-1:0}function nr(t){if(t.size===1/0)return 0;var e=w(t),r=d(t),n=e?1:0,i=t.__iterate(r?e?function(t,e){n=31*n+or(et(t),et(e))|0}:function(t,e){n=n+or(et(t),et(e))|0}:e?function(t){n=31*n+et(t)|0}:function(t){n=n+et(t)|0});return ir(i,n)}function ir(t,e){return e=Mr(e,3432918353),e=Mr(e<<15|e>>>-15,461845907),e=Mr(e<<13|e>>>-13,5),e=(e+3864292196|0)^t,e=Mr(e^e>>>16,2246822507),e=Mr(e^e>>>13,3266489909),e=tt(e^e>>>16)}function or(t,e){return t^e+2654435769+(t<<6)+(t>>2)|0}var ur=Array.prototype.slice,sr="delete",ar=5,hr=1<<ar,fr=hr-1,cr={},_r={value:!1},pr={value:!1};t(p,_),t(v,_),t(l,_),_.isIterable=y,_.isKeyed=d,_.isIndexed=m,_.isAssociative=g,_.isOrdered=w,_.Keyed=p,_.Indexed=v,_.Set=l;var vr="@@__IMMUTABLE_ITERABLE__@@",lr="@@__IMMUTABLE_KEYED__@@",yr="@@__IMMUTABLE_INDEXED__@@",dr="@@__IMMUTABLE_ORDERED__@@",mr=0,gr=1,wr=2,Sr="function"==typeof Symbol&&Symbol.iterator,zr="@@iterator",Ir=Sr||zr;S.prototype.toString=function(){return"[Iterator]"},S.KEYS=mr,S.VALUES=gr,S.ENTRIES=wr,S.prototype.inspect=S.prototype.toSource=function(){return""+this},S.prototype[Ir]=function(){return this},t(O,_),O.of=function(){return O(arguments)},O.prototype.toSeq=function(){return this},O.prototype.toString=function(){return this.__toString("Seq {","}")},O.prototype.cacheResult=function(){return!this._cache&&this.__iterateUncached&&(this._cache=this.entrySeq().toArray(),
+this.size=this._cache.length),this},O.prototype.__iterate=function(t,e){return P(this,t,e,!0)},O.prototype.__iterator=function(t,e){return H(this,t,e,!0)},t(x,O),x.prototype.toKeyedSeq=function(){return this},t(k,O),k.of=function(){return k(arguments)},k.prototype.toIndexedSeq=function(){return this},k.prototype.toString=function(){return this.__toString("Seq [","]")},k.prototype.__iterate=function(t,e){return P(this,t,e,!1)},k.prototype.__iterator=function(t,e){return H(this,t,e,!1)},t(A,O),A.of=function(){return A(arguments)},A.prototype.toSetSeq=function(){return this},O.isSeq=L,O.Keyed=x,O.Set=A,O.Indexed=k;var br="@@__IMMUTABLE_SEQ__@@";O.prototype[br]=!0,t(j,k),j.prototype.get=function(t,e){return this.has(t)?this._array[u(this,t)]:e},j.prototype.__iterate=function(t,e){for(var r=this._array,n=r.length-1,i=0;n>=i;i++)if(t(r[e?n-i:i],i,this)===!1)return i+1;return i},j.prototype.__iterator=function(t,e){var r=this._array,n=r.length-1,i=0;return new S(function(){return i>n?I():z(t,i,r[e?n-i++:i++])})},t(R,x),R.prototype.get=function(t,e){return void 0===e||this.has(t)?this._object[t]:e},R.prototype.has=function(t){return this._object.hasOwnProperty(t)},R.prototype.__iterate=function(t,e){for(var r=this._object,n=this._keys,i=n.length-1,o=0;i>=o;o++){var u=n[e?i-o:o];if(t(r[u],u,this)===!1)return o+1}return o},R.prototype.__iterator=function(t,e){var r=this._object,n=this._keys,i=n.length-1,o=0;return new S(function(){var u=n[e?i-o:o];return o++>i?I():z(t,u,r[u])})},R.prototype[dr]=!0,t(U,k),U.prototype.__iterateUncached=function(t,e){if(e)return this.cacheResult().__iterate(t,e);var r=this._iterable,n=D(r),i=0;if(q(n))for(var o;!(o=n.next()).done&&t(o.value,i++,this)!==!1;);return i},U.prototype.__iteratorUncached=function(t,e){if(e)return this.cacheResult().__iterator(t,e);var r=this._iterable,n=D(r);if(!q(n))return new S(I);var i=0;return new S(function(){var e=n.next();return e.done?e:z(t,i++,e.value)})},t(K,k),K.prototype.__iterateUncached=function(t,e){if(e)return this.cacheResult().__iterate(t,e);for(var r=this._iterator,n=this._iteratorCache,i=0;n.length>i;)if(t(n[i],i++,this)===!1)return i;for(var o;!(o=r.next()).done;){var u=o.value;if(n[i]=u,t(u,i++,this)===!1)break}return i},K.prototype.__iteratorUncached=function(t,e){if(e)return this.cacheResult().__iterator(t,e);var r=this._iterator,n=this._iteratorCache,i=0;return new S(function(){if(i>=n.length){var e=r.next();if(e.done)return e;n[i]=e.value}return z(t,i,n[i++])})};var qr;t(N,_),t(V,N),t(Y,N),t(Q,N),N.Keyed=V,N.Indexed=Y,N.Set=Q;var Dr,Mr="function"==typeof Math.imul&&-2===Math.imul(4294967295,2)?Math.imul:function(t,e){t=0|t,e=0|e;var r=65535&t,n=65535&e;return r*n+((t>>>16)*n+r*(e>>>16)<<16>>>0)|0},Er=Object.isExtensible,Or=function(){try{return Object.defineProperty({},"@",{}),!0}catch(t){return!1}}(),xr="function"==typeof WeakMap;xr&&(Dr=new WeakMap);var kr=0,Ar="__immutablehash__";"function"==typeof Symbol&&(Ar=Symbol(Ar));var jr=16,Rr=255,Ur=0,Kr={};t(at,x),at.prototype.get=function(t,e){return this._iter.get(t,e)},at.prototype.has=function(t){return this._iter.has(t)},at.prototype.valueSeq=function(){return this._iter.valueSeq()},at.prototype.reverse=function(){var t=this,e=vt(this,!0);return this._useKeys||(e.valueSeq=function(){return t._iter.toSeq().reverse()}),e},at.prototype.map=function(t,e){var r=this,n=pt(this,t,e);return this._useKeys||(n.valueSeq=function(){return r._iter.toSeq().map(t,e)}),n},at.prototype.__iterate=function(t,e){var r,n=this;return this._iter.__iterate(this._useKeys?function(e,r){return t(e,r,n)}:(r=e?kt(this):0,function(i){return t(i,e?--r:r++,n)}),e)},at.prototype.__iterator=function(t,e){if(this._useKeys)return this._iter.__iterator(t,e);var r=this._iter.__iterator(gr,e),n=e?kt(this):0;return new S(function(){var i=r.next();return i.done?i:z(t,e?--n:n++,i.value,i)})},at.prototype[dr]=!0,t(ht,k),ht.prototype.includes=function(t){return this._iter.includes(t)},ht.prototype.__iterate=function(t,e){var r=this,n=0;return this._iter.__iterate(function(e){return t(e,n++,r)},e)},ht.prototype.__iterator=function(t,e){var r=this._iter.__iterator(gr,e),n=0;return new S(function(){var e=r.next();return e.done?e:z(t,n++,e.value,e);})},t(ft,A),ft.prototype.has=function(t){return this._iter.includes(t)},ft.prototype.__iterate=function(t,e){var r=this;return this._iter.__iterate(function(e){return t(e,e,r)},e)},ft.prototype.__iterator=function(t,e){var r=this._iter.__iterator(gr,e);return new S(function(){var e=r.next();return e.done?e:z(t,e.value,e.value,e)})},t(ct,x),ct.prototype.entrySeq=function(){return this._iter.toSeq()},ct.prototype.__iterate=function(t,e){var r=this;return this._iter.__iterate(function(e){if(e){xt(e);var n=y(e);return t(n?e.get(1):e[1],n?e.get(0):e[0],r)}},e)},ct.prototype.__iterator=function(t,e){var r=this._iter.__iterator(gr,e);return new S(function(){for(;;){var e=r.next();if(e.done)return e;var n=e.value;if(n){xt(n);var i=y(n);return z(t,i?n.get(0):n[0],i?n.get(1):n[1],e)}}})},ht.prototype.cacheResult=at.prototype.cacheResult=ft.prototype.cacheResult=ct.prototype.cacheResult=Rt,t(Lt,V),Lt.prototype.toString=function(){return this.__toString("Map {","}")},Lt.prototype.get=function(t,e){return this._root?this._root.get(0,void 0,t,e):e},Lt.prototype.set=function(t,e){return Xt(this,t,e)},Lt.prototype.setIn=function(t,e){return this.updateIn(t,cr,function(){return e})},Lt.prototype.remove=function(t){return Xt(this,t,cr)},Lt.prototype.deleteIn=function(t){return this.updateIn(t,function(){return cr})},Lt.prototype.update=function(t,e,r){return 1===arguments.length?t(this):this.updateIn([t],e,r)},Lt.prototype.updateIn=function(t,e,r){r||(r=e,e=void 0);var n=oe(this,Kt(t),e,r);return n===cr?void 0:n},Lt.prototype.clear=function(){return 0===this.size?this:this.__ownerID?(this.size=0,this._root=null,this.__hash=void 0,this.__altered=!0,this):Qt()},Lt.prototype.merge=function(){return re(this,void 0,arguments)},Lt.prototype.mergeWith=function(t){var e=ur.call(arguments,1);return re(this,t,e)},Lt.prototype.mergeIn=function(t){var e=ur.call(arguments,1);return this.updateIn(t,Qt(),function(t){return t.merge.apply(t,e)})},Lt.prototype.mergeDeep=function(){return re(this,ne(void 0),arguments)},Lt.prototype.mergeDeepWith=function(t){
+var e=ur.call(arguments,1);return re(this,ne(t),e)},Lt.prototype.mergeDeepIn=function(t){var e=ur.call(arguments,1);return this.updateIn(t,Qt(),function(t){return t.mergeDeep.apply(t,e)})},Lt.prototype.sort=function(t){return Ie(qt(this,t))},Lt.prototype.sortBy=function(t,e){return Ie(qt(this,e,t))},Lt.prototype.withMutations=function(t){var e=this.asMutable();return t(e),e.wasAltered()?e.__ensureOwner(this.__ownerID):this},Lt.prototype.asMutable=function(){return this.__ownerID?this:this.__ensureOwner(new n)},Lt.prototype.asImmutable=function(){return this.__ensureOwner()},Lt.prototype.wasAltered=function(){return this.__altered},Lt.prototype.__iterator=function(t,e){return new Ht(this,t,e)},Lt.prototype.__iterate=function(t,e){var r=this,n=0;return this._root&&this._root.iterate(function(e){return n++,t(e[1],e[0],r)},e),n},Lt.prototype.__ensureOwner=function(t){return t===this.__ownerID?this:t?Yt(this.size,this._root,t,this.__hash):(this.__ownerID=t,this.__altered=!1,this)},Lt.isMap=Tt;var Lr="@@__IMMUTABLE_MAP__@@",Tr=Lt.prototype;Tr[Lr]=!0,Tr[sr]=Tr.remove,Tr.removeIn=Tr.deleteIn,Wt.prototype.get=function(t,e,r,n){for(var i=this.entries,o=0,u=i.length;u>o;o++)if(X(r,i[o][0]))return i[o][1];return n},Wt.prototype.update=function(t,e,n,o,u,s,a){for(var h=u===cr,f=this.entries,c=0,_=f.length;_>c&&!X(o,f[c][0]);c++);var p=_>c;if(p?f[c][1]===u:h)return this;if(r(a),(h||!p)&&r(s),!h||1!==f.length){if(!p&&!h&&f.length>=Br)return $t(t,f,o,u);var v=t&&t===this.ownerID,l=v?f:i(f);return p?h?c===_-1?l.pop():l[c]=l.pop():l[c]=[o,u]:l.push([o,u]),v?(this.entries=l,this):new Wt(t,l)}},Bt.prototype.get=function(t,e,r,n){void 0===e&&(e=et(r));var i=1<<((0===t?e:e>>>t)&fr),o=this.bitmap;return 0===(o&i)?n:this.nodes[ue(o&i-1)].get(t+ar,e,r,n)},Bt.prototype.update=function(t,e,r,n,i,o,u){void 0===r&&(r=et(n));var s=(0===e?r:r>>>e)&fr,a=1<<s,h=this.bitmap,f=0!==(h&a);if(!f&&i===cr)return this;var c=ue(h&a-1),_=this.nodes,p=f?_[c]:void 0,v=Ft(p,t,e+ar,r,n,i,o,u);if(v===p)return this;if(!f&&v&&_.length>=Cr)return ee(t,_,h,s,v);if(f&&!v&&2===_.length&&Gt(_[1^c]))return _[1^c];if(f&&v&&1===_.length&&Gt(v))return v;var l=t&&t===this.ownerID,y=f?v?h:h^a:h|a,d=f?v?se(_,c,v,l):he(_,c,l):ae(_,c,v,l);return l?(this.bitmap=y,this.nodes=d,this):new Bt(t,y,d)},Ct.prototype.get=function(t,e,r,n){void 0===e&&(e=et(r));var i=(0===t?e:e>>>t)&fr,o=this.nodes[i];return o?o.get(t+ar,e,r,n):n},Ct.prototype.update=function(t,e,r,n,i,o,u){void 0===r&&(r=et(n));var s=(0===e?r:r>>>e)&fr,a=i===cr,h=this.nodes,f=h[s];if(a&&!f)return this;var c=Ft(f,t,e+ar,r,n,i,o,u);if(c===f)return this;var _=this.count;if(f){if(!c&&(_--,Jr>_))return te(t,h,_,s)}else _++;var p=t&&t===this.ownerID,v=se(h,s,c,p);return p?(this.count=_,this.nodes=v,this):new Ct(t,_,v)},Jt.prototype.get=function(t,e,r,n){for(var i=this.entries,o=0,u=i.length;u>o;o++)if(X(r,i[o][0]))return i[o][1];return n},Jt.prototype.update=function(t,e,n,o,u,s,a){void 0===n&&(n=et(o));var h=u===cr;if(n!==this.keyHash)return h?this:(r(a),r(s),Zt(this,t,e,n,[o,u]));for(var f=this.entries,c=0,_=f.length;_>c&&!X(o,f[c][0]);c++);var p=_>c;if(p?f[c][1]===u:h)return this;if(r(a),(h||!p)&&r(s),h&&2===_)return new Pt(t,this.keyHash,f[1^c]);var v=t&&t===this.ownerID,l=v?f:i(f);return p?h?c===_-1?l.pop():l[c]=l.pop():l[c]=[o,u]:l.push([o,u]),v?(this.entries=l,this):new Jt(t,this.keyHash,l)},Pt.prototype.get=function(t,e,r,n){return X(r,this.entry[0])?this.entry[1]:n},Pt.prototype.update=function(t,e,n,i,o,u,s){var a=o===cr,h=X(i,this.entry[0]);return(h?o===this.entry[1]:a)?this:(r(s),a?void r(u):h?t&&t===this.ownerID?(this.entry[1]=o,this):new Pt(t,this.keyHash,[i,o]):(r(u),Zt(this,t,e,et(i),[i,o])))},Wt.prototype.iterate=Jt.prototype.iterate=function(t,e){for(var r=this.entries,n=0,i=r.length-1;i>=n;n++)if(t(r[e?i-n:n])===!1)return!1},Bt.prototype.iterate=Ct.prototype.iterate=function(t,e){for(var r=this.nodes,n=0,i=r.length-1;i>=n;n++){var o=r[e?i-n:n];if(o&&o.iterate(t,e)===!1)return!1}},Pt.prototype.iterate=function(t){return t(this.entry)},t(Ht,S),Ht.prototype.next=function(){for(var t=this._type,e=this._stack;e;){var r,n=e.node,i=e.index++;if(n.entry){if(0===i)return Nt(t,n.entry);}else if(n.entries){if(r=n.entries.length-1,r>=i)return Nt(t,n.entries[this._reverse?r-i:i])}else if(r=n.nodes.length-1,r>=i){var o=n.nodes[this._reverse?r-i:i];if(o){if(o.entry)return Nt(t,o.entry);e=this._stack=Vt(o,e)}continue}e=this._stack=this._stack.__prev}return I()};var Wr,Br=hr/4,Cr=hr/2,Jr=hr/4;t(fe,Y),fe.of=function(){return this(arguments)},fe.prototype.toString=function(){return this.__toString("List [","]")},fe.prototype.get=function(t,e){if(t=u(this,t),0>t||t>=this.size)return e;t+=this._origin;var r=ge(this,t);return r&&r.array[t&fr]},fe.prototype.set=function(t,e){return ye(this,t,e)},fe.prototype.remove=function(t){return this.has(t)?0===t?this.shift():t===this.size-1?this.pop():this.splice(t,1):this},fe.prototype.clear=function(){return 0===this.size?this:this.__ownerID?(this.size=this._origin=this._capacity=0,this._level=ar,this._root=this._tail=null,this.__hash=void 0,this.__altered=!0,this):le()},fe.prototype.push=function(){var t=arguments,e=this.size;return this.withMutations(function(r){we(r,0,e+t.length);for(var n=0;t.length>n;n++)r.set(e+n,t[n])})},fe.prototype.pop=function(){return we(this,0,-1)},fe.prototype.unshift=function(){var t=arguments;return this.withMutations(function(e){we(e,-t.length);for(var r=0;t.length>r;r++)e.set(r,t[r])})},fe.prototype.shift=function(){return we(this,1)},fe.prototype.merge=function(){return Se(this,void 0,arguments)},fe.prototype.mergeWith=function(t){var e=ur.call(arguments,1);return Se(this,t,e)},fe.prototype.mergeDeep=function(){return Se(this,ne(void 0),arguments)},fe.prototype.mergeDeepWith=function(t){var e=ur.call(arguments,1);return Se(this,ne(t),e)},fe.prototype.setSize=function(t){return we(this,0,t)},fe.prototype.slice=function(t,e){var r=this.size;return a(t,e,r)?this:we(this,h(t,r),f(e,r))},fe.prototype.__iterator=function(t,e){var r=0,n=pe(this,e);return new S(function(){var e=n();return e===Vr?I():z(t,r++,e)})},fe.prototype.__iterate=function(t,e){for(var r,n=0,i=pe(this,e);(r=i())!==Vr&&t(r,n++,this)!==!1;);return n},fe.prototype.__ensureOwner=function(t){
+return t===this.__ownerID?this:t?ve(this._origin,this._capacity,this._level,this._root,this._tail,t,this.__hash):(this.__ownerID=t,this)},fe.isList=ce;var Pr="@@__IMMUTABLE_LIST__@@",Hr=fe.prototype;Hr[Pr]=!0,Hr[sr]=Hr.remove,Hr.setIn=Tr.setIn,Hr.deleteIn=Hr.removeIn=Tr.removeIn,Hr.update=Tr.update,Hr.updateIn=Tr.updateIn,Hr.mergeIn=Tr.mergeIn,Hr.mergeDeepIn=Tr.mergeDeepIn,Hr.withMutations=Tr.withMutations,Hr.asMutable=Tr.asMutable,Hr.asImmutable=Tr.asImmutable,Hr.wasAltered=Tr.wasAltered,_e.prototype.removeBefore=function(t,e,r){if(r===e?1<<e:0||0===this.array.length)return this;var n=r>>>e&fr;if(n>=this.array.length)return new _e([],t);var i,o=0===n;if(e>0){var u=this.array[n];if(i=u&&u.removeBefore(t,e-ar,r),i===u&&o)return this}if(o&&!i)return this;var s=me(this,t);if(!o)for(var a=0;n>a;a++)s.array[a]=void 0;return i&&(s.array[n]=i),s},_e.prototype.removeAfter=function(t,e,r){if(r===e?1<<e:0||0===this.array.length)return this;var n=r-1>>>e&fr;if(n>=this.array.length)return this;var i,o=n===this.array.length-1;if(e>0){var u=this.array[n];if(i=u&&u.removeAfter(t,e-ar,r),i===u&&o)return this}if(o&&!i)return this;var s=me(this,t);return o||s.array.pop(),i&&(s.array[n]=i),s};var Nr,Vr={};t(Ie,Lt),Ie.of=function(){return this(arguments)},Ie.prototype.toString=function(){return this.__toString("OrderedMap {","}")},Ie.prototype.get=function(t,e){var r=this._map.get(t);return void 0!==r?this._list.get(r)[1]:e},Ie.prototype.clear=function(){return 0===this.size?this:this.__ownerID?(this.size=0,this._map.clear(),this._list.clear(),this):De()},Ie.prototype.set=function(t,e){return Me(this,t,e)},Ie.prototype.remove=function(t){return Me(this,t,cr)},Ie.prototype.wasAltered=function(){return this._map.wasAltered()||this._list.wasAltered()},Ie.prototype.__iterate=function(t,e){var r=this;return this._list.__iterate(function(e){return e&&t(e[1],e[0],r)},e)},Ie.prototype.__iterator=function(t,e){return this._list.fromEntrySeq().__iterator(t,e)},Ie.prototype.__ensureOwner=function(t){if(t===this.__ownerID)return this;var e=this._map.__ensureOwner(t),r=this._list.__ensureOwner(t);return t?qe(e,r,t,this.__hash):(this.__ownerID=t,this._map=e,this._list=r,this)},Ie.isOrderedMap=be,Ie.prototype[dr]=!0,Ie.prototype[sr]=Ie.prototype.remove;var Yr;t(Ee,Y),Ee.of=function(){return this(arguments)},Ee.prototype.toString=function(){return this.__toString("Stack [","]")},Ee.prototype.get=function(t,e){var r=this._head;for(t=u(this,t);r&&t--;)r=r.next;return r?r.value:e},Ee.prototype.peek=function(){return this._head&&this._head.value},Ee.prototype.push=function(){if(0===arguments.length)return this;for(var t=this.size+arguments.length,e=this._head,r=arguments.length-1;r>=0;r--)e={value:arguments[r],next:e};return this.__ownerID?(this.size=t,this._head=e,this.__hash=void 0,this.__altered=!0,this):xe(t,e)},Ee.prototype.pushAll=function(t){if(t=v(t),0===t.size)return this;st(t.size);var e=this.size,r=this._head;return t.reverse().forEach(function(t){e++,r={value:t,next:r}}),this.__ownerID?(this.size=e,this._head=r,this.__hash=void 0,this.__altered=!0,this):xe(e,r)},Ee.prototype.pop=function(){return this.slice(1)},Ee.prototype.unshift=function(){return this.push.apply(this,arguments)},Ee.prototype.unshiftAll=function(t){return this.pushAll(t)},Ee.prototype.shift=function(){return this.pop.apply(this,arguments)},Ee.prototype.clear=function(){return 0===this.size?this:this.__ownerID?(this.size=0,this._head=void 0,this.__hash=void 0,this.__altered=!0,this):ke()},Ee.prototype.slice=function(t,e){if(a(t,e,this.size))return this;var r=h(t,this.size),n=f(e,this.size);if(n!==this.size)return Y.prototype.slice.call(this,t,e);for(var i=this.size-r,o=this._head;r--;)o=o.next;return this.__ownerID?(this.size=i,this._head=o,this.__hash=void 0,this.__altered=!0,this):xe(i,o)},Ee.prototype.__ensureOwner=function(t){return t===this.__ownerID?this:t?xe(this.size,this._head,t,this.__hash):(this.__ownerID=t,this.__altered=!1,this)},Ee.prototype.__iterate=function(t,e){if(e)return this.reverse().__iterate(t);for(var r=0,n=this._head;n&&t(n.value,r++,this)!==!1;)n=n.next;return r},Ee.prototype.__iterator=function(t,e){if(e)return this.reverse().__iterator(t);var r=0,n=this._head;return new S(function(){if(n){var e=n.value;return n=n.next,z(t,r++,e)}return I()})},Ee.isStack=Oe;var Qr="@@__IMMUTABLE_STACK__@@",Xr=Ee.prototype;Xr[Qr]=!0,Xr.withMutations=Tr.withMutations,Xr.asMutable=Tr.asMutable,Xr.asImmutable=Tr.asImmutable,Xr.wasAltered=Tr.wasAltered;var Fr;t(Ae,Q),Ae.of=function(){return this(arguments)},Ae.fromKeys=function(t){return this(p(t).keySeq())},Ae.prototype.toString=function(){return this.__toString("Set {","}")},Ae.prototype.has=function(t){return this._map.has(t)},Ae.prototype.add=function(t){return Re(this,this._map.set(t,!0))},Ae.prototype.remove=function(t){return Re(this,this._map.remove(t))},Ae.prototype.clear=function(){return Re(this,this._map.clear())},Ae.prototype.union=function(){var t=ur.call(arguments,0);return t=t.filter(function(t){return 0!==t.size}),0===t.length?this:0!==this.size||this.__ownerID||1!==t.length?this.withMutations(function(e){for(var r=0;t.length>r;r++)l(t[r]).forEach(function(t){return e.add(t)})}):this.constructor(t[0])},Ae.prototype.intersect=function(){var t=ur.call(arguments,0);if(0===t.length)return this;t=t.map(function(t){return l(t)});var e=this;return this.withMutations(function(r){e.forEach(function(e){t.every(function(t){return t.includes(e)})||r.remove(e)})})},Ae.prototype.subtract=function(){var t=ur.call(arguments,0);if(0===t.length)return this;t=t.map(function(t){return l(t)});var e=this;return this.withMutations(function(r){e.forEach(function(e){t.some(function(t){return t.includes(e)})&&r.remove(e)})})},Ae.prototype.merge=function(){return this.union.apply(this,arguments)},Ae.prototype.mergeWith=function(){var t=ur.call(arguments,1);return this.union.apply(this,t)},Ae.prototype.sort=function(t){return Le(qt(this,t))},Ae.prototype.sortBy=function(t,e){return Le(qt(this,e,t))},Ae.prototype.wasAltered=function(){return this._map.wasAltered()},Ae.prototype.__iterate=function(t,e){var r=this;return this._map.__iterate(function(e,n){return t(n,n,r)},e)},Ae.prototype.__iterator=function(t,e){return this._map.map(function(t,e){
+return e}).__iterator(t,e)},Ae.prototype.__ensureOwner=function(t){if(t===this.__ownerID)return this;var e=this._map.__ensureOwner(t);return t?this.__make(e,t):(this.__ownerID=t,this._map=e,this)},Ae.isSet=je;var Gr="@@__IMMUTABLE_SET__@@",Zr=Ae.prototype;Zr[Gr]=!0,Zr[sr]=Zr.remove,Zr.mergeDeep=Zr.merge,Zr.mergeDeepWith=Zr.mergeWith,Zr.withMutations=Tr.withMutations,Zr.asMutable=Tr.asMutable,Zr.asImmutable=Tr.asImmutable,Zr.__empty=Ke,Zr.__make=Ue;var $r;t(Le,Ae),Le.of=function(){return this(arguments)},Le.fromKeys=function(t){return this(p(t).keySeq())},Le.prototype.toString=function(){return this.__toString("OrderedSet {","}")},Le.isOrderedSet=Te;var tn=Le.prototype;tn[dr]=!0,tn.__empty=Be,tn.__make=We;var en;t(Ce,V),Ce.prototype.toString=function(){return this.__toString(Pe(this)+" {","}")},Ce.prototype.has=function(t){return this._defaultValues.hasOwnProperty(t)},Ce.prototype.get=function(t,e){if(!this.has(t))return e;var r=this._defaultValues[t];return this._map?this._map.get(t,r):r},Ce.prototype.clear=function(){if(this.__ownerID)return this._map&&this._map.clear(),this;var t=this.constructor;return t._empty||(t._empty=Je(this,Qt()))},Ce.prototype.set=function(t,e){if(!this.has(t))throw Error('Cannot set unknown key "'+t+'" on '+Pe(this));var r=this._map&&this._map.set(t,e);return this.__ownerID||r===this._map?this:Je(this,r)},Ce.prototype.remove=function(t){if(!this.has(t))return this;var e=this._map&&this._map.remove(t);return this.__ownerID||e===this._map?this:Je(this,e)},Ce.prototype.wasAltered=function(){return this._map.wasAltered()},Ce.prototype.__iterator=function(t,e){var r=this;return p(this._defaultValues).map(function(t,e){return r.get(e)}).__iterator(t,e)},Ce.prototype.__iterate=function(t,e){var r=this;return p(this._defaultValues).map(function(t,e){return r.get(e)}).__iterate(t,e)},Ce.prototype.__ensureOwner=function(t){if(t===this.__ownerID)return this;var e=this._map&&this._map.__ensureOwner(t);return t?Je(this,e,t):(this.__ownerID=t,this._map=e,this)};var rn=Ce.prototype;rn[sr]=rn.remove,rn.deleteIn=rn.removeIn=Tr.removeIn,
+rn.merge=Tr.merge,rn.mergeWith=Tr.mergeWith,rn.mergeIn=Tr.mergeIn,rn.mergeDeep=Tr.mergeDeep,rn.mergeDeepWith=Tr.mergeDeepWith,rn.mergeDeepIn=Tr.mergeDeepIn,rn.setIn=Tr.setIn,rn.update=Tr.update,rn.updateIn=Tr.updateIn,rn.withMutations=Tr.withMutations,rn.asMutable=Tr.asMutable,rn.asImmutable=Tr.asImmutable,t(Ye,k),Ye.prototype.toString=function(){return 0===this.size?"Range []":"Range [ "+this._start+"..."+this._end+(this._step>1?" by "+this._step:"")+" ]"},Ye.prototype.get=function(t,e){return this.has(t)?this._start+u(this,t)*this._step:e},Ye.prototype.includes=function(t){var e=(t-this._start)/this._step;return e>=0&&this.size>e&&e===Math.floor(e)},Ye.prototype.slice=function(t,e){return a(t,e,this.size)?this:(t=h(t,this.size),e=f(e,this.size),t>=e?new Ye(0,0):new Ye(this.get(t,this._end),this.get(e,this._end),this._step))},Ye.prototype.indexOf=function(t){var e=t-this._start;if(e%this._step===0){var r=e/this._step;if(r>=0&&this.size>r)return r}return-1},Ye.prototype.lastIndexOf=function(t){return this.indexOf(t)},Ye.prototype.__iterate=function(t,e){for(var r=this.size-1,n=this._step,i=e?this._start+r*n:this._start,o=0;r>=o;o++){if(t(i,o,this)===!1)return o+1;i+=e?-n:n}return o},Ye.prototype.__iterator=function(t,e){var r=this.size-1,n=this._step,i=e?this._start+r*n:this._start,o=0;return new S(function(){var u=i;return i+=e?-n:n,o>r?I():z(t,o++,u)})},Ye.prototype.equals=function(t){return t instanceof Ye?this._start===t._start&&this._end===t._end&&this._step===t._step:Ve(this,t)};var nn;t(Qe,k),Qe.prototype.toString=function(){return 0===this.size?"Repeat []":"Repeat [ "+this._value+" "+this.size+" times ]"},Qe.prototype.get=function(t,e){return this.has(t)?this._value:e},Qe.prototype.includes=function(t){return X(this._value,t)},Qe.prototype.slice=function(t,e){var r=this.size;return a(t,e,r)?this:new Qe(this._value,f(e,r)-h(t,r))},Qe.prototype.reverse=function(){return this},Qe.prototype.indexOf=function(t){return X(this._value,t)?0:-1},Qe.prototype.lastIndexOf=function(t){return X(this._value,t)?this.size:-1;},Qe.prototype.__iterate=function(t){for(var e=0;this.size>e;e++)if(t(this._value,e,this)===!1)return e+1;return e},Qe.prototype.__iterator=function(t){var e=this,r=0;return new S(function(){return e.size>r?z(t,r++,e._value):I()})},Qe.prototype.equals=function(t){return t instanceof Qe?X(this._value,t._value):Ve(t)};var on;_.Iterator=S,Xe(_,{toArray:function(){st(this.size);var t=Array(this.size||0);return this.valueSeq().__iterate(function(e,r){t[r]=e}),t},toIndexedSeq:function(){return new ht(this)},toJS:function(){return this.toSeq().map(function(t){return t&&"function"==typeof t.toJS?t.toJS():t}).__toJS()},toJSON:function(){return this.toSeq().map(function(t){return t&&"function"==typeof t.toJSON?t.toJSON():t}).__toJS()},toKeyedSeq:function(){return new at(this,!0)},toMap:function(){return Lt(this.toKeyedSeq())},toObject:function(){st(this.size);var t={};return this.__iterate(function(e,r){t[r]=e}),t},toOrderedMap:function(){return Ie(this.toKeyedSeq())},toOrderedSet:function(){return Le(d(this)?this.valueSeq():this)},toSet:function(){return Ae(d(this)?this.valueSeq():this)},toSetSeq:function(){return new ft(this)},toSeq:function(){return m(this)?this.toIndexedSeq():d(this)?this.toKeyedSeq():this.toSetSeq()},toStack:function(){return Ee(d(this)?this.valueSeq():this)},toList:function(){return fe(d(this)?this.valueSeq():this)},toString:function(){return"[Iterable]"},__toString:function(t,e){return 0===this.size?t+e:t+" "+this.toSeq().map(this.__toStringMapper).join(", ")+" "+e},concat:function(){var t=ur.call(arguments,0);return Ot(this,St(this,t))},contains:function(t){return this.includes(t)},includes:function(t){return this.some(function(e){return X(e,t)})},entries:function(){return this.__iterator(wr)},every:function(t,e){st(this.size);var r=!0;return this.__iterate(function(n,i,o){return t.call(e,n,i,o)?void 0:(r=!1,!1)}),r},filter:function(t,e){return Ot(this,lt(this,t,e,!0))},find:function(t,e,r){var n=this.findEntry(t,e);return n?n[1]:r},findEntry:function(t,e){var r;return this.__iterate(function(n,i,o){
+return t.call(e,n,i,o)?(r=[i,n],!1):void 0}),r},findLastEntry:function(t,e){return this.toSeq().reverse().findEntry(t,e)},forEach:function(t,e){return st(this.size),this.__iterate(e?t.bind(e):t)},join:function(t){st(this.size),t=void 0!==t?""+t:",";var e="",r=!0;return this.__iterate(function(n){r?r=!1:e+=t,e+=null!==n&&void 0!==n?""+n:""}),e},keys:function(){return this.__iterator(mr)},map:function(t,e){return Ot(this,pt(this,t,e))},reduce:function(t,e,r){st(this.size);var n,i;return arguments.length<2?i=!0:n=e,this.__iterate(function(e,o,u){i?(i=!1,n=e):n=t.call(r,n,e,o,u)}),n},reduceRight:function(){var t=this.toKeyedSeq().reverse();return t.reduce.apply(t,arguments)},reverse:function(){return Ot(this,vt(this,!0))},slice:function(t,e){return Ot(this,mt(this,t,e,!0))},some:function(t,e){return!this.every(Ze(t),e)},sort:function(t){return Ot(this,qt(this,t))},values:function(){return this.__iterator(gr)},butLast:function(){return this.slice(0,-1)},isEmpty:function(){return void 0!==this.size?0===this.size:!this.some(function(){return!0})},count:function(t,e){return o(t?this.toSeq().filter(t,e):this)},countBy:function(t,e){return yt(this,t,e)},equals:function(t){return Ve(this,t)},entrySeq:function(){var t=this;if(t._cache)return new j(t._cache);var e=t.toSeq().map(Ge).toIndexedSeq();return e.fromEntrySeq=function(){return t.toSeq()},e},filterNot:function(t,e){return this.filter(Ze(t),e)},findLast:function(t,e,r){return this.toKeyedSeq().reverse().find(t,e,r)},first:function(){return this.find(s)},flatMap:function(t,e){return Ot(this,It(this,t,e))},flatten:function(t){return Ot(this,zt(this,t,!0))},fromEntrySeq:function(){return new ct(this)},get:function(t,e){return this.find(function(e,r){return X(r,t)},void 0,e)},getIn:function(t,e){for(var r,n=this,i=Kt(t);!(r=i.next()).done;){var o=r.value;if(n=n&&n.get?n.get(o,cr):cr,n===cr)return e}return n},groupBy:function(t,e){return dt(this,t,e)},has:function(t){return this.get(t,cr)!==cr},hasIn:function(t){return this.getIn(t,cr)!==cr},isSubset:function(t){return t="function"==typeof t.includes?t:_(t),
+this.every(function(e){return t.includes(e)})},isSuperset:function(t){return t.isSubset(this)},keySeq:function(){return this.toSeq().map(Fe).toIndexedSeq()},last:function(){return this.toSeq().reverse().first()},max:function(t){return Dt(this,t)},maxBy:function(t,e){return Dt(this,e,t)},min:function(t){return Dt(this,t?$e(t):rr)},minBy:function(t,e){return Dt(this,e?$e(e):rr,t)},rest:function(){return this.slice(1)},skip:function(t){return this.slice(Math.max(0,t))},skipLast:function(t){return Ot(this,this.toSeq().reverse().skip(t).reverse())},skipWhile:function(t,e){return Ot(this,wt(this,t,e,!0))},skipUntil:function(t,e){return this.skipWhile(Ze(t),e)},sortBy:function(t,e){return Ot(this,qt(this,e,t))},take:function(t){return this.slice(0,Math.max(0,t))},takeLast:function(t){return Ot(this,this.toSeq().reverse().take(t).reverse())},takeWhile:function(t,e){return Ot(this,gt(this,t,e))},takeUntil:function(t,e){return this.takeWhile(Ze(t),e)},valueSeq:function(){return this.toIndexedSeq()},hashCode:function(){return this.__hash||(this.__hash=nr(this))}});var un=_.prototype;un[vr]=!0,un[Ir]=un.values,un.__toJS=un.toArray,un.__toStringMapper=tr,un.inspect=un.toSource=function(){return""+this},un.chain=un.flatMap,function(){try{Object.defineProperty(un,"length",{get:function(){if(!_.noLengthWarning){var t;try{throw Error()}catch(e){t=e.stack}if(-1===t.indexOf("_wrapObject"))return console&&console.warn&&console.warn("iterable.length has been deprecated, use iterable.size or iterable.count(). This warning will become a silent error in a future version. "+t),this.size}}})}catch(t){}}(),Xe(p,{flip:function(){return Ot(this,_t(this))},findKey:function(t,e){var r=this.findEntry(t,e);return r&&r[0]},findLastKey:function(t,e){return this.toSeq().reverse().findKey(t,e)},keyOf:function(t){return this.findKey(function(e){return X(e,t)})},lastKeyOf:function(t){return this.findLastKey(function(e){return X(e,t)})},mapEntries:function(t,e){var r=this,n=0;return Ot(this,this.toSeq().map(function(i,o){return t.call(e,[o,i],n++,r)}).fromEntrySeq());},mapKeys:function(t,e){var r=this;return Ot(this,this.toSeq().flip().map(function(n,i){return t.call(e,n,i,r)}).flip())}});var sn=p.prototype;sn[lr]=!0,sn[Ir]=un.entries,sn.__toJS=un.toObject,sn.__toStringMapper=function(t,e){return JSON.stringify(e)+": "+tr(t)},Xe(v,{toKeyedSeq:function(){return new at(this,!1)},filter:function(t,e){return Ot(this,lt(this,t,e,!1))},findIndex:function(t,e){var r=this.findEntry(t,e);return r?r[0]:-1},indexOf:function(t){var e=this.toKeyedSeq().keyOf(t);return void 0===e?-1:e},lastIndexOf:function(t){return this.toSeq().reverse().indexOf(t)},reverse:function(){return Ot(this,vt(this,!1))},slice:function(t,e){return Ot(this,mt(this,t,e,!1))},splice:function(t,e){var r=arguments.length;if(e=Math.max(0|e,0),0===r||2===r&&!e)return this;t=h(t,this.size);var n=this.slice(0,t);return Ot(this,1===r?n:n.concat(i(arguments,2),this.slice(t+e)))},findLastIndex:function(t,e){var r=this.toKeyedSeq().findLastKey(t,e);return void 0===r?-1:r},first:function(){return this.get(0)},flatten:function(t){return Ot(this,zt(this,t,!1))},get:function(t,e){return t=u(this,t),0>t||this.size===1/0||void 0!==this.size&&t>this.size?e:this.find(function(e,r){return r===t},void 0,e)},has:function(t){return t=u(this,t),t>=0&&(void 0!==this.size?this.size===1/0||this.size>t:-1!==this.indexOf(t))},interpose:function(t){return Ot(this,bt(this,t))},interleave:function(){var t=[this].concat(i(arguments)),e=Et(this.toSeq(),k.of,t),r=e.flatten(!0);return e.size&&(r.size=e.size*t.length),Ot(this,r)},last:function(){return this.get(-1)},skipWhile:function(t,e){return Ot(this,wt(this,t,e,!1))},zip:function(){var t=[this].concat(i(arguments));return Ot(this,Et(this,er,t))},zipWith:function(t){var e=i(arguments);return e[0]=this,Ot(this,Et(this,t,e))}}),v.prototype[yr]=!0,v.prototype[dr]=!0,Xe(l,{get:function(t,e){return this.has(t)?t:e},includes:function(t){return this.has(t)},keySeq:function(){return this.valueSeq()}}),l.prototype.has=un.includes,Xe(x,p.prototype),Xe(k,v.prototype),Xe(A,l.prototype),Xe(V,p.prototype),Xe(Y,v.prototype),
+Xe(Q,l.prototype);var an={Iterable:_,Seq:O,Collection:N,Map:Lt,OrderedMap:Ie,List:fe,Stack:Ee,Set:Ae,OrderedSet:Le,Record:Ce,Range:Ye,Repeat:Qe,is:X,fromJS:F};return an});var Prelude = (function (){
+'use strict'
+var plus_ = λ2(function plus_(x, y){
+return (x + y);
+});
+var __ = λ2(function __(what, from){
+return (from - what);
+});
+var times_ = λ2(function times_(x, y){
+return (x * y);
+});
+var over_ = λ2(function over_(by, what){
+return (what / by);
+});
+var div = λ2(function div(by, what){
+return ~~(what / by);
+});
+var mod = λ2(function mod(by, of){
+return (of % by);
+});
+var rem = λ2(function rem(by, of){
+return (((of % by) + by) % by);
+});
+var neg_ = λ1(function neg_(x){
+return -x;
+});
+var sqrt = λ1(function sqrt(n){
+return Math.sqrt(n);
+});
+var pow_ = λ2(function pow_(to, what){
+return Math.pow(what, to);
+});
+var sin = λ1(function sin(x){
+return Math.sin(x);
+});
+var cos = λ1(function cos(x){
+return Math.cos(x);
+});
+var ln = λ1(function ln(x){
+return Math.log(x);
+});
+var round = λ1(function round(x){
+return Math.round(x);
+});
+var floor = λ1(function floor(x){
+return Math.floor(x);
+});
+var ceil = λ1(function ceil(x){
+return Math.ceil(x);
+});
+var abs = λ1(function abs(x){
+return Math.abs(x);
+});
+var and = λ2(function and(first, then){
+return (first && then);
+});
+var or = λ2(function or(first, then){
+return (first || then);
+});
+var not = λ1(function not(x){
+return !x;
+});
+var if_ = λ3(function if_(what, then, else_){
+return (function (){
+if (what) {
+  return then;
+} else if (true) {
+  return else_;
+} else {
+  throw new Error('cond failed to match in if');
+}
+}());
+});
+function Eq(eq_){
+this['='] = eq_;
+}
+var not_eq_ = λ3(function not_eq_(_Eq_1, x, y){
+return !_Eq_1['='](x, y);
+});
+var bool__eq = new Eq(λ2(function bool__eq_eq_(x, y){
+return (x === y);
+}));
+var num__eq = new Eq(λ2(function num__eq_eq_(x, y){
+return (x === y);
+}));
+var char__eq = new Eq(λ2(function char__eq_eq_(x, y){
+return (x === y);
+}));
+var string__eq = new Eq(λ2(function string__eq_eq_(x, y){
+return (x === y);
+}));
+function Ord(Eq, lt_eq_){
+this.Eq = Eq;
+this['<='] = lt_eq_;
+}
+var lt_ = λ3(function lt_(_Ord_1, than, what){
+return (_Ord_1['<='](than, what) && !_Ord_1.Eq['='](than, what));
+});
+var gt_ = λ3(function gt_(_Ord_1, than, what){
+return !_Ord_1['<='](than, what);
+});
+var gt_eq_ = λ3(function gt_eq_(_Ord_1, than, what){
+return (_Ord_1.Eq['='](than, what) || gt_(_Ord_1, than, what));
+});
+var max = λ3(function max(_Ord_1, x, y){
+return (function (){
+if (lt_(_Ord_1, y, x)) {
+  return y;
+} else if (true) {
+  return x;
+} else {
+  throw new Error('cond failed to match in max');
+}
+}());
+});
+var min = λ3(function min(_Ord_1, x, y){
+return (function (){
+if (gt_(_Ord_1, y, x)) {
+  return y;
+} else if (true) {
+  return x;
+} else {
+  throw new Error('cond failed to match in min');
+}
+}());
+});
+var num__ord = new Ord(num__eq, λ2(function num__ord_lt_eq_(than, what){
+return (what <= than);
+}));
+function Show(show){
+this.show = show;
+}
+var show__boolean = new Show(λ1(function show__boolean_show(b){
+return (function (){
+if (b) {
+  return "True";
+} else if (true) {
+  return "False";
+} else {
+  throw new Error('cond failed to match in show-boolean_show');
+}
+}());
+}));
+var show__num = new Show(λ1(function show__num_show(n){
+return (n + "");
+}));
+var show__string = new Show(λ1(function show__string_show(s){
+return ("\"" + s + "\"");
+}));
+var show__char = new Show(λ1(function show__char_show(c){
+return ("\%c");
+}));
+var show__pair = function (_Show_1, _Show_2){
+return new Show(λ1(function show__pair_show(pair){
+var i1 = pair;
+var fst = i1[0];
+var snd = i1[1];
+return ("[" + _Show_1.show(fst) + " " + _Show_2.show(snd) + "]");
+}));
+};
+var evenp_ = λ1(function evenp_(x){
+return num__eq['='](0, rem(2, x));
+});
+var oddp_ = λ1(function oddp_(x){
+return !evenp_(x);
+});
+var divisiblep_ = λ2(function divisiblep_(by, what){
+return num__eq['='](0, (what % by));
+});
+var id = λ1(function id(x){
+return x;
+});
+var const_ = λ2(function const_(x, y){
+return x;
+});
+var dot_ = λ3(function dot_(second, first, x){
+return _1(second, _1(first, x));
+});
+var apply__1 = λ2(function apply__1(what, to){
+return _1(what, to);
+});
+var apply__2 = λ3(function apply__2(what, to1, to2){
+return _2(what, to1, to2);
+});
+var fix__arity__2 = λ1(function fix__arity__2(of){
+return λ2(function (x, y){
+return _2(of, x, y);
+});
+});
+var flip = λ3(function flip(f, x, y){
+return _2(f, y, x);
+});
+var fst = λ1(function fst(tuple){
+var i3 = tuple;
+var x = i3[0];
+var y = i3[1];
+return x;
+});
+var snd = λ1(function snd(tuple){
+var i5 = tuple;
+var x = i5[0];
+var y = i5[1];
+return y;
+});
+var tuple = λ2(function tuple(fst, snd){
+return [fst, snd];
+});
+var curry = λ3(function curry(fun, x, y){
+return _1(fun, [x, y]);
+});
+var uncurry = λ2(function uncurry(fun, tuple){
+var i7 = tuple;
+var x = i7[0];
+var y = i7[1];
+return _2(fun, x, y);
+});
+var range = λ2(function range(from, exclude__to){
+return (function (){
+if (lt_(num__ord, exclude__to, from)) {
+  return window.Immutable.Range(from, exclude__to).toList();
+} else if (true) {
+  return Immutable.List.of();
+} else {
+  throw new Error('cond failed to match in range');
+}
+}());
+});
+var range__by = λ3(function range__by(from, exclude__to, step){
+return (function (){
+if (lt_(num__ord, exclude__to, from)) {
+  return window.Immutable.Range(from, exclude__to, step).toList();
+} else if (true) {
+  return Immutable.List.of();
+} else {
+  throw new Error('cond failed to match in range-by');
+}
+}());
+});
+var map__tuple = λ2(function map__tuple(what, over){
+return [_1(fst(what), fst(over)), _1(snd(what), snd(over))];
+});
+var tuplize = λ1(function tuplize(x){
+return [x, x];
+});
+var math__pi = Math.PI;
+var radians = λ1(function radians(degrees){
+return (math__pi * (degrees / 180));
+});
+var degrees = λ1(function degrees(radians){
+return (180 * (radians / math__pi));
+});
+function None(){}
+None._value = new None();
+function Some(value){
+this.value = value;
+}
+var Some__value = function Some__value(dict){
+if (dict instanceof Some) {
+  return dict.value;
+} else {
+  throw new Error('Expected Some, got ' + dict.constructor.name + ' instead in Some-value')
+}
+};
+Some._value = λ1(function (value){
+return new Some(value);
+});
+var from__p_ = λ2(function from__p_(default_, of){
+return (function (){
+var i8 = of;
+if (((i8 instanceof None))) {
+  return default_;
+} else if (((i8 instanceof Some))) {
+  var value = i8.value;
+return value;
+} else {
+  throw new Error('match failed to match in from-?');
+}
+}());
+});
+var p_ = λ2(function p_(maybe, default_){
+return (function (){
+var i9 = maybe;
+if (((i9 instanceof None))) {
+  return default_;
+} else if (((i9 instanceof Some))) {
+  var value = i9.value;
+return value;
+} else {
+  throw new Error('match failed to match in ?');
+}
+}());
+});
+var not_not_ = λ1(function not_not_(x){
+return Some__value(x);
+});
+function Bag(size, empty, fold, join, filter){
+this.size = size;
+this.empty = empty;
+this.fold = fold;
+this.join = join;
+this.filter = filter;
+}
+function Map(Bag, at, keyp_, put, delete_, fold__keys){
+this.Bag = Bag;
+this.at = at;
+this['key?'] = keyp_;
+this.put = put;
+this['delete'] = delete_;
+this['fold-keys'] = fold__keys;
+}
+function Appendable(and_){
+this['&'] = and_;
+}
+function Set(Bag, Appendable, elemp_, remove){
+this.Bag = Bag;
+this.Appendable = Appendable;
+this['elem?'] = elemp_;
+this.remove = remove;
+}
+function Seq(Map, Appendable, first, rest, take, drop){
+this.Map = Map;
+this.Appendable = Appendable;
+this.first = first;
+this.rest = rest;
+this.take = take;
+this.drop = drop;
+}
+function Deq(Seq, and_and_, but__last, last){
+this.Seq = Seq;
+this['&&'] = and_and_;
+this['but-last'] = but__last;
+this.last = last;
+}
+function Mappable(map){
+this.map = map;
+}
+function Zippable(zip){
+this.zip = zip;
+}
+var zip__3 = λ5(function zip__3(_Zippable_1, with_, first, second, third){
+return _Zippable_1.zip(λ1(function (_tuple){
+return uncurry(with_, _tuple);
+}), _Zippable_1.zip(tuple, first, second), third);
+});
+var set__appendable = new Appendable(λ2(function set__appendable_and_(what, to){
+return to.add(what);
+}));
+var set__bag = new Bag(λ1(function set__bag_size(set){
+return set.size;
+}), Immutable.Set.of(), λ3(function set__bag_fold(with_, initial, set){
+return set.reduce(function (acc, x){
+return _2(with_, x, acc);
+}, initial);
+}), λ2(function set__bag_join(what, with_){
+return what.concat(with_);
+}), λ2(function set__bag_filter(with_, what){
+return what.filter(with_);
+}));
+var set__set = function (_Eq_1){
+return new Set(set__bag, set__appendable, λ2(function set__set_elemp_(what, in_){
+return in_.contains(what);
+}), λ2(function set__set_remove(what, from){
+return from.remove(what);
+}));
+};
+var set__mappable = new Mappable(λ2(function set__mappable_map(what, over){
+return over.map(what);
+}));
+var reduce__map = λ3(function reduce__map(with_, initial, over){
+return over.reduce(with_, initial);
+});
+var map__bag = new Bag(λ1(function map__bag_size(map){
+return map.size;
+}), Immutable.Map([]), λ3(function map__bag_fold(with_, initial, over){
+var pass__key = λ3(function pass__key(folded, value, key){
+return _2(with_, value, folded);
+});
+return over.reduce(pass__key, initial);
+}), λ2(function map__bag_join(what, with_){
+return what.concat(with_);
+}), λ2(function map__bag_filter(with_, what){
+return what.filter(with_);
+}));
+null
+var map__map = new Map(map__bag, λ2(function map__map_at(index, in_){
+return (function (){
+if (is__null__or__undefined(in_.get(index))) {
+  return None._value;
+} else if (true) {
+  return Some._value(in_.get(index));
+} else {
+  throw new Error('cond failed to match in map-map_at');
+}
+}());
+}), λ2(function map__map_keyp_(what, in_){
+return in_.has(what);
+}), λ3(function map__map_put(at, what, in_){
+return in_.set(at, what);
+}), λ2(function map__map_delete(key, from){
+return from.remove(key);
+}), λ3(function map__map_fold__keys(with_, initial, over){
+var pass__key = λ3(function pass__key(folded, value, key){
+return _2(with_, key, folded);
+});
+return over.reduce(pass__key, initial);
+}));
+var map__mappable = new Mappable(λ2(function map__mappable_map(what, onto){
+var helper = λ4(function helper(_Map_1, acc, value, key){
+return _Map_1.put(key, _1(what, value), acc);
+});
+return onto.reduce(λ3(function (acc, value, key){
+return helper(map__map, acc, value, key);
+}), Immutable.Map([]));
+}));
+var map__appendable = new Appendable(λ2(function map__appendable_and_(pair, to){
+return map__map.put(fst(pair), snd(pair), to);
+}));
+var array__bag = new Bag(λ1(function array__bag_size(list){
+return list.size;
+}), Immutable.List.of(), λ3(function array__bag_fold(with_, initial, list){
+return list.reduce(function (acc, x){
+return _2(with_, x, acc);
+}, initial);
+}), λ2(function array__bag_join(what, with_){
+return what.concat(with_);
+}), λ2(function array__bag_filter(with_, what){
+return what.filter(with_);
+}));
+var array__appendable = new Appendable(λ2(function array__appendable_and_(what, to){
+return to.unshift(what);
+}));
+var array__mappable = new Mappable(λ2(function array__mappable_map(what, over){
+return over.map(what);
+}));
+var array__zippable = new Zippable(λ3(function array__zippable_zip(with_, first, second){
+return first.zipWith(fix__arity__2(with_), second);
+}));
+var array__map = new Map(array__bag, λ2(function array__map_at(index, in_){
+return (function (){
+if (is__null__or__undefined(in_.get(index))) {
+  return None._value;
+} else if (true) {
+  return Some._value(in_.get(index));
+} else {
+  throw new Error('cond failed to match in array-map_at');
+}
+}());
+}), λ2(function array__map_keyp_(what, in_){
+return in_.has(what);
+}), λ3(function array__map_put(at, what, in_){
+return in_.set(at, what);
+}), λ2(function array__map_delete(key, from){
+return from.remove(key);
+}), λ3(function array__map_fold__keys(with_, initial, over){
+return array__bag.fold(with_, initial, range(0, array__bag.size(over)));
+}));
+var array__seq = new Seq(array__map, array__appendable, λ1(function array__seq_first(list){
+return (function (){
+if (is__null__or__undefined(list.first())) {
+  return None._value;
+} else if (true) {
+  return Some._value(list.first());
+} else {
+  throw new Error('cond failed to match in array-seq_first');
+}
+}());
+}), λ1(function array__seq_rest(list){
+return list.rest();
+}), λ2(function array__seq_take(n, from){
+return from.take(n);
+}), λ2(function array__seq_drop(n, from){
+return from.skip(n);
+}));
+var array__deq = new Deq(array__seq, λ2(function array__deq_and_and_(what, to){
+return to.push(what);
+}), λ1(function array__deq_but__last(list){
+return list.butLast();
+}), λ1(function array__deq_last(list){
+return (function (){
+if (is__null__or__undefined(list.last())) {
+  return None._value;
+} else if (true) {
+  return Some._value(list.last());
+} else {
+  throw new Error('cond failed to match in array-deq_last');
+}
+}());
+}));
+var list__bag = new Bag(λ1(function list__bag_size(list){
+return list.size;
+}), Immutable.Stack.of(), λ3(function list__bag_fold(with_, initial, set){
+return set.reduce(function (acc, x){
+return _2(with_, x, acc);
+}, initial);
+}), λ2(function list__bag_join(what, with_){
+return what.concat(with_);
+}), λ2(function list__bag_filter(with_, what){
+return what.filter(with_);
+}));
+var list__appendable = new Appendable(λ2(function list__appendable_and_(what, to){
+return to.unshift(what);
+}));
+var list__mappable = new Mappable(λ2(function list__mappable_map(what, over){
+return over.map(what);
+}));
+var list__zippable = new Zippable(λ3(function list__zippable_zip(with_, first, second){
+return first.zipWith(with_, second);
+}));
+var list__map = new Map(list__bag, λ2(function list__map_at(index, in_){
+return (function (){
+if (is__null__or__undefined(in_.get(index))) {
+  return None._value;
+} else if (true) {
+  return Some._value(in_.get(index));
+} else {
+  throw new Error('cond failed to match in list-map_at');
+}
+}());
+}), λ2(function list__map_keyp_(what, in_){
+return in_.has(what);
+}), λ3(function list__map_put(at, what, in_){
+return in_.toList().set(at, what).toStack();
+}), λ2(function list__map_delete(key, from){
+return from.toList().remove(key).toStack();
+}), λ3(function list__map_fold__keys(with_, initial, over){
+return array__bag.fold(with_, initial, range(0, list__bag.size(over)));
+}));
+var list__seq = new Seq(list__map, list__appendable, λ1(function list__seq_first(list){
+return (function (){
+if (is__null__or__undefined(list.first())) {
+  return None._value;
+} else if (true) {
+  return Some._value(list.first());
+} else {
+  throw new Error('cond failed to match in list-seq_first');
+}
+}());
+}), λ1(function list__seq_rest(list){
+return list.rest();
+}), λ2(function list__seq_take(n, from){
+return from.take(n);
+}), λ2(function list__seq_drop(n, from){
+return from.skip(n);
+}));
+var list__deq = new Deq(list__seq, λ2(function list__deq_and_and_(what, to){
+return to.toList().push(what).toStack();
+}), λ1(function list__deq_but__last(list){
+return list.butLast();
+}), λ1(function list__deq_last(list){
+return (function (){
+if (is__null__or__undefined(list.last())) {
+  return None._value;
+} else if (true) {
+  return Some._value(list.last());
+} else {
+  throw new Error('cond failed to match in list-deq_last');
+}
+}());
+}));
+var chars = λ1(function chars(string){
+return Immutable.List(string.split(''));
+});
+var unchars = λ1(function unchars(chars){
+return chars.join('');
+});
+var reverse = λ3(function reverse(_Appendable_1, _Bag_1, what){
+return _Bag_1.fold(_Appendable_1['&'], _Bag_1.empty, what);
+});
+var string__appendable = new Appendable(λ2(function string__appendable_and_(what, to){
+return (what + to);
+}));
+var string__bag = new Bag(λ1(function string__bag_size(string){
+return string.length;
+}), "", λ3(function string__bag_fold(with_, initial, string){
+return array__bag.fold(with_, initial, Immutable.List(string.split('')));
+}), λ2(function string__bag_join(what, with_){
+return (what + with_);
+}), λ2(function string__bag_filter(with_, what){
+return array__bag.filter(with_, Immutable.List(what.split(''))).join('');
+}));
+var string__map = new Map(string__bag, λ2(function string__map_at(index, in_){
+return (function (){
+if (is__null__or__undefined(in_.charAt(index))) {
+  return None._value;
+} else if (true) {
+  return Some._value(in_.charAt(index));
+} else {
+  throw new Error('cond failed to match in string-map_at');
+}
+}());
+}), λ2(function string__map_keyp_(what, in_){
+return (gt_eq_(num__ord, 0, what) && lt_(num__ord, string__bag.size(in_), what));
+}), λ3(function string__map_put(at, what, in_){
+return in_.toList().set(at, what).toStack();
+}), λ2(function string__map_delete(key, from){
+return from.toList().remove(key).toStack();
+}), λ3(function string__map_fold__keys(with_, initial, over){
+return array__bag.fold(with_, initial, range(0, string__bag.size(over)));
+}));
+var string__seq = new Seq(string__map, string__appendable, λ1(function string__seq_first(string){
+return string__map.at(0, string);
+}), λ1(function string__seq_rest(list){
+return string__seq.drop(1, list);
+}), λ2(function string__seq_take(n, from){
+return from.slice(0, n);
+}), λ2(function string__seq_drop(n, from){
+return from.slice(n);
+}));
+var string__deq = new Deq(string__seq, λ2(function string__deq_and_and_(what, to){
+return (to + what);
+}), λ1(function string__deq_but__last(string){
+return string__seq.take((string__bag.size(string) - 1), string);
+}), λ1(function string__deq_last(string){
+return string__map.at((string__bag.size(string) - 1), string);
+}));
+var array__to__set = λ1(function array__to__set(collection){
+return collection.toSet();
+});
+var to__set = λ2(function to__set(_Bag_1, collection){
+return _Bag_1.fold(array__deq['&&'], Immutable.List.of(), collection).toSet();
+});
+var slice = λ4(function slice(_Seq_1, from, to, of){
+return _Seq_1.take((to - from), _Seq_1.drop(from, of));
+});
+var sub__seq = λ4(function sub__seq(_Seq_1, from, n, of){
+return _Seq_1.take(n, _Seq_1.drop(from, of));
+});
+var concat = λ3(function concat(_Bag_1, _Bag_2, bag__of__bags){
+return _Bag_1.fold(λ2(function (_x, _y){
+return flip(_Bag_2.join, _x, _y);
+}), _Bag_2.empty, bag__of__bags);
+});
+var emptyp_ = λ2(function emptyp_(_Bag_1, collection){
+return num__eq['='](0, _Bag_1.size(collection));
+});
+var not__elemp_ = λ3(function not__elemp_(_Set_1, what, in_){
+return !_Set_1['elem?'](what, in_);
+});
+var element__array = λ1(function element__array(set){
+return set.toList();
+});
+var value__array = λ1(function value__array(map){
+return map.toList();
+});
+var entry__array = λ1(function entry__array(map){
+return map.entrySeq().toList();
+});
+var concat__map = λ5(function concat__map(_Bag_1, _Bag_2, _Mappable_1, what, over){
+return concat(_Bag_1, _Bag_2, _Mappable_1.map(what, over));
+});
+var repeat = λ2(function repeat(times, what){
+return array__mappable.map(λ1(function (_y){
+return const_(what, _y);
+}), range(0, times));
+});
+var concat__with = λ4(function concat__with(_Bag_1, _Bag_2, with_, what){
+var join__with = λ2(function join__with(x, maybe__joined){
+return Some._value((function (){
+var i10 = maybe__joined;
+if (((i10 instanceof None))) {
+  return x;
+} else if (((i10 instanceof Some))) {
+  var joined = i10.value;
+return concat(array__bag, _Bag_2, Immutable.List.of(joined, with_, x));
+} else {
+  throw new Error('match failed to match in join-with');
+}
+}()));
+});
+return from__p_(_Bag_2.empty, _Bag_1.fold(join__with, None._value, what));
+});
+var map__into = λ6(function map__into(_Appendable_1, _Appendable_2, _Bag_1, what, into, over){
+var append = λ3(function append(_Appendable_1, x, to){
+return _Appendable_1['&'](_1(what, x), to);
+});
+return _Bag_1.fold(λ2(function (x, to){
+return append(_Appendable_1, x, to);
+}), into, reverse(_Appendable_2, _Bag_1, over));
+});
+var zip__into = λ7(function zip__into(_Appendable_1, _Seq_1, _Seq_2, with_, into, left, right){
+return (function (){
+if ((emptyp_(_Seq_1.Map.Bag, left) || emptyp_(_Seq_2.Map.Bag, right))) {
+  return into;
+} else if (true) {
+  return _Appendable_1['&'](_2(with_, not_not_(_Seq_1.first(left)), not_not_(_Seq_2.first(right))), zip__into(_Appendable_1, _Seq_1, _Seq_2, with_, into, _Seq_1.rest(left), _Seq_2.rest(right)));
+} else {
+  throw new Error('cond failed to match in zip-into');
+}
+}());
+});
+var parse__int = λ1(function parse__int(string){
+return window.parseInt(string);
+});
+var num__to__string = λ1(function num__to__string(n){
+return ("" + n + "");
+});
+var combine = λ4(function combine(_Bag_1, _Mappable_1, first, second){
+return concat__map(_Bag_1, array__bag, _Mappable_1, λ1(function (_second){
+return array__zippable.zip(tuple, first, _second);
+}), _Mappable_1.map(λ1(function (_what){
+return repeat(array__bag.size(first), _what);
+}), second));
+});
+var unique = λ3(function unique(_Appendable_1, _Bag_1, bag){
+return set__bag.fold(_Appendable_1['&'], _Bag_1.empty, to__set(_Bag_1, bag));
+});
+var singleton = λ3(function singleton(_Appendable_1, _Bag_1, x){
+return _Appendable_1['&'](x, _Bag_1.empty);
+});
+var split = λ3(function split(_Appendable_1, _Bag_1, bag){
+var wrap = λ5(function wrap(_Deq_1, _Appendable_1, _Bag_1, x, all){
+return _Deq_1['&&'](singleton(_Appendable_1, _Bag_1, x), all);
+});
+return _Bag_1.fold(λ2(function (x, all){
+return wrap(array__deq, _Appendable_1, _Bag_1, x, all);
+}), Immutable.List.of(), bag);
+});
+var split__on = λ2(function split__on(separator, string){
+return Immutable.List(string.split(separator));
+});
+var fold__right = λ4(function fold__right(_Bag_1, with_, initial, over){
+var wrap = λ3(function wrap(x, r, acc){
+return _1(r, _2(with_, x, acc));
+});
+return _1(_Bag_1.fold(wrap, id, over), initial);
+});
+var reduce = λ3(function reduce(_Bag_1, with_, over){
+var helper = λ2(function helper(x, acc){
+return (function (){
+var i11 = acc;
+if (((i11 instanceof None))) {
+  return Some._value(x);
+} else if (((i11 instanceof Some))) {
+  var val = i11.value;
+return Some._value(_2(with_, x, val));
+} else {
+  throw new Error('match failed to match in helper');
+}
+}());
+});
+return _Bag_1.fold(helper, None._value, over);
+});
+var show__array = function (_Show_1){
+return new Show(λ1(function show__array_show(array){
+return ("{" + concat__with(array__bag, string__bag, " ", array__mappable.map(_Show_1.show, array)) + "}");
+}));
+};
+var show__list = function (_Show_1){
+return new Show(λ1(function show__list_show(list){
+return ("(List " + concat__with(list__bag, string__bag, " ", list__mappable.map(_Show_1.show, list)) + ")");
+}));
+};
+var show__set = function (_Show_1){
+return new Show(λ1(function show__set_show(set){
+return ("(Set " + concat__with(array__bag, string__bag, " ", array__mappable.map(_Show_1.show, set.toList())) + ")");
+}));
+};
+var show__map = function (_Show_1, _Show_2){
+return new Show(λ1(function show__map_show(mapping){
+var show__entry = λ3(function show__entry(_Show_1, _Show_2, entry){
+var i13 = entry;
+var key = i13[0];
+var value = i13[1];
+return ("" + _Show_1.show(key) + " " + _Show_2.show(value) + "");
+});
+return ("(Map " + concat__with(array__bag, string__bag, " ", array__mappable.map(λ1(function (entry){
+return show__entry(_Show_1, _Show_2, entry);
+}), mapping.entrySeq().toList())) + ")");
+}));
+};
+var sum = λ2(function sum(_Bag_1, _over){
+return _Bag_1.fold(plus_, 0, _over);
+});
+var product = λ2(function product(_Bag_1, _over){
+return _Bag_1.fold(times_, 1, _over);
+});
+var maximum = λ3(function maximum(_Bag_1, _Ord_1, _over){
+return reduce(_Bag_1, λ2(function (x, y){
+return max(_Ord_1, x, y);
+}), _over);
+});
+var minimum = λ3(function minimum(_Bag_1, _Ord_1, _over){
+return reduce(_Bag_1, λ2(function (x, y){
+return min(_Ord_1, x, y);
+}), _over);
+});
+var all = λ2(function all(_Bag_1, _over){
+return _Bag_1.fold(and, true, _over);
+});
+var any = λ2(function any(_Bag_1, _over){
+return _Bag_1.fold(or, false, _over);
+});
+var all__map = λ4(function all__map(_Bag_1, _Mappable_1, fun, list){
+return all(_Bag_1, _1(λ1(function (_onto){
+return _Mappable_1.map(fun, _onto);
+}), list));
+});
+var any__map = λ4(function any__map(_Bag_1, _Mappable_1, fun, list){
+return any(_Bag_1, _1(λ1(function (_onto){
+return _Mappable_1.map(fun, _onto);
+}), list));
+});
+var char__from__code = λ1(function char__from__code(x){
+return window.String.fromCharCode(x);
+});
+var code__from__char = λ1(function code__from__char(x){
+return x.charCodeAt(0);
+});
+var char__ord = new Ord(char__eq, λ2(function char__ord_lt_eq_(than, what){
+return num__ord['<='](code__from__char(than), code__from__char(what));
+}));
+var in__range = λ4(function in__range(_Ord_1, from, exlude__to, what){
+return (_Ord_1['<='](what, from) && lt_(_Ord_1, exlude__to, what));
+});
+var in__range__inclusively = λ4(function in__range__inclusively(_Ord_1, from, to, what){
+return (_Ord_1['<='](what, from) && _Ord_1['<='](to, what));
+});
+var scan = λ5(function scan(_Bag_1, _Deq_1, what, initial, over){
+var adder = λ3(function adder(_Deq_1, x, acc){
+var i15 = acc;
+var folded = i15[0];
+var scanned = i15[1];
+var next = _2(what, x, folded);
+return [next, _Deq_1['&&'](next, scanned)];
+});
+return snd(_Bag_1.fold(λ2(function (x, acc){
+return adder(_Deq_1, x, acc);
+}), [initial, _Deq_1['&&'](initial, _Deq_1.Seq.Map.Bag.empty)], over));
+});
+var scan__into = λ6(function scan__into(_Bag_1, _Deq_1, what, initial, into, over){
+var adder = λ3(function adder(_Deq_1, x, acc){
+var i17 = acc;
+var folded = i17[0];
+var scanned = i17[1];
+var next = _2(what, x, folded);
+return [next, _Deq_1['&&'](next, scanned)];
+});
+return snd(_Bag_1.fold(λ2(function (x, acc){
+return adder(_Deq_1, x, acc);
+}), [initial, _Deq_1['&&'](initial, into)], over));
+});
+var iterate = λ3(function iterate(what, initial, times){
+return array__seq.take(times, scan(array__bag, array__deq, λ1(function (_y){
+return const_(what, _y);
+}), initial, range(0, (times - 1))));
+});
+var until = λ3(function until(what, next, initial){
+return (function (){
+if (_1(what, initial)) {
+  return initial;
+} else if (true) {
+  return until(what, next, _1(next, initial));
+} else {
+  throw new Error('cond failed to match in until');
+}
+}());
+});
+var else_ = true;
+function Liftable(Mappable, lift, apply){
+this.Mappable = Mappable;
+this.lift = lift;
+this.apply = apply;
+}
+function Chainable(Liftable, chain){
+this.Liftable = Liftable;
+this.chain = chain;
+}
+var follow = λ3(function follow(_Chainable_1, first__wrapped, second__wrapped){
+return _Chainable_1.chain(first__wrapped, λ1(function (_){
+return second__wrapped;
+}));
+});
+null
+function Void(){}
+Void._value = new Void();
+function Io(content){
+this.content = content;
+}
+var Io__content = function Io__content(dict){
+if (dict instanceof Io) {
+  return dict.content;
+} else {
+  throw new Error('Expected Io, got ' + dict.constructor.name + ' instead in Io-content')
+}
+};
+Io._value = λ1(function (content){
+return new Io(content);
+});
+var run__io = λ1(function run__io(wrapped){
+return _0(Io__content(wrapped));
+});
+var exec__io = λ1(function exec__io(wrapped){
+return const_(Void._value, run__io(wrapped));
+});
+var chain__io = λ2(function chain__io(wrapped, through){
+return Io._value(λ0(function (){
+return run__io(_1(through, run__io(wrapped)));
+}));
+});
+var io__mappable = new Mappable(λ2(function io__mappable_map(what, onto){
+return chain__io(onto, λ1(function (x){
+return Io._value(λ0(function (){
+return _1(what, x);
+}));
+}));
+}));
+var io__liftable = new Liftable(io__mappable, λ1(function io__liftable_lift(x){
+return Io._value(λ0(function (){
+return x;
+}));
+}), λ2(function io__liftable_apply(what, to){
+return chain__io(what, λ1(function (unwrapped__what){
+return chain__io(to, λ1(function (unwrapped__to){
+return Io._value(λ0(function (){
+return _1(unwrapped__what, unwrapped__to);
+}));
+}));
+}));
+}));
+var io__chainable = new Chainable(io__liftable, chain__io);
+null
+var random = Io._value(λ0(function (){
+return window.Math.random();
+}));
+var random__int = λ2(function random__int(from, exclude__to){
+return io__chainable.chain(random, λ1(function (r){
+return io__liftable.lift(Math.floor((from + ((exclude__to - from) * r))));
+}));
+});
+var map__2 = λ3(function map__2(_Mappable_1, what, over){
+return _Mappable_1.map(λ1(function (_over){
+return map__tuple(what, _over);
+}), over);
+});
+var key__set = λ2(function key__set(_Map_1, map){
+return _Map_1['fold-keys'](set__appendable['&'], Immutable.Set.of(), map);
+});
+return {"plus_": plus_, "__": __, "times_": times_, "over_": over_, "div": div, "mod": mod, "rem": rem, "neg_": neg_, "sqrt": sqrt, "pow_": pow_, "sin": sin, "cos": cos, "ln": ln, "round": round, "floor": floor, "ceil": ceil, "abs": abs, "and": and, "or": or, "not": not, "if_": if_, "Eq": Eq, "not_eq_": not_eq_, "bool__eq": bool__eq, "num__eq": num__eq, "char__eq": char__eq, "string__eq": string__eq, "Ord": Ord, "lt_": lt_, "gt_": gt_, "gt_eq_": gt_eq_, "max": max, "min": min, "num__ord": num__ord, "Show": Show, "show__boolean": show__boolean, "show__num": show__num, "show__string": show__string, "show__char": show__char, "show__pair": show__pair, "evenp_": evenp_, "oddp_": oddp_, "divisiblep_": divisiblep_, "id": id, "const_": const_, "dot_": dot_, "apply__1": apply__1, "apply__2": apply__2, "fix__arity__2": fix__arity__2, "flip": flip, "fst": fst, "snd": snd, "tuple": tuple, "curry": curry, "uncurry": uncurry, "range": range, "range__by": range__by, "map__tuple": map__tuple, "map__2": map__2, "tuplize": tuplize, "math__pi": math__pi, "radians": radians, "degrees": degrees, "None": None, "Some": Some, "Some__value": Some__value, "from__p_": from__p_, "p_": p_, "not_not_": not_not_, "Bag": Bag, "Map": Map, "key__set": key__set, "Appendable": Appendable, "Set": Set, "Seq": Seq, "Deq": Deq, "Mappable": Mappable, "Zippable": Zippable, "zip__3": zip__3, "set__appendable": set__appendable, "set__bag": set__bag, "set__set": set__set, "set__mappable": set__mappable, "reduce__map": reduce__map, "map__bag": map__bag, "map__map": map__map, "map__mappable": map__mappable, "map__appendable": map__appendable, "array__bag": array__bag, "array__appendable": array__appendable, "array__mappable": array__mappable, "array__zippable": array__zippable, "array__map": array__map, "array__seq": array__seq, "array__deq": array__deq, "list__bag": list__bag, "list__appendable": list__appendable, "list__mappable": list__mappable, "list__zippable": list__zippable, "list__map": list__map, "list__seq": list__seq, "list__deq": list__deq, "chars": chars, "unchars": unchars, "reverse": reverse, "string__appendable": string__appendable, "string__bag": string__bag, "string__map": string__map, "string__seq": string__seq, "string__deq": string__deq, "array__to__set": array__to__set, "to__set": to__set, "slice": slice, "sub__seq": sub__seq, "concat": concat, "emptyp_": emptyp_, "not__elemp_": not__elemp_, "element__array": element__array, "value__array": value__array, "entry__array": entry__array, "concat__map": concat__map, "repeat": repeat, "concat__with": concat__with, "map__into": map__into, "zip__into": zip__into, "parse__int": parse__int, "num__to__string": num__to__string, "combine": combine, "unique": unique, "singleton": singleton, "split": split, "split__on": split__on, "fold__right": fold__right, "reduce": reduce, "show__array": show__array, "show__list": show__list, "show__set": show__set, "show__map": show__map, "sum": sum, "product": product, "maximum": maximum, "minimum": minimum, "all": all, "any": any, "all__map": all__map, "any__map": any__map, "char__from__code": char__from__code, "code__from__char": code__from__char, "char__ord": char__ord, "in__range": in__range, "in__range__inclusively": in__range__inclusively, "scan": scan, "scan__into": scan__into, "iterate": iterate, "until": until, "else_": else_, "Liftable": Liftable, "Chainable": Chainable, "follow": follow, "Void": Void, "Io": Io, "Io__content": Io__content, "run__io": run__io, "exec__io": exec__io, "chain__io": chain__io, "io__mappable": io__mappable, "io__liftable": io__liftable, "io__chainable": io__chainable, "random": random, "random__int": random__int};
+}());
+var Topologies = (function (){
+'use strict'
+var plus_ = Prelude.plus_;
+var __ = Prelude.__;
+var times_ = Prelude.times_;
+var over_ = Prelude.over_;
+var div = Prelude.div;
+var mod = Prelude.mod;
+var rem = Prelude.rem;
+var neg_ = Prelude.neg_;
+var sqrt = Prelude.sqrt;
+var pow_ = Prelude.pow_;
+var sin = Prelude.sin;
+var cos = Prelude.cos;
+var ln = Prelude.ln;
+var round = Prelude.round;
+var floor = Prelude.floor;
+var ceil = Prelude.ceil;
+var abs = Prelude.abs;
+var and = Prelude.and;
+var or = Prelude.or;
+var not = Prelude.not;
+var if_ = Prelude.if_;
+var eq_ = Prelude.eq_;
+var Eq = Prelude.Eq;
+var not_eq_ = Prelude.not_eq_;
+var bool__eq = Prelude.bool__eq;
+var num__eq = Prelude.num__eq;
+var char__eq = Prelude.char__eq;
+var string__eq = Prelude.string__eq;
+var lt_eq_ = Prelude.lt_eq_;
+var Ord = Prelude.Ord;
+var lt_ = Prelude.lt_;
+var gt_ = Prelude.gt_;
+var gt_eq_ = Prelude.gt_eq_;
+var max = Prelude.max;
+var min = Prelude.min;
+var num__ord = Prelude.num__ord;
+var show = Prelude.show;
+var Show = Prelude.Show;
+var show__boolean = Prelude.show__boolean;
+var show__num = Prelude.show__num;
+var show__string = Prelude.show__string;
+var show__char = Prelude.show__char;
+var show__pair = Prelude.show__pair;
+var evenp_ = Prelude.evenp_;
+var oddp_ = Prelude.oddp_;
+var divisiblep_ = Prelude.divisiblep_;
+var id = Prelude.id;
+var const_ = Prelude.const_;
+var dot_ = Prelude.dot_;
+var apply__1 = Prelude.apply__1;
+var apply__2 = Prelude.apply__2;
+var fix__arity__2 = Prelude.fix__arity__2;
+var flip = Prelude.flip;
+var fst = Prelude.fst;
+var snd = Prelude.snd;
+var tuple = Prelude.tuple;
+var curry = Prelude.curry;
+var uncurry = Prelude.uncurry;
+var range = Prelude.range;
+var range__by = Prelude.range__by;
+var map__tuple = Prelude.map__tuple;
+var map__2 = Prelude.map__2;
+var tuplize = Prelude.tuplize;
+var math__pi = Prelude.math__pi;
+var radians = Prelude.radians;
+var degrees = Prelude.degrees;
+var None = Prelude.None;
+var Some = Prelude.Some;
+var Some__value = Prelude.Some__value;
+var from__p_ = Prelude.from__p_;
+var p_ = Prelude.p_;
+var not_not_ = Prelude.not_not_;
+var size = Prelude.size;
+var empty = Prelude.empty;
+var fold = Prelude.fold;
+var join = Prelude.join;
+var filter = Prelude.filter;
+var Bag = Prelude.Bag;
+var at = Prelude.at;
+var keyp_ = Prelude.keyp_;
+var put = Prelude.put;
+var delete_ = Prelude.delete_;
+var fold__keys = Prelude.fold__keys;
+var Map = Prelude.Map;
+var key__set = Prelude.key__set;
+var and_ = Prelude.and_;
+var Appendable = Prelude.Appendable;
+var elemp_ = Prelude.elemp_;
+var remove = Prelude.remove;
+var Set = Prelude.Set;
+var first = Prelude.first;
+var rest = Prelude.rest;
+var take = Prelude.take;
+var drop = Prelude.drop;
+var Seq = Prelude.Seq;
+var and_and_ = Prelude.and_and_;
+var but__last = Prelude.but__last;
+var last = Prelude.last;
+var Deq = Prelude.Deq;
+var map = Prelude.map;
+var Mappable = Prelude.Mappable;
+var zip = Prelude.zip;
+var Zippable = Prelude.Zippable;
+var zip__3 = Prelude.zip__3;
+var set__appendable = Prelude.set__appendable;
+var set__bag = Prelude.set__bag;
+var set__set = Prelude.set__set;
+var set__mappable = Prelude.set__mappable;
+var reduce__map = Prelude.reduce__map;
+var map__bag = Prelude.map__bag;
+var map__map = Prelude.map__map;
+var map__mappable = Prelude.map__mappable;
+var map__appendable = Prelude.map__appendable;
+var array__bag = Prelude.array__bag;
+var array__appendable = Prelude.array__appendable;
+var array__mappable = Prelude.array__mappable;
+var array__zippable = Prelude.array__zippable;
+var array__map = Prelude.array__map;
+var array__seq = Prelude.array__seq;
+var array__deq = Prelude.array__deq;
+var list__bag = Prelude.list__bag;
+var list__appendable = Prelude.list__appendable;
+var list__mappable = Prelude.list__mappable;
+var list__zippable = Prelude.list__zippable;
+var list__map = Prelude.list__map;
+var list__seq = Prelude.list__seq;
+var list__deq = Prelude.list__deq;
+var chars = Prelude.chars;
+var unchars = Prelude.unchars;
+var reverse = Prelude.reverse;
+var string__appendable = Prelude.string__appendable;
+var string__bag = Prelude.string__bag;
+var string__map = Prelude.string__map;
+var string__seq = Prelude.string__seq;
+var string__deq = Prelude.string__deq;
+var array__to__set = Prelude.array__to__set;
+var to__set = Prelude.to__set;
+var slice = Prelude.slice;
+var sub__seq = Prelude.sub__seq;
+var concat = Prelude.concat;
+var emptyp_ = Prelude.emptyp_;
+var not__elemp_ = Prelude.not__elemp_;
+var element__array = Prelude.element__array;
+var value__array = Prelude.value__array;
+var entry__array = Prelude.entry__array;
+var concat__map = Prelude.concat__map;
+var repeat = Prelude.repeat;
+var concat__with = Prelude.concat__with;
+var map__into = Prelude.map__into;
+var zip__into = Prelude.zip__into;
+var parse__int = Prelude.parse__int;
+var num__to__string = Prelude.num__to__string;
+var combine = Prelude.combine;
+var unique = Prelude.unique;
+var singleton = Prelude.singleton;
+var split = Prelude.split;
+var split__on = Prelude.split__on;
+var fold__right = Prelude.fold__right;
+var reduce = Prelude.reduce;
+var show__array = Prelude.show__array;
+var show__list = Prelude.show__list;
+var show__set = Prelude.show__set;
+var show__map = Prelude.show__map;
+var sum = Prelude.sum;
+var product = Prelude.product;
+var maximum = Prelude.maximum;
+var minimum = Prelude.minimum;
+var all = Prelude.all;
+var any = Prelude.any;
+var all__map = Prelude.all__map;
+var any__map = Prelude.any__map;
+var char__from__code = Prelude.char__from__code;
+var code__from__char = Prelude.code__from__char;
+var char__ord = Prelude.char__ord;
+var in__range = Prelude.in__range;
+var in__range__inclusively = Prelude.in__range__inclusively;
+var scan = Prelude.scan;
+var scan__into = Prelude.scan__into;
+var iterate = Prelude.iterate;
+var until = Prelude.until;
+var else_ = Prelude.else_;
+var lift = Prelude.lift;
+var apply = Prelude.apply;
+var Liftable = Prelude.Liftable;
+var chain = Prelude.chain;
+var Chainable = Prelude.Chainable;
+var follow = Prelude.follow;
+var Void = Prelude.Void;
+var Io = Prelude.Io;
+var Io__content = Prelude.Io__content;
+var run__io = Prelude.run__io;
+var exec__io = Prelude.exec__io;
+var chain__io = Prelude.chain__io;
+var io__mappable = Prelude.io__mappable;
+var io__liftable = Prelude.io__liftable;
+var io__chainable = Prelude.io__chainable;
+var random = Prelude.random;
+var random__int = Prelude.random__int;
+var square__points = λ2(function square__points(center, edge__size){
+var i5 = center;
+var cx = i5[0];
+var cy = i5[1];
+var h = (edge__size / 2);
+return Immutable.List.of([(cx - h), (cy - h)], [(h + cx), (cy - h)], [(h + cx), (h + cy)], [(cx - h), (h + cy)]);
+});
+var plus_plus_ = λ2(function plus_plus_(a, b){
+var i8 = a;
+var ax = i8[0];
+var ay = i8[1];
+var i9 = b;
+var bx = i9[0];
+var by = i9[1];
+return [(ax + bx), (ay + by)];
+});
+var white__line = λ2(function white__line(from, to){
+return [from, to, [1, 1, 1]];
+});
+var css__color = λ1(function css__color(color){
+var i17 = color;
+var r = i17[0];
+var g = i17[1];
+var b = i17[2];
+var byte_ = λ1(function byte_(_y){
+return (255 * _y);
+});
+return ("rgb(" + ~~byte_(r) + ", " + ~~byte_(g) + ", " + ~~byte_(b) + ")");
+});
+var tag = λ3(function tag(tag__name, attrs, content){
+var attr = λ2(function attr(name, value){
+return (" " + name + "=\"" + value + "\"");
+});
+return ("<" + tag__name + "" + concat__map(array__bag, string__bag, array__mappable, λ1(function (_tuple){
+return uncurry(attr, _tuple);
+}), attrs.entrySeq().toList()) + ">" + content + "</" + tag__name + ">");
+});
+var cube__grid = λ1(function cube__grid(edge__count){
+return canvas(array__bag, concat__map(array__bag, array__bag, array__mappable, λ1(function (_center){
+return cube(_center, 40);
+}), _1(λ1(function (_tuple){
+return uncurry(λ2(function (first, second){
+return combine(array__bag, array__mappable, first, second);
+}), _tuple);
+}), tuplize(array__mappable.map(λ1(function (_y){
+return (40 * _y);
+}), range(2, (2 + edge__count)))))));
+});
+var cube = λ2(function cube(center, edge__size){
+var i21 = center;
+var cx = i21[0];
+var cy = i21[1];
+var q = (edge__size / 4);
+var centers = Immutable.List.of([(cx - q), (q + cy)], [(q + cx), (cy - q)]);
+var i23 = array__mappable.map(λ1(function (_center){
+return square__points(_center, edge__size);
+}), centers);
+var front = seq_at(0, i23);
+var back = seq_at(1, i23);
+return array__mappable.map(svg__line, array__bag.join(concat__map(array__bag, array__bag, array__mappable, λ1(function (points){
+return line__seq(array__zippable, array__deq, points);
+}), Immutable.List.of(front, back)), array__zippable.zip(white__line, front, back)));
+});
+var grid = λ1(function grid(edge__count){
+return canvas(array__bag, concat__map(array__bag, array__bag, array__mappable, λ1(function (_center){
+return square(_center, 40);
+}), grid__points([30, 30], 30, 4)));
+});
+var square = λ2(function square(center, edge__size){
+return array__mappable.map(svg__line, line__seq(array__zippable, array__deq, square__points(center, edge__size)));
+});
+var grid__points = λ3(function grid__points(from, edge__size, count){
+return array__mappable.map(λ1(function (_b){
+return plus_plus_(from, _b);
+}), _1(λ1(function (_tuple){
+return uncurry(λ2(function (first, second){
+return combine(array__bag, array__mappable, first, second);
+}), _tuple);
+}), tuplize(array__mappable.map(λ1(function (_y){
+return (edge__size * _y);
+}), range(0, count)))));
+});
+var line__seq = λ3(function line__seq(_Zippable_1, _Deq_1, points){
+return connect(_Zippable_1, _Deq_1, _Deq_1['&&'](not_not_(_Deq_1.Seq.first(points)), points));
+});
+var connect = λ3(function connect(_Zippable_1, _Deq_1, points){
+return _Zippable_1.zip(white__line, _Deq_1['but-last'](points), _Deq_1.Seq.rest(points));
+});
+var canvas = λ2(function canvas(_Bag_1, contents){
+return tag("svg", Immutable.Map([["width", "500"], ["height", "500"]]), concat(_Bag_1, string__bag, contents));
+});
+var svg__line = λ1(function svg__line(line){
+var i27 = line;
+var i28 = i27[0];
+var x1 = i28[0];
+var y1 = i28[1];
+var i29 = i27[1];
+var x2 = i29[0];
+var y2 = i29[1];
+var color = i27[2];
+var x = λ1(function x(x){
+return ("" + ~~x + "");
+});
+var y = λ1(function y(x){
+return ("" + ~~x + "");
+});
+return tag("line", Immutable.Map([["x1", x(x1)], ["y1", y(y1)], ["x2", x(x2)], ["y2", y(y2)], ["stroke", css__color(color)], ["stroke-width", "1"]]), "");
+});
+return {"cube__grid": cube__grid, "cube": cube, "grid": grid, "square": square, "square__points": square__points, "grid__points": grid__points, "plus_plus_": plus_plus_, "line__seq": line__seq, "connect": connect, "white__line": white__line, "canvas": canvas, "svg__line": svg__line, "css__color": css__color, "tag": tag};
+}());
+;
+
+window.test = function(){
+console.log(function (){
+'use strict;'
+var plus_ = Prelude.plus_;
+var __ = Prelude.__;
+var times_ = Prelude.times_;
+var over_ = Prelude.over_;
+var div = Prelude.div;
+var mod = Prelude.mod;
+var rem = Prelude.rem;
+var neg_ = Prelude.neg_;
+var sqrt = Prelude.sqrt;
+var pow_ = Prelude.pow_;
+var sin = Prelude.sin;
+var cos = Prelude.cos;
+var ln = Prelude.ln;
+var round = Prelude.round;
+var floor = Prelude.floor;
+var ceil = Prelude.ceil;
+var abs = Prelude.abs;
+var and = Prelude.and;
+var or = Prelude.or;
+var not = Prelude.not;
+var if_ = Prelude.if_;
+var eq_ = Prelude.eq_;
+var Eq = Prelude.Eq;
+var not_eq_ = Prelude.not_eq_;
+var bool__eq = Prelude.bool__eq;
+var num__eq = Prelude.num__eq;
+var char__eq = Prelude.char__eq;
+var string__eq = Prelude.string__eq;
+var lt_eq_ = Prelude.lt_eq_;
+var Ord = Prelude.Ord;
+var lt_ = Prelude.lt_;
+var gt_ = Prelude.gt_;
+var gt_eq_ = Prelude.gt_eq_;
+var max = Prelude.max;
+var min = Prelude.min;
+var num__ord = Prelude.num__ord;
+var show = Prelude.show;
+var Show = Prelude.Show;
+var show__boolean = Prelude.show__boolean;
+var show__num = Prelude.show__num;
+var show__string = Prelude.show__string;
+var show__char = Prelude.show__char;
+var show__pair = Prelude.show__pair;
+var evenp_ = Prelude.evenp_;
+var oddp_ = Prelude.oddp_;
+var divisiblep_ = Prelude.divisiblep_;
+var id = Prelude.id;
+var const_ = Prelude.const_;
+var dot_ = Prelude.dot_;
+var apply__1 = Prelude.apply__1;
+var apply__2 = Prelude.apply__2;
+var fix__arity__2 = Prelude.fix__arity__2;
+var flip = Prelude.flip;
+var fst = Prelude.fst;
+var snd = Prelude.snd;
+var tuple = Prelude.tuple;
+var curry = Prelude.curry;
+var uncurry = Prelude.uncurry;
+var range = Prelude.range;
+var range__by = Prelude.range__by;
+var map__tuple = Prelude.map__tuple;
+var map__2 = Prelude.map__2;
+var tuplize = Prelude.tuplize;
+var math__pi = Prelude.math__pi;
+var radians = Prelude.radians;
+var degrees = Prelude.degrees;
+var None = Prelude.None;
+var Some = Prelude.Some;
+var Some__value = Prelude.Some__value;
+var from__p_ = Prelude.from__p_;
+var p_ = Prelude.p_;
+var not_not_ = Prelude.not_not_;
+var size = Prelude.size;
+var empty = Prelude.empty;
+var fold = Prelude.fold;
+var join = Prelude.join;
+var filter = Prelude.filter;
+var Bag = Prelude.Bag;
+var at = Prelude.at;
+var keyp_ = Prelude.keyp_;
+var put = Prelude.put;
+var delete_ = Prelude.delete_;
+var fold__keys = Prelude.fold__keys;
+var Map = Prelude.Map;
+var key__set = Prelude.key__set;
+var and_ = Prelude.and_;
+var Appendable = Prelude.Appendable;
+var elemp_ = Prelude.elemp_;
+var remove = Prelude.remove;
+var Set = Prelude.Set;
+var first = Prelude.first;
+var rest = Prelude.rest;
+var take = Prelude.take;
+var drop = Prelude.drop;
+var Seq = Prelude.Seq;
+var and_and_ = Prelude.and_and_;
+var but__last = Prelude.but__last;
+var last = Prelude.last;
+var Deq = Prelude.Deq;
+var map = Prelude.map;
+var Mappable = Prelude.Mappable;
+var zip = Prelude.zip;
+var Zippable = Prelude.Zippable;
+var zip__3 = Prelude.zip__3;
+var set__appendable = Prelude.set__appendable;
+var set__bag = Prelude.set__bag;
+var set__set = Prelude.set__set;
+var set__mappable = Prelude.set__mappable;
+var reduce__map = Prelude.reduce__map;
+var map__bag = Prelude.map__bag;
+var map__map = Prelude.map__map;
+var map__mappable = Prelude.map__mappable;
+var map__appendable = Prelude.map__appendable;
+var array__bag = Prelude.array__bag;
+var array__appendable = Prelude.array__appendable;
+var array__mappable = Prelude.array__mappable;
+var array__zippable = Prelude.array__zippable;
+var array__map = Prelude.array__map;
+var array__seq = Prelude.array__seq;
+var array__deq = Prelude.array__deq;
+var list__bag = Prelude.list__bag;
+var list__appendable = Prelude.list__appendable;
+var list__mappable = Prelude.list__mappable;
+var list__zippable = Prelude.list__zippable;
+var list__map = Prelude.list__map;
+var list__seq = Prelude.list__seq;
+var list__deq = Prelude.list__deq;
+var chars = Prelude.chars;
+var unchars = Prelude.unchars;
+var reverse = Prelude.reverse;
+var string__appendable = Prelude.string__appendable;
+var string__bag = Prelude.string__bag;
+var string__map = Prelude.string__map;
+var string__seq = Prelude.string__seq;
+var string__deq = Prelude.string__deq;
+var array__to__set = Prelude.array__to__set;
+var to__set = Prelude.to__set;
+var slice = Prelude.slice;
+var sub__seq = Prelude.sub__seq;
+var concat = Prelude.concat;
+var emptyp_ = Prelude.emptyp_;
+var not__elemp_ = Prelude.not__elemp_;
+var element__array = Prelude.element__array;
+var value__array = Prelude.value__array;
+var entry__array = Prelude.entry__array;
+var concat__map = Prelude.concat__map;
+var repeat = Prelude.repeat;
+var concat__with = Prelude.concat__with;
+var map__into = Prelude.map__into;
+var zip__into = Prelude.zip__into;
+var parse__int = Prelude.parse__int;
+var num__to__string = Prelude.num__to__string;
+var combine = Prelude.combine;
+var unique = Prelude.unique;
+var singleton = Prelude.singleton;
+var split = Prelude.split;
+var split__on = Prelude.split__on;
+var fold__right = Prelude.fold__right;
+var reduce = Prelude.reduce;
+var show__array = Prelude.show__array;
+var show__list = Prelude.show__list;
+var show__set = Prelude.show__set;
+var show__map = Prelude.show__map;
+var sum = Prelude.sum;
+var product = Prelude.product;
+var maximum = Prelude.maximum;
+var minimum = Prelude.minimum;
+var all = Prelude.all;
+var any = Prelude.any;
+var all__map = Prelude.all__map;
+var any__map = Prelude.any__map;
+var char__from__code = Prelude.char__from__code;
+var code__from__char = Prelude.code__from__char;
+var char__ord = Prelude.char__ord;
+var in__range = Prelude.in__range;
+var in__range__inclusively = Prelude.in__range__inclusively;
+var scan = Prelude.scan;
+var scan__into = Prelude.scan__into;
+var iterate = Prelude.iterate;
+var until = Prelude.until;
+var else_ = Prelude.else_;
+var lift = Prelude.lift;
+var apply = Prelude.apply;
+var Liftable = Prelude.Liftable;
+var chain = Prelude.chain;
+var Chainable = Prelude.Chainable;
+var follow = Prelude.follow;
+var Void = Prelude.Void;
+var Io = Prelude.Io;
+var Io__content = Prelude.Io__content;
+var run__io = Prelude.run__io;
+var exec__io = Prelude.exec__io;
+var chain__io = Prelude.chain__io;
+var io__mappable = Prelude.io__mappable;
+var io__liftable = Prelude.io__liftable;
+var io__chainable = Prelude.io__chainable;
+var random = Prelude.random;
+var random__int = Prelude.random__int;
+var cube__grid = Topologies.cube__grid;
+var cube = Topologies.cube;
+var grid = Topologies.grid;
+var square = Topologies.square;
+var square__points = Topologies.square__points;
+var grid__points = Topologies.grid__points;
+var plus_plus_ = Topologies.plus_plus_;
+var line__seq = Topologies.line__seq;
+var connect = Topologies.connect;
+var white__line = Topologies.white__line;
+var canvas = Topologies.canvas;
+var svg__line = Topologies.svg__line;
+var css__color = Topologies.css__color;
+var tag = Topologies.tag;
+return cube__grid(12);
+}());
+};
+
+console.log("hey");
+  </script>
+   <button onclick="window.test()">Click me</button>
+</body>
+</html>
+
