@@ -2894,7 +2894,8 @@ nameCompile = (ctx, atom, symbol) ->
         (ctx.currentDeclarationId symbol) ? ctx.freshId()
       type = toConstrained withOrigin (ctx.freshTypeVariable star), atom
       # ctx.bindTypeVariables [type.type.name]
-      ctx.addToDefinedNames {name: symbol, id: id, type: type}
+      if symbol isnt '_' # Don't declare underscore
+        ctx.addToDefinedNames {name: symbol, id: id, type: type}
       type: type
       id: id
       pattern:
