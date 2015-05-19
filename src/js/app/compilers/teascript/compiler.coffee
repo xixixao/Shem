@@ -532,14 +532,6 @@ class Context
   isFinallyTyped: (name, scopeIndex) ->
     !!@finalType name, scopeIndex
 
-  declaredId: (name) ->
-    (@_declaration name)?.id
-
-  # TODO: use scope index instead and remove ids altogether
-  # Only valid for ids from current context, that is without module set
-  typeForId: (id) ->
-    @types[id]
-
   type: (name) ->
     (@_declaration name)?.type
 
@@ -1238,7 +1230,7 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
     to = ctx.definitionPattern()
     ctx.setAssignTo (irDefinition expression.tea, translatedExpression,
       {name: ctx.definitionName(), scopeIndex: ctx.currentScopeIndex()})
-    {precs, assigns} = patternCompile ctx, to, expression, polymorphic
+    {precs, assigns, isMalformed} = patternCompile ctx, to, expression, polymorphic
     translationCache = ctx.resetAssignTo()
 
     #log "ASSIGN #{ctx.definitionName()}", ctx.shouldDefer()
@@ -1246,6 +1238,7 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
       return deferCurrentDefinition ctx, expression
 
     return jsNoop() unless expression.tea
+    return jsNoop() if isMalformed
 
     if assigns.length is 0
       return malformed ctx, to, 'Not an assignable pattern'
@@ -1296,7 +1289,6 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
 
   # Properly bind types according to the pattern
   if pattern.tea
-    # log "pattern", matched.tea, pattern.tea
     unify ctx, matched.tea.type, pattern.tea.type
 
   constraints = matched.tea.constraints
@@ -1307,31 +1299,34 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
     # Name clash
     if (ctx.isFinallyDeclaredCurrentlyTyped name)
       malformed ctx, pattern, "#{name} is already declared"
-    else if not ctx.isCurrentlyDeclared name
-      # TODO: this is because functions might declare arity before being declared
-      ctx.declare name, id: id
-    if deps.length > 0
-      # log "adding top level lhs to deferred #{name}", deps
-      currentType = type#substitute ctx.substitution, type
-      ctx.addToDeferredBindings
-        name: scopedName name, ctx.currentScopeIndex()
-        id: name
-        scopeIndex: ctx.currentScopeIndex()
-        type: currentType
-        constraints: constraints
-        polymorphic: polymorphic
-        deps: deps#(map (({name}) -> name), deps)
-      # for dep in deps
-      #   ctx.addToDeferredBindings {name: dep.name, type: dep.type, reversed: name}
-      if not ctx.isTyped name
-        ctx.assignType name, (new TempType type)
+      isMalformed = yes
     else
-      # Ready for typing since there are no missing dependencies
-      deferredConstraints = inferType ctx, name, type, constraints, polymorphic
-      ctx.addToScopeConstraints deferredConstraints
+      if not ctx.isCurrentlyDeclared name
+        # TODO: this is because functions might declare arity before being declared
+        ctx.declare name, id: id
+      if deps.length > 0
+        # log "adding top level lhs to deferred #{name}", deps
+        currentType = type#substitute ctx.substitution, type
+        ctx.addToDeferredBindings
+          name: scopedName name, ctx.currentScopeIndex()
+          id: name
+          scopeIndex: ctx.currentScopeIndex()
+          type: currentType
+          constraints: constraints
+          polymorphic: polymorphic
+          deps: deps#(map (({name}) -> name), deps)
+        # for dep in deps
+        #   ctx.addToDeferredBindings {name: dep.name, type: dep.type, reversed: name}
+        if not ctx.isTyped name
+          ctx.assignType name, (new TempType type)
+      else
+        # Ready for typing since there are no missing dependencies
+        deferredConstraints = inferType ctx, name, type, constraints, polymorphic
+        ctx.addToScopeConstraints deferredConstraints
 
   precs: precs ? []
   assigns: assigns ? []
+  isMalformed: isMalformed
 
 inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
   scopeIndex ?= ctx.currentScopeIndex()
@@ -1610,11 +1605,12 @@ ms.fn = ms_fn = (ctx, call) ->
           ctx.assignArity name, paramNames
         else
           documentation = extractDocs docs
-          ctx.preDeclare name,
-            arity: paramNames
-            id: ctx.definitionId()
-            type: ctx.preDeclaredType name # if any
-            docs: documentation
+          if not ctx.isFinallyCurrentlyDeclared name
+            ctx.preDeclare name,
+              arity: paramNames
+              id: ctx.definitionId()
+              type: ctx.preDeclaredType name # if any
+              docs: documentation
 
       newParamType = (param) ->
         param.scope = ctx.currentScopeIndex()
@@ -3187,7 +3183,9 @@ constraintsFromCanonicalType = (ctx, canonicalType, type) ->
   # console.log (printType canonicalType)
   # console.log (JSON.stringify inferredType)
   # console.log (JSON.stringify type.type)
-  ctx.extendSubstitution matchType inferredType.type, type.type#(substitute ctx.substitution, type).type
+  #ctx.extendSubstitution
+  # Shouldn't fail
+  matchType inferredType.type, type.type#(substitute ctx.substitution, type).type
   # console.log "after", (printType inferredType.type)
 
   reduceConstraints ctx, inferredType.constraints
@@ -5674,8 +5672,8 @@ injectContext = (ctx, compiledModule, moduleName, names) ->
       throw new Error "Macro #{name} already defined"
     else
       addToMap topScope.macros, name, macro
-  for name, {type, arity, docs, isClass, virtual} of values definitions when shouldImport name
-    addToMap topScope, name, {type, arity, docs, isClass, virtual}
+  for name, {type, arity, docs, isClass, virtual, final} of values definitions when shouldImport name
+    addToMap topScope, name, {type, arity, docs, isClass, virtual, final}
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
   ctx.scopeIndex += compiledModule.savedScopes.length
