@@ -1533,7 +1533,7 @@ compileDeferred = (ctx) ->
       prevSize = ctx.deferred().length
       [expression, dependencyName, useScope, lhs, rhs] = deferred = ctx.deferred().shift()
       if useScope isnt ctx.currentScopeIndex() and (ctx.isDeclared dependencyName) or
-          (ctx.isFinallyDeclared dependencyName)
+          (ctx.isTyped dependencyName)
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
         deferredCount = 0
       else
