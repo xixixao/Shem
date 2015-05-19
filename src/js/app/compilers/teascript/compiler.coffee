@@ -230,7 +230,7 @@ class Context
     if @isDefining()
       throw new Error "already defining, forgot to leaveDefinition?"
     @_scope().definition =
-      name: pattern?.symbol
+      name: pattern and (not isFake pattern) and pattern.symbol
       id: pattern?.symbol and (@currentDeclarationId pattern.symbol) or @freshId()
       pattern: pattern
       inside: 0
@@ -924,7 +924,10 @@ callUnknownTranslate = (ctx, translatedOperator, call) ->
     malformed ctx, call, 'Invalid pattern'
   else
     assignCompile ctx, call,
-      (jsCall "_#{args.length}", (join [translatedOperator], argList))
+      if isFake _operator call
+        jsNoop()
+      else
+        (jsCall "_#{args.length}", (join [translatedOperator], argList))
 
 callTyping = (ctx, call) ->
   return if ctx.shouldDefer()
@@ -1238,7 +1241,7 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
       return deferCurrentDefinition ctx, expression
 
     return jsNoop() unless expression.tea
-    return jsNoop() if isMalformed
+    return jsNoop() if isMalformed or isFake expression
 
     if assigns.length is 0
       return malformed ctx, to, 'Not an assignable pattern'
@@ -1284,8 +1287,8 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
     #log "exiting pattern early", pattern, "for", ctx.shouldDefer()
     return {}
 
-  if not matched.tea
-    return {}
+  if not matched.tea or isFake pattern
+    return isMalformed: yes
 
   # Properly bind types according to the pattern
   if pattern.tea
