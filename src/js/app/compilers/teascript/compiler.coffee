@@ -5574,7 +5574,7 @@ compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
     if not lookupCompiledModule requiredModuleName
       return request: requiredModuleName
   replaceOrAddToMap moduleGraph, moduleName, requires: requiredMap
-  toInject = collectRequiresFor moduleName
+  toInject = requiresFor moduleName
   ctx = injectedContext toInject
   defaultImports = (subtractSets (newSetWith 'Prelude'), (newSetWith moduleName))
   compilationFn = (topLevelModule moduleName, importsFor defaultImports)
@@ -5607,7 +5607,7 @@ compileExpression = (source, moduleName = '@unnamed') ->
     compilationFn = (topLevelExpressionInModule importsFor moduleDependencies moduleName)
     {js} = compileCtxAstToJs compilationFn, ctx, expression
     (finalizeTypes ctx, expression)
-    js: library + immutable + (listOfLines map lookupJs, modules) + '\n;' + js
+    js: library + immutable + (listOfLines map lookupJs, (setToArray runtimeDependencies moduleName)) + '\n;' + js
     ast: ast
     errors: checkTypes ctx
 
@@ -5621,10 +5621,13 @@ contextWithDependencies = (modules) ->
   modules: setToArray modules
 
 moduleDependencies = (moduleName) ->
+  concatSets (requiresFor moduleName), (newSetWith moduleName)
+
+runtimeDependencies = (moduleName) ->
   concatSets (collectRequiresFor moduleName), (newSetWith moduleName)
 
 reverseModuleDependencies = (moduleName) ->
-  concatSets (newSetWith moduleName), (collectRequiresFor moduleName)
+  concatSets (newSetWith moduleName), (requiresFor moduleName)
 
 # Primitive type checking for now
 checkTypes = (ctx) ->
@@ -5695,6 +5698,14 @@ collectRequiresWithAcc = (name, acc) ->
       (concatMaps requires, acc),
       (subtractMaps requires, acc)
     concatMaps collected, acc
+
+requiresFor = (name) ->
+  compiled = lookupInMap moduleGraph, name
+  if not compiled
+    console.error "#{name} module not found"
+    newMap()
+  else
+    compiled.requires
 
 findMatchingDefinitions = (moduleName, reference) ->
   {declared: {savedScopes}} = lookupCompiledModule moduleName
