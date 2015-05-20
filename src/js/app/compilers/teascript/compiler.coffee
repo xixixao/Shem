@@ -1813,7 +1813,7 @@ findDataType = (ctx, typeArgLists, typeParams, dataName) ->
   fieldTypes = for typeArgs in typeArgLists
     if typeArgs
       if isRecord typeArgs
-        for type in _snd unzip _labeled _terms typeArgs
+        for type in _snd unzip _labeled _terms typeArgs when type
           type = typeCompile ctx, type
           for name, kind of values findFree type
             if not inSet varNameSet, name
