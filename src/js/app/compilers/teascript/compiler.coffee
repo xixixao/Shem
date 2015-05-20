@@ -869,8 +869,7 @@ callConstructorPattern = (ctx, call, extraParamNames) ->
     # ctx.setAssignTo "#{ctx.assignTo()}#{jsObjectAccess paramNames[i]}"
     ctx.setAssignTo (jsAccess ctx.assignTo(), paramNames[i])
     elemCompiled = expressionCompile ctx, arg
-    ctx.resetAssignTo()
-    elemCompiled)
+    withCache ctx.resetAssignTo(), elemCompiled)
 
   precsForData = operatorCompile ctx, call
 
@@ -995,9 +994,7 @@ tupleCompile = (ctx, form) ->
         # "#{ctx.assignTo()}[#{i}]"
         ctx.setAssignTo (jsAccess ctx.assignTo(), "#{i}")
         elemCompiled = expressionCompile ctx, elem
-        cache = ctx.resetAssignTo()
-        precs: elemCompiled.precs
-        assigns: cache.concat elemCompiled.assigns or []
+        withCache ctx.resetAssignTo(), elemCompiled
     else
       termsCompile ctx, elems
   # TODO: could support partial tuple application via bare labels
@@ -1013,6 +1010,10 @@ tupleCompile = (ctx, form) ->
     (labelOperator form)
     # "[#{listOf compiledElems}]"
     assignCompile ctx, form, (jsArray compiledElems)
+
+withCache = (cache, compiled) ->
+  precs: compiled.precs
+  assigns: cache.concat compiled.assigns or []
 
 seqOrMapCompile = (ctx, form) ->
   elems = _terms form
@@ -1049,8 +1050,7 @@ seqCompile = (ctx, form) ->
       ctx.setAssignTo rhs
       lhsCompiled = expressionCompile ctx, lhs
       retrieve elem, lhs
-      ctx.resetAssignTo()
-      lhsCompiled)
+      withCache ctx.resetAssignTo(), lhsCompiled)
     elemType = ctx.freshTypeVariable star
     # TODO use (Seq c e) instead of (Array e)
     form.tea = new Constrained (concatMap _constraints, (map _tea, elems)),
