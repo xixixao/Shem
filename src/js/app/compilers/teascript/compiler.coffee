@@ -2284,6 +2284,8 @@ ms.format = ms_format = (ctx, call) ->
   if not formatStringToken
     return malformed ctx, call, 'Format string required.'
   compiledArgs = termsCompile ctx, args
+  if ctx.shouldDefer()
+    return jsNoop()
   if not all map _tea, args
     call.tea = toConstrained stringType
     return malformed ctx, call, "Argument not typed"
