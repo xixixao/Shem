@@ -797,8 +797,8 @@ callKnownCompile = (ctx, call) ->
   args = _labeled _arguments call
   labeledArgs = labeledToMap args
 
-  if tagFreeLabels args
-    return malformed ctx, call, 'labels without values inside call'
+  if tagFreeLabels ctx, args
+    return jsNoop()
 
   paramNames = ctx.arity operator.symbol
   if not paramNames
@@ -808,8 +808,13 @@ callKnownCompile = (ctx, call) ->
       return {}
     else
       return assignCompile ctx, call, deferredExpression()
+  paramNamesSet = arrayToSet paramNames
   positionalParams = filter ((param) -> not (lookupInMap labeledArgs, param)), paramNames
   nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
+  invalidArgLabels = map _fst, filter (([label, value]) -> label and not inSet paramNamesSet, _labelName label), args
+  map ((label) -> malformed ctx, label, "Invalid label for #{operator.symbol}"), invalidArgLabels
+  if _notEmpty invalidArgLabels
+    return jsNoop()
 
   if nonLabeledArgs.length > positionalParams.length
     malformed ctx, call, "Too many arguments to #{operator.symbol}"
@@ -895,10 +900,10 @@ labeledToMap = (pairs) ->
   labelNaming = ([label, value]) -> [(_labelName label), value]
   newMapKeysVals (unzip map labelNaming, filter all, pairs)...
 
-tagFreeLabels = (pairs) ->
+tagFreeLabels = (ctx, pairs) ->
   freeLabels = filter (([label, value]) -> not value), pairs
   # Free labels not supported now inside calls
-  freeLabels.map (label) -> label.label = 'malformed'
+  freeLabels.map (label) -> malformed ctx, label, 'Missing value for a label'
   return freeLabels.length > 0
 
 operatorCompile = (ctx, call) ->
