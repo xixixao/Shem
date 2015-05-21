@@ -757,7 +757,7 @@ callCompile = (ctx, call) ->
       callJsMethodCompile
     else if (ctx.isMacroDeclared operatorName) and not ctx.isDeclared operatorName
       callMacroCompile
-    else if (isFake operator) or (ctx.isDeclared operatorName) and not ctx.arity operatorName
+    else if (isFake operator) or (ctx.isFinallyDeclared operatorName) and not ctx.arity operatorName
       callUnknownCompile
     else
       callKnownCompile) ctx, call
