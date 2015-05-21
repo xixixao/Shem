@@ -7359,6 +7359,7 @@ exports.all = all
 exports.filter = filter
 exports.partition = partition
 exports._notEmpty = _notEmpty
+exports._empty = _empty
 exports._is = _is
 exports.__ = __
 
