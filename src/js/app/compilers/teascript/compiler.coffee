@@ -2557,7 +2557,7 @@ simpleMacro = (macroFn) ->
     callTyping ctx, call
     assignCompile ctx, call, macroFn args...
 
-for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method', 'assign']
+for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method', 'assign', 'new']
   do (jsMethod) ->
     ms["Js.#{jsMethod}"] = (ctx, call) ->
       call.tea = toConstrained jsType
