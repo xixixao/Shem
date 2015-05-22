@@ -1293,7 +1293,7 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
     return {}
 
   if not matched.tea or isFake pattern
-    return isMalformed: yes
+    return {precs, assigns, isMalformed: yes}
 
   # Properly bind types according to the pattern
   if pattern.tea
@@ -2855,6 +2855,7 @@ requireName = (ctx, message) ->
 fakeCompile = (ctx, token) ->
   if ctx.assignTo()
     precs: []
+    assigns: []
   else
     token.tea = toConstrained ctx.freshTypeVariable star
     token.scope = ctx.currentScopeIndex()
