@@ -1160,7 +1160,7 @@ typeNameCompile = (ctx, atom, expectedKind) ->
         kindOfType = expectedKind or star
       if not kindOfType
         # throw new Error "type name #{atom.symbol} was not defined" unless kind
-        malformed ctx, atom, "This type name has not been defined"
+        malformed ctx, atom, "This type name has not been defined" if not isFake atom
         kindOfType = star
       withOrigin (atomicType atom.symbol, kindOfType), atom
     else
