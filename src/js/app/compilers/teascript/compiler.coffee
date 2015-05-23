@@ -5747,9 +5747,10 @@ findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
     isValid = (name, def) ->
       def.type? and not def.type.TempType and (not isPattern or isConst symbol: name)
     validDefinitions = filterMap isValid, definitions # TODO: filter before TempType
-    validDefinitions = concatMaps validDefinitions, (for name, def of values validDefinitions when def.arity
-      newMapWith "(#{name} #{Array(def.arity.length).join ' '})",
-        type: new ForAll def.type.kinds, new Constrained [], functionReturnType def.type.type.type)...
+    validDefinitions = concatMaps validDefinitions,
+      (for name, def of values validDefinitions when returnType = maybeFunctionReturnType def.type
+        newMapWith "(#{name} #{Array(def.arity.length).join ' '})",
+          type: new ForAll def.type.kinds, new Constrained [], returnType)...
     # typesUnify = (def) ->
     #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
     # [typed, notTyped] = partitionMap typesUnify, validDefinitions
@@ -5801,11 +5802,18 @@ findSubstitutions = (type) ->
 actualOpName = (type) ->
   type.name ? actualOpName type.op
 
+# Accepts ForAll type
+maybeFunctionReturnType = ({type: {type}}) ->
+  (isFunctionType type) and functionReturnType type
+
 functionReturnType = (type) ->
-  if type.arg and type.op.op?.name is 'Fn'
+  if type.arg and isFunctionType type
     functionReturnType type.arg
   else
     type
+
+isFunctionType = (type) ->
+  type.op?.op?.name is 'Fn'
 
 findDocsFor = (moduleName, reference) ->
   {declared: {savedScopes}} = lookupCompiledModule moduleName
