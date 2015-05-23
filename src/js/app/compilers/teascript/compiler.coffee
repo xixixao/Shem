@@ -1361,7 +1361,8 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
       if success
         [deferredConstraints, retainedConstraints] = success
         if _notEmpty retainedConstraints
-          ctx.extendSubstitution substitutionFail "#{name}'s context is too weak, missing #{listOf (map printType, retainedConstraints)}"
+          for constraint in retainedConstraints
+            declaredTypeMissingConstraint ctx, name, constraint
   else
     if not ctx.isAtNonDeferrableDefinition()
       {success} = deferConstraints ctx,
@@ -1402,15 +1403,28 @@ declaredTypeTooGeneral = (ctx, inferredType, updatedDeclaredType, unifiedType, d
         if t1 is fromInferred then "#{inferred}, #{got}" else "#{got}, #{inferred}"
       conflicts: conflicts
 
+declaredTypeMissingConstraint = (ctx, name, constraint) ->
+  console.log replaceQuantifiedByOrigin constraint
+  ctx.extendSubstitution substitutionFail
+    message: "#{name}'s declared type is too weak, missing #{printType replaceQuantifiedByOrigin constraint}"
+    conflicts: [(originOf constraint), (originOf constraint.types.types[0])]
+
 replaceQuantifiedByOrigin = (type) ->
-  if type.TypeApp
-    new TypeApp (replaceQuantifiedByOrigin type.op),
-      (replaceQuantifiedByOrigin type.arg)
-  else if type.QuantifiedVar
+  if type.QuantifiedVar
     if type.origin and type.origin.label is 'typename'
       new TypeVariable (print type.origin), star
     else
       new TypeVariable type.var, star
+  else if type.TypeVariable and type.ref.val
+    replaceQuantifiedByOrigin type.ref.val
+  else if type.TypeVariable and type.origin and type.origin.label is 'typename'
+    new TypeVariable (print type.origin), type.kind
+  else if type.TypeApp
+    new TypeApp (replaceQuantifiedByOrigin type.op),
+      (replaceQuantifiedByOrigin type.arg)
+  else if type.ClassConstraint
+    new ClassConstraint type.className, new Types (for type in type.types.types
+      replaceQuantifiedByOrigin type)
   else
     type
 
