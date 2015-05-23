@@ -2168,6 +2168,8 @@ findSuperClassInstances = (ctx, instanceTypes, classDefinition) ->
   #       pattern
   #       result
 ms.match = ms_match = (ctx, call) ->
+    if ctx.assignTo()
+      return malformed ctx, call, 'not a valid pattern'
     [subject, cases...] = _arguments call
     if not subject
       return malformed ctx, call, 'match `subject` missing'
