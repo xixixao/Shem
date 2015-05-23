@@ -1292,12 +1292,12 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
     #log "exiting pattern early", pattern, "for", ctx.shouldDefer()
     return {}
 
+  # Properly bind types according to the pattern
+  if pattern.tea and matched.tea
+    unify ctx, matched.tea.type, pattern.tea.type
+
   if not matched.tea or isFake pattern
     return {precs, assigns, isMalformed: yes}
-
-  # Properly bind types according to the pattern
-  if pattern.tea
-    unify ctx, matched.tea.type, pattern.tea.type
 
   constraints = matched.tea.constraints
   # log "pattern compiel", definedNames, pattern
@@ -2855,11 +2855,11 @@ requireName = (ctx, message) ->
     false
 
 fakeCompile = (ctx, token) ->
+  token.tea = toConstrained ctx.freshTypeVariable star
   if ctx.assignTo()
     precs: []
     assigns: []
   else
-    token.tea = toConstrained ctx.freshTypeVariable star
     token.scope = ctx.currentScopeIndex()
     ctx.markMalformed()
     assignCompile ctx, token, jsNoop()
