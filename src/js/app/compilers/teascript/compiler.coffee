@@ -1054,7 +1054,7 @@ seqCompile = (ctx, form) ->
     elemType = ctx.freshTypeVariable star
     # TODO use (Seq c e) instead of (Array e)
     form.tea = new Constrained (concatMap _constraints, (map _tea, elems)),
-      (withOrigin (new TypeApp arrayType, elemType), form)
+      (mapOrigin (new TypeApp (cloneType arrayType), elemType), form)
 
     for elem in elems
       unify ctx, elem.tea.type,
