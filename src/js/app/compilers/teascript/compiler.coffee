@@ -1123,7 +1123,7 @@ unifyTypesOfTermsWithType = (ctx, canonicalType, terms) ->
 #     (call_ (token_ 'cons-array'), [x, (arrayToConses xs)])
 
 typeConstrainedCompile = (ctx, call) ->
-  [type, constraints...] = _validArguments call
+  [type, constraints...] = _arguments call
   new Constrained (typeConstraintsCompile ctx, constraints), (typeCompile ctx, type)
 
 typeCompile = (ctx, expression, expectedKind) ->
@@ -1406,8 +1406,11 @@ replaceQuantifiedByOrigin = (type) ->
   if type.TypeApp
     new TypeApp (replaceQuantifiedByOrigin type.op),
       (replaceQuantifiedByOrigin type.arg)
-  else if type.QuantifiedVar and type.origin
-    new TypeVariable (print type.origin), star
+  else if type.QuantifiedVar
+    if type.origin and type.origin.label is 'typename'
+      new TypeVariable (print type.origin), star
+    else
+      new TypeVariable type.var, star
   else
     type
 
@@ -5778,7 +5781,7 @@ findAvailableTypes = (moduleName, inferredType) ->
   if inferredType
     if inferredType.name
       available = filterMap ((name) -> name isnt inferredType.name), available
-    inferred = newMapWith 'inferred', type: printType inferredType
+    inferred = newMapWith 'inferred', type: plainPrettyPrint toForAll toConstrained inferredType
   else
     inferred = newMap()
   values concatMaps inferred, mapMap printed, available
