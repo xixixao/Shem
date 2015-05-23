@@ -5739,9 +5739,6 @@ findMatchingDefinitions = (moduleName, reference) ->
   removeFromMap topScope, 'is-null-or-undefined'
   addToMap topScope, '{}',
     type: quantifyAll toConstrained new TypeApp arrayType, (new TypeVariable 'a', star)
-  # TODO: suggest function calls, possibly given prefix
-  # addToMap topScope, '(sqrt )',
-  #   type: quantifyAll toConstrained numType
   findMatchingDefinitionsOnType type, pattern, join scoped, [topScope]
 
 findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
@@ -5749,7 +5746,10 @@ findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
   [typed, untyped] = unzip (for definitions, i in definitionLists
     isValid = (name, def) ->
       def.type? and not def.type.TempType and (not isPattern or isConst symbol: name)
-    validDefinitions = filterMap isValid, definitions # TODO: filter before
+    validDefinitions = filterMap isValid, definitions # TODO: filter before TempType
+    validDefinitions = concatMaps validDefinitions, (for name, def of values validDefinitions when def.arity
+      newMapWith "(#{name} #{Array(def.arity.length).join ' '})",
+        type: new ForAll def.type.kinds, new Constrained [], functionReturnType def.type.type.type)...
     # typesUnify = (def) ->
     #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
     # [typed, notTyped] = partitionMap typesUnify, validDefinitions
@@ -5800,6 +5800,12 @@ findSubstitutions = (type) ->
 
 actualOpName = (type) ->
   type.name ? actualOpName type.op
+
+functionReturnType = (type) ->
+  if type.arg and type.op.op?.name is 'Fn'
+    functionReturnType type.arg
+  else
+    type
 
 findDocsFor = (moduleName, reference) ->
   {declared: {savedScopes}} = lookupCompiledModule moduleName
