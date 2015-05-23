@@ -2174,7 +2174,7 @@ ms.match = ms_match = (ctx, call) ->
     if not subject
       return malformed ctx, call, 'match `subject` missing'
     if cases.length % 2 != 0
-      return malformed ctx, call, 'match missing result for last pattern'
+      malformed ctx, call, 'match missing result for last pattern'
     subjectCompiled = termCompile ctx, subject
 
     # To make sure all results have the same type
@@ -2198,10 +2198,12 @@ ms.match = ms_match = (ctx, call) ->
       ctx.defineNonDeferrablePattern pattern
       {precs, assigns} = patternCompile ctx, pattern, subject, no
 
-      # Compile the result, given current scope
-      ctx.setAssignTo undefined
-      compiledResult = termCompile ctx, result #compileImpl result, furtherHoistable
-      ctx.resetAssignTo()
+      if result
+        # Compile the result, given current scope
+        ctx.setAssignTo undefined
+        compiledResult = termCompile ctx, result #compileImpl result, furtherHoistable
+        ctx.resetAssignTo()
+
       ctx.leaveDefinition()
       ctx.closeScope()
       branchUsedNames = ctx.usedNames()
@@ -2209,9 +2211,10 @@ ms.match = ms_match = (ctx, call) ->
       if ctx.shouldDefer()
         continue
 
-      unify ctx, resultType, result.tea.type
-      constraints.push result.tea.constraints...
-      varNames.push (findDeclarables precs)...
+      if result
+        unify ctx, resultType, result.tea.type
+        constraints.push result.tea.constraints...
+        varNames.push (findDeclarables precs)...
 
       [branchUsedNames, precs, assigns, compiledResult])
 
@@ -2219,7 +2222,7 @@ ms.match = ms_match = (ctx, call) ->
     lifting = map (findDeps ctx), usedNameLists
     jointlyUsed = addSiblingDefines ctx, intersectSets lifting
 
-    compiledCases = conditional (for [used, precs, assigns, compiledResult], i in compiledResults
+    compiledCases = conditional (for [used, precs, assigns, compiledResult], i in compiledResults when compiledResult
       lifted = lifting[i]
       [conds, assigns] = matchBranchTranslate precs, assigns, compiledResult
       [conds, join (findDefinitions ctx, (setToArray (subtractSets lifted, jointlyUsed))),
