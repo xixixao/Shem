@@ -1156,6 +1156,8 @@ typeNameCompile = (ctx, atom, expectedKind) ->
         # throw new Error "type name #{atom.symbol} was not defined" unless kind
         malformed ctx, atom, "This type name has not been defined" if not isFake atom
         kindOfType = star
+      if isFake atom
+        atom.inferredType = yes
       withOrigin (if isFake atom
         ctx.freshTypeVariable kindOfType
       else
@@ -5739,6 +5741,31 @@ requiresFor = (name) ->
   else
     compiled.requires
 
+findAvailableTypes = (moduleName, inferredType) ->
+  {declared: {typeNames}} = lookupCompiledModule moduleName
+  {ctx} = contextWithDependencies reverseModuleDependencies moduleName
+  printed = (kind, name) ->
+    kindArity = kindFnNumArgs kind
+    type:
+      if kindArity is 0
+        name
+      else
+        "(#{name}#{Array(kindArity + 1).join ' '})"
+    docs: null # TODO: add docs
+  available = concatMaps typeNames, ctx._scope().typeNames
+  if inferredType and inferredType.name
+    available = filterMap ((name) -> name isnt inferredType.name), available
+    inferred = newMapWith 'inferred', type: printType inferredType
+  else
+    inferred = newMap()
+  values concatMaps inferred, mapMap printed, available
+
+kindFnNumArgs = (kind) ->
+  if kind is star
+    0
+  else
+    1 + kindFnNumArgs kind.to
+
 findMatchingDefinitions = (moduleName, reference) ->
   {declared: {savedScopes}} = lookupCompiledModule moduleName
   {ctx} = contextWithDependencies reverseModuleDependencies moduleName
@@ -7358,6 +7385,7 @@ runTests = (tests) ->
 
 exports.compileTopLevel = compileTopLevel
 exports.compileExpression = compileExpression
+exports.findAvailableTypes = findAvailableTypes
 exports.findMatchingDefinitions = findMatchingDefinitions
 exports.findDocsFor = findDocsFor
 exports.astizeList = astizeList
