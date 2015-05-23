@@ -1386,13 +1386,17 @@ declaredTypeTooGeneral = (ctx, inferredType, updatedDeclaredType, declaredType) 
   {fails: [{conflicts, types}]} = matchType inferredType.type.type, copyOrigin (updatedDeclaredType.type.type), declaredType.type.type
   [fromInferred, fromDeclared] = types
   [t1, t2] = sortBasedOnOriginPosition fromInferred, fromDeclared
-  ctx.extendSubstitution substitutionFail
-    message: "declared type is too general, " +
-      if t1 is fromInferred
-        "inferred #{printType types[0]}, got #{print originOf types[1]}"
-      else
-        "got #{print originOf types[1]}, inferred #{printType types[0]}"
-    conflicts: conflicts
+  # Dont report for fake types
+  declaringType = originOf fromDeclared
+  if isFake declaringType
+    declaringType.inferredType = fromInferred
+  else
+    inferred = "inferred #{printType fromInferred}"
+    got = "got #{print declaringType}"
+    ctx.extendSubstitution substitutionFail
+      message: "declared type is too general, " +
+        if t1 is fromInferred then "#{inferred}, #{got}" else "#{got}, #{inferred}"
+      conflicts: conflicts
 
 topLevelExpression = (ctx, expression) ->
   ctx.bareDefine()
@@ -5300,6 +5304,8 @@ prettyPrintWith = (printer, type) ->
       (map printer, join [type.type], type.constraints).join ' '
     else
       printer type.type
+  else
+    printer type
 
 forallToHumanReadable = (type) ->
   notConstrained = (type) ->
