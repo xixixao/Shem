@@ -802,12 +802,7 @@ callKnownCompile = (ctx, call) ->
 
   paramNames = ctx.arity operator.symbol
   if not paramNames
-    # log "deferring in known call #{operator.symbol}"
-    ctx.doDefer operator, operator.symbol
-    if ctx.assignTo()
-      return {}
-    else
-      return assignCompile ctx, call, deferredExpression()
+    return callUnknownCompile ctx, call
   paramNamesSet = arrayToSet paramNames
   positionalParams = filter ((param) -> not (lookupInMap labeledArgs, param)), paramNames
   nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
@@ -915,7 +910,6 @@ operatorCompile = (ctx, call) ->
 
 callUnknownTranslate = (ctx, translatedOperator, call) ->
   args = _arguments call
-
 
   argList = if ctx.shouldDefer()
     deferredExpression()
@@ -2942,7 +2936,9 @@ nameCompile = (ctx, atom, symbol) ->
       nameTranslate ctx, atom, symbol, type
     else
       # log "deferring in rhs for #{symbol}", ctx._deferrableDefinition().name
+      # type = toConstrained ctx.freshTypeVariable star
       ctx.doDefer atom, symbol
+      # type: type
       translation: deferredExpression()
 
 scopedName = (name, scopeIndex) ->
