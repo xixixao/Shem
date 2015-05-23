@@ -1674,7 +1674,7 @@ ms.fn = ms_fn = (ctx, call) ->
           call.tea = op.tea =
             if body and body.tea
               new Constrained (join body.tea.constraints, deferredConstraints),
-                withOrigin (typeFn paramTypeVars..., body.tea?.type), call
+                mapOriginOnFunction (typeFn paramTypeVars..., body.tea?.type), call
             else if explicitType
               (copyOrigin (freshInstance ctx, explicitType), compiledType)
           # """λ#{paramNames.length}(function (#{listOf paramNames}) {
@@ -5019,6 +5019,13 @@ copyOrigin = (to, from) ->
       copyOrigin to.arg, from.arg
     mutateMarkingOrigin to, from.origin
   to
+
+mapOriginOnFunction = (type, expression) ->
+  if isFunctionType type
+    withOrigin type, expression
+    withOrigin type.op, expression
+    mapOriginOnFunction type.arg, expression
+  type
 
 mapOrigin = (type, expression) ->
   mutateMappingOrigin type, expression
