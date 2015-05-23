@@ -1346,13 +1346,13 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
     if not includesJsType currentType.type
       # Check the declared type
       declaredType = ctx.type name
-      explicitType = freshInstance ctx, declaredType
+      explicitType = copyOrigin (freshInstance ctx, declaredType), declaredType.type
       updatedDeclaredType = quantifyUnbound ctx, explicitType#(substitute ctx.substitution, explicitType)
       unify ctx, currentType.type, explicitType.type
       unifiedType = explicitType# substitute ctx.substitution, explicitType
       inferredType = quantifyUnbound ctx, unifiedType
       if not typeEq inferredType, updatedDeclaredType
-        declaredTypeTooGeneral ctx, inferredType, updatedDeclaredType, declaredType
+        declaredTypeTooGeneral ctx, inferredType, updatedDeclaredType, unifiedType, declaredType
       # Context reduction
       isDeclaredConstraint = (c) ->
         entailed = entail ctx, unifiedType.constraints, c
@@ -1384,14 +1384,16 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
   ctx.declareAsFinal name, scopeIndex
   return deferredConstraints or []
 
-declaredTypeTooGeneral = (ctx, inferredType, updatedDeclaredType, declaredType) ->
-  {fails: [{conflicts, types}]} = matchType inferredType.type.type, copyOrigin (updatedDeclaredType.type.type), declaredType.type.type
+declaredTypeTooGeneral = (ctx, inferredType, updatedDeclaredType, unifiedType, declaredType) ->
+  # Have to copy origins to these ForAll types so I can use them in completion
+  {fails: [{conflicts, types}]} = matchType (copyOrigin inferredType.type.type, unifiedType.type),
+    (copyOrigin updatedDeclaredType.type.type, declaredType.type.type)
   [fromInferred, fromDeclared] = types
   [t1, t2] = sortBasedOnOriginPosition fromInferred, fromDeclared
   # Dont report for fake types
   declaringType = originOf fromDeclared
   if isFake declaringType
-    declaringType.inferredType = fromInferred
+    declaringType.inferredType = replaceQuantifiedByOrigin fromInferred
   else
     inferred = "inferred #{printType fromInferred}"
     got = "got #{print declaringType}"
@@ -1399,6 +1401,15 @@ declaredTypeTooGeneral = (ctx, inferredType, updatedDeclaredType, declaredType) 
       message: "declared type is too general, " +
         if t1 is fromInferred then "#{inferred}, #{got}" else "#{got}, #{inferred}"
       conflicts: conflicts
+
+replaceQuantifiedByOrigin = (type) ->
+  if type.TypeApp
+    new TypeApp (replaceQuantifiedByOrigin type.op),
+      (replaceQuantifiedByOrigin type.arg)
+  else if type.QuantifiedVar and type.origin
+    new TypeVariable (print type.origin), star
+  else
+    type
 
 topLevelExpression = (ctx, expression) ->
   ctx.bareDefine()
@@ -4637,8 +4648,10 @@ matchType = (t1, t2) ->
     # console.log "attached", (printType t2)
     newSubstitution()
   else if t1.QuantifiedVar and t2.QuantifiedVar # used when checking declared type
-    if t1.name isnt t2.name
+    if t1.var isnt t2.var
       unifyFail t1, t2
+    else
+      emptySubstitution()
   else if t1.TypeConstr and t2.TypeConstr and t1.name is t2.name
     emptySubstitution()
   else if t1.TypeApp and t2.TypeApp
@@ -5013,6 +5026,8 @@ copyOrigin = (to, from) ->
     copyOrigin to.type, from.type
     for c, i in to.constraints
       copyOrigin c, from.constraints[i]
+  else if from.TypeVariable and from.ref.val
+    copyOrigin to, from.ref.val
   else
     if to.TypeApp
       copyOrigin to.op, from.op
@@ -5760,8 +5775,9 @@ findAvailableTypes = (moduleName, inferredType) ->
         "(#{name}#{Array(kindArity + 1).join ' '})"
     docs: null # TODO: add docs
   available = concatMaps typeNames, ctx._scope().typeNames
-  if inferredType and inferredType.name
-    available = filterMap ((name) -> name isnt inferredType.name), available
+  if inferredType
+    if inferredType.name
+      available = filterMap ((name) -> name isnt inferredType.name), available
     inferred = newMapWith 'inferred', type: printType inferredType
   else
     inferred = newMap()
