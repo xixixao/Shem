@@ -1350,7 +1350,7 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
       unifiedType = explicitType# substitute ctx.substitution, explicitType
       inferredType = quantifyUnbound ctx, unifiedType
       if not typeEq inferredType, updatedDeclaredType
-        ctx.extendSubstitution substitutionFail "#{name}'s declared type is too general, inferred #{plainPrettyPrint inferredType}"
+        declaredTypeTooGeneral ctx, inferredType, updatedDeclaredType, declaredType
       # Context reduction
       isDeclaredConstraint = (c) ->
         entailed = entail ctx, unifiedType.constraints, c
@@ -1382,12 +1382,17 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
   ctx.declareAsFinal name, scopeIndex
   return deferredConstraints or []
 
-# Old comment:
-# here I will create type schemes for all definitions
-# The problem is I don't know which are impricise, because the names are done inside the
-# pattern. I can use the context to know which types where added in the current assignment.
-
-# TODO: malformed ctx, "LHS\'s type doesn\'t match the RHS in assignment", pattern
+declaredTypeTooGeneral = (ctx, inferredType, updatedDeclaredType, declaredType) ->
+  {fails: [{conflicts, types}]} = matchType inferredType.type.type, copyOrigin (updatedDeclaredType.type.type), declaredType.type.type
+  [fromInferred, fromDeclared] = types
+  [t1, t2] = sortBasedOnOriginPosition fromInferred, fromDeclared
+  ctx.extendSubstitution substitutionFail
+    message: "declared type is too general, " +
+      if t1 is fromInferred
+        "inferred #{printType types[0]}, got #{print originOf types[1]}"
+      else
+        "got #{print originOf types[1]}, inferred #{printType types[0]}"
+    conflicts: conflicts
 
 topLevelExpression = (ctx, expression) ->
   ctx.bareDefine()
@@ -1690,6 +1695,7 @@ labelUsedParams = (ast, paramNames) ->
 # Assumes definition name
 preDeclareExplicitlyTyped = (ctx, type, docs) ->
   explicitType = quantifyUnbound ctx, type
+  copyOrigin explicitType.type, type
   name = ctx.definitionName()
   id = ctx.definitionId()
   if ctx.isPreTyped name
@@ -4624,6 +4630,9 @@ matchType = (t1, t2) ->
     # console.log "attaching", t1.name, t2
     # console.log "attached", (printType t2)
     newSubstitution()
+  else if t1.QuantifiedVar and t2.QuantifiedVar # used when checking declared type
+    if t1.name isnt t2.name
+      unifyFail t1, t2
   else if t1.TypeConstr and t2.TypeConstr and t1.name is t2.name
     emptySubstitution()
   else if t1.TypeApp and t2.TypeApp
@@ -4787,6 +4796,7 @@ typeFail = (message, t1, t2) ->
   substitutionFail
     message: "#{message} #{(safePrintType first)}, #{(safePrintType second)}"
     conflicts: [(originOf first), (originOf second)]
+    types: [t1, t2]
 
 sortBasedOnOriginPosition = (t1, t2) ->
   if (originOf t1)?.start > (originOf t2)?.start
