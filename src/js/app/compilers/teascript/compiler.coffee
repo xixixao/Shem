@@ -2856,11 +2856,12 @@ requireName = (ctx, message) ->
 
 fakeCompile = (ctx, token) ->
   token.tea = toConstrained ctx.freshTypeVariable star
+  token.scope = ctx.currentScopeIndex()
   if ctx.assignTo()
+    token.assignable = yes
     precs: []
     assigns: []
   else
-    token.scope = ctx.currentScopeIndex()
     ctx.markMalformed()
     assignCompile ctx, token, jsNoop()
 
@@ -5723,7 +5724,7 @@ requiresFor = (name) ->
 findMatchingDefinitions = (moduleName, reference) ->
   {declared: {savedScopes}} = lookupCompiledModule moduleName
   {ctx} = contextWithDependencies reverseModuleDependencies moduleName
-  {scope, type} = reference
+  {scope, type, pattern} = reference
   return [] unless scope?
   scoped =
     if savedScopes[scope]
@@ -5741,13 +5742,13 @@ findMatchingDefinitions = (moduleName, reference) ->
   # TODO: suggest function calls, possibly given prefix
   # addToMap topScope, '(sqrt )',
   #   type: quantifyAll toConstrained numType
-  findMatchingDefinitionsOnType type, join scoped, [topScope]
+  findMatchingDefinitionsOnType type, pattern, join scoped, [topScope]
 
-findMatchingDefinitionsOnType = (type, definitionLists) ->
+findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
   ctx = new Context
   [typed, untyped] = unzip (for definitions, i in definitionLists
     isValid = (name, def) ->
-      def.type? and not def.type.TempType
+      def.type? and not def.type.TempType and (not isPattern or isConst symbol: name)
     validDefinitions = filterMap isValid, definitions # TODO: filter before
     # typesUnify = (def) ->
     #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
