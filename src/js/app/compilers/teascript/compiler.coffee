@@ -5742,13 +5742,14 @@ findMatchingDefinitions = (moduleName, reference) ->
   removeFromMap topScope, 'is-null-or-undefined'
   addToMap topScope, '{}',
     type: quantifyAll toConstrained new TypeApp arrayType, (new TypeVariable 'a', star)
+    isPattern: yes
   findMatchingDefinitionsOnType type, pattern, join scoped, [topScope]
 
 findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
   ctx = new Context
   [typed, untyped] = unzip (for definitions, i in definitionLists
     isValid = (name, def) ->
-      def.type? and not def.type.TempType and (not isPattern or isConst symbol: name)
+      def.type? and not def.type.TempType and (not isPattern or (isConst symbol: name) or def.isPattern)
     validDefinitions = filterMap isValid, definitions # TODO: filter before TempType
     validDefinitions = concatMaps validDefinitions,
       (for name, def of values validDefinitions when returnType = maybeFunctionReturnType def.type
