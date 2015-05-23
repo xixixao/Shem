@@ -1156,7 +1156,8 @@ typeNameCompile = (ctx, atom, expectedKind) ->
         # throw new Error "type name #{atom.symbol} was not defined" unless kind
         malformed ctx, atom, "This type name has not been defined" if not isFake atom
         kindOfType = star
-      withOrigin (atomicType atom.symbol, kindOfType), atom
+      name = if isFake atom then ctx.freshTypeVariable({}).name else atom.symbol
+      withOrigin (atomicType name, kindOfType), atom
     else
       expanded
   finalKind = kind type
