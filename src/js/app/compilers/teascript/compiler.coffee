@@ -3040,7 +3040,10 @@ specialCharacters =  "\\newline \\tab \\formfeed \\backspace \\return".split ' '
 charCompile = (ctx, atom, symbol) ->
   translation =
     if symbol.length is 2
-      '"' + symbol[1] + '"'
+      if symbol[1] is '"'
+        "'" + symbol[1] + "'"
+      else
+        '"' + symbol[1] + '"'
     else if symbol is "\\space"
       '" "'
     else if symbol in specialCharacters
