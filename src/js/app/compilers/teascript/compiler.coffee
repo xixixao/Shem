@@ -315,6 +315,9 @@ class Context
   isAtNonDeferrableDefinition: ->
     @isAtDefinition() and not @_currentDefinition().deferrable
 
+  isAtDeferrableDefinition: ->
+    @isAtDefinition() and @_currentDefinition().deferrable
+
   # isInsideSimpleDefinition: ->
   #   (definition = @_currentDefinition())
 
@@ -2902,7 +2905,7 @@ fakeCompile = (ctx, token) ->
   token.tea = toConstrained ctx.freshTypeVariable star
   token.scope = ctx.currentScopeIndex()
   if ctx.assignTo()
-    token.assignable = yes
+    token.assignable = top: ctx.isAtDeferrableDefinition()
     precs: []
     assigns: []
   else
