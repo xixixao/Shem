@@ -5045,8 +5045,10 @@ freshInstance = (ctx, type) ->
 
 freshName = (nameIndex) ->
   nameIndex
-  # suffix = if nameIndex >= 25 then freshName (Math.floor nameIndex / 25) - 1 else ''
-  # (String.fromCharCode 97 + nameIndex % 25) + suffix
+
+niceName = (nameIndex) ->
+  suffix = if nameIndex >= 25 then niceName (Math.floor nameIndex / 25) - 1 else ''
+  (String.fromCharCode 97 + nameIndex % 25) + suffix
 
 copyOrigin = (to, from) ->
   if to.Constrained
@@ -5398,7 +5400,7 @@ printType = (type) ->
       printType type.ref.val
     else
       if /^[0-9]/.test type.name
-        "_#{type.name}"
+        niceName type.name
       else
         "#{type.name}"
   else if type.QuantifiedVar
