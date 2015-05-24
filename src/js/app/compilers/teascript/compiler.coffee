@@ -1735,10 +1735,14 @@ preDeclareExplicitlyTyped = (ctx, type, docs) ->
   if ctx.isPreTyped name
     # TODO: unify explicit types like in inferType
     explicitType = ctx.preDeclaredType name
-  ctx.preDeclare name,
-    id: id
-    type: explicitType
-    docs: extractDocs docs
+
+  if (ctx.isFinallyCurrentlyDeclared name)# and (ctx.declaredId name) isnt id
+    malformed ctx, ctx.definitionPattern(), 'This name is already taken'
+  else
+    ctx.preDeclare name,
+      id: id
+      type: explicitType
+      docs: extractDocs docs
   explicitType
 
 preDeclarePatterns = (ctx, patterns) ->
