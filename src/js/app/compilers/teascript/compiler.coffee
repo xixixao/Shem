@@ -955,13 +955,13 @@ callInfer = (ctx, operator, terms) ->
 
 callInferSingle = (ctx, originalOperator, operatorTea, argTea) ->
   returnType = withOrigin (ctx.freshTypeVariable star), originalOperator
-  callType = withOrigin (typeFn argTea.type, returnType), originalOperator
+  callType = mapOriginOnFunction (typeFn argTea.type, returnType), originalOperator
   unify ctx, operatorTea.type, callType
   new Constrained (join operatorTea.constraints, argTea.constraints), returnType
 
 callZeroInfer = (ctx, originalOperator, operatorTea) ->
   returnType = withOrigin (ctx.freshTypeVariable star), originalOperator
-  callType = withOrigin (typeFn returnType), originalOperator
+  callType = mapOriginOnFunction (typeFn returnType), originalOperator
   unify ctx, operatorTea.type, callType
   new Constrained operatorTea.constraints, returnType
 
@@ -1192,13 +1192,13 @@ typeConstructorCompile = (ctx, call) ->
   if isAtom op
     name = op.symbol
     compiledArgs = typesCompile ctx, args
-    withOrigin (if name is 'Fn'
+    if name is 'Fn'
       (labelOperator op)
-      typeFn compiledArgs...
+      mapOriginOnFunction (typeFn compiledArgs...), call
     else
       arity = args.length
       operatorType = typeNameCompile ctx, op, (kindFn arity)
-      applyKindFn operatorType, compiledArgs...), call
+      withOrigin (applyKindFn operatorType, compiledArgs...), call
   else
     malformed ctx, op, 'Expected a type constructor instead'
 
@@ -5066,6 +5066,7 @@ mapOriginOnFunction = (type, expression) ->
   if isFunctionType type
     withOrigin type, expression
     withOrigin type.op, expression
+    withOrigin type.op.op, expression if type.op.op # It's cloned
     mapOriginOnFunction type.arg, expression
   type
 
@@ -5225,7 +5226,7 @@ kindFnOfArgs = (arg, args...) ->
 
 typeFn = (argType, args...) ->
   if _empty args
-    new TypeApp zeroArrowType, argType
+    new TypeApp (cloneType zeroArrowType), argType
   else
     properTypeFn argType, args...
 
@@ -5234,7 +5235,7 @@ properTypeFn = (from, to, args...) ->
     if not to
       from
     else
-      new TypeApp (new TypeApp arrowType, from), to
+      new TypeApp (new TypeApp (cloneType arrowType), from), to
   else
     properTypeFn from, (properTypeFn to, args...)
 
@@ -5909,7 +5910,8 @@ functionReturnType = (type) ->
     type
 
 isFunctionType = (type) ->
-  type.op?.op?.name is 'Fn'
+  type.op?.op and (typeEq type.op.op, arrowType) or
+  type.op and (typeEq type.op, zeroArrowType)
 
 findDocsFor = (moduleName, reference) ->
   {declared: {savedScopes}} = lookupCompiledModule moduleName
