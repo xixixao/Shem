@@ -5849,7 +5849,8 @@ findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
     validDefinitions = concatMaps validDefinitions,
       (for name, def of values validDefinitions when returnType = maybeFunctionReturnType def.type
         newMapWith "(#{name} #{Array(def.arity.length).join ' '})",
-          type: new ForAll def.type.kinds, new Constrained [], returnType)...
+          type: new ForAll def.type.kinds, new Constrained [], returnType
+          fabricated: yes)...
     # typesUnify = (def) ->
     #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
     # [typed, notTyped] = partitionMap typesUnify, validDefinitions
@@ -5867,10 +5868,13 @@ findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
       docs: def.docs
       rawType: def.type
       score: score
+      fabricated: def.fabricated
+    originalOrTyped = (name, completion) ->
+      (isTyped completion) or not completion.fabricated
     isTyped = (completion) ->
       completion.score isnt UNTYPED_PENALTY
 
-    partitionMap isTyped, (mapMap scoreAndPrint, validDefinitions))
+    partitionMap isTyped, filterMap originalOrTyped, (mapMap scoreAndPrint, validDefinitions))
   values concatMaps typed..., untyped...
   # allDefs = concatMaps typed, notTyped # TODO: don't use object key ordering for ordering
   # values mapMap (__ plainPrettyPrint, _type), allDefs
