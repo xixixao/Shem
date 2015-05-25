@@ -4216,98 +4216,7 @@ constructCond = (precs) ->
 
 # end of Match
 
-# Simple macros and builtin functions
-# TODO: reimplement the simple macros
-
-# macros =
-#   'if': (cond, zen, elz) ->
-#     """(function(){if (#{cond}) {
-#       return #{zen};
-#     } else {
-#       return #{elz};
-#     }}())"""
-#   'access': (field, obj) ->
-#     # TODO: use dot notation if method is valid field name
-#     "(#{obj})[#{field}]"
-#   'call': (method, obj, args...) ->
-#     "(#{macros.access method, obj}(#{args.join ', '}))"
-#   'new': (clazz, args...) ->
-#     "(new #{clazz}(#{args.join ', '}))"
-
-
-# expandBuiltings = (mapping, cb) ->
-#   for op, i in mapping.from
-#     macros[op] = cb mapping.to[i]
-
-# unaryFnMapping =
-#   from: 'sqrt alert! not empty'.split ' '
-#   to: 'Math.sqrt window.log ! $empty'.split ' '
-
-# expandBuiltings unaryFnMapping, (to) ->
-#   (x) ->
-#     if x
-#       "#{to}(#{x})"
-#     else
-#       "function(__a){return #{to}(__a);}"
-
-# binaryFnMapping =
-#   from: []
-#   to: []
-
-# expandBuiltings binaryFnMapping, (to) ->
-#   (x, y) ->
-#     if x and y
-#       "#{to}(#{x}, #{y})"
-#     else if x
-#       "function(__b){return #{to}(#{a}, __b);}"
-#     else
-#       "function(__a, __b){return #{to}(__a, __b);}"
-
-# invertedBinaryFnMapping =
-#   from: '^'.split ' '
-#   to: 'Math.pow'.split ' '
-
-# expandBuiltings invertedBinaryFnMapping, (to) ->
-#   (x, y) ->
-#     if x and y
-#       "#{to}(#{y}, #{x})"
-#     else if x
-#       "function(__b){return #{to}(__b, #{a});}"
-#     else
-#       "function(__a, __b){return #{to}(__b, __a);}"
-
-# binaryOpMapping =
-#   from: '+ * = != and or'.split ' '
-#   to: '+ * == != && ||'.split ' '
-
-# expandBuiltings binaryOpMapping, (to) ->
-#   (x, y) ->
-#     if x and y
-#       "(#{x} #{to} #{y})"
-#     else if x
-#       "function(__b){return #{x} #{to} __b;}"
-#     else
-#       "function(__a, __b){return __a #{to} __b;}"
-
-# invertedBinaryOpMapping =
-#   from: '- / rem < > <= >='.split ' '
-#   to: '- / % < > <= >='.split ' '
-
-# expandBuiltings invertedBinaryOpMapping, (to) ->
-#   (x, y) ->
-#     if x and y
-#       "(#{y} #{to} #{x})"
-#     else if x
-#       "function(__b){return __b #{to} #{x};}"
-#     else
-#       "function(__a, __b){return __b #{to} __a;}"
-
-# end of Simple macros
-
 # Default type context with builtins
-
-binaryMathOpType = '(Fn Num Num Num)'
-comparatorOpType = '(Fn a a Bool)'
 
 builtInTypeNames = ->
   arrayToMap map (({name, kind}) -> [name, kind]), [
@@ -4334,60 +4243,6 @@ builtInDefinitions = ->
       'is-null-or-undefined', (
         type: (quantifyAll toConstrained (typeFn (atomicType 'a', star), boolType)),
         arity: ['x'])
-  # concatMaps (mapMap desiplifyTypeAndArity, newMapWith '&', '(Fn a b b)', # TODO: replace with actual type
-  #   'show-list', '(Fn a b)' # TODO: replace with actual type
-  #   'from-nullable', '(Fn a b)' # TODO: replace with actual type JS -> Maybe a
-
-  # TODO match
-
-  # 'if', '(Fn Bool a a a)'
-  # TODO JS interop
-
-  # 'sqrt', '(Fn Num Num)'
-  # 'not', '(Fn Bool Bool)'
-
-  # '^', binaryMathOpType
-
-  # '~', '(Fn Num Num)'
-
-  # '+', binaryMathOpType
-  # '*', binaryMathOpType
-  # '==', comparatorOpType
-  # '!=', comparatorOpType
-  # 'and', '(Fn Bool Bool Bool)'
-  # 'or', '(Fn Bool Bool Bool)'
-
-  # '-', binaryMathOpType
-  # '/', binaryMathOpType
-  # 'rem', binaryMathOpType
-  # '<', comparatorOpType
-  # '>', comparatorOpType
-  # '<=', comparatorOpType
-  # '>=', comparatorOpType
-  # ),
-  # newMapWith 'True', (type: boolType, arity: [])
-  #   'False', (type: boolType, arity: [])
-  #   'empty-array', (type: (parseUnConstrainedType '(Fn (Array a))'), arity: [])
-  #   'cons-array', (type: (parseUnConstrainedType '(Fn a (Array a) (Array a))'), arity: ['what', 'onto'])
-
-# desiplifyTypeAndArity = (simple) ->
-#   type = parseUnConstrainedType simple
-#   args = collectArgs type.type.type
-#   arity = if Array.isArray args then args.length else 0
-#   type: type
-#   arity: ("a#{i}" for i in  [0...arity - 2])
-
-# parseUnConstrainedType = (string) ->
-#   quantifyAll toConstrained typeCompile astize tokenize string
-
-# desiplifyType = (simple) ->
-#   if Array.isArray simple
-#     typeFn (map desiplifyType, simple)...
-#   else if /^[A-Z]/.test simple
-#     typeConstant simple
-#   else
-#     new TypeVariable simple, star
-
 
 # Set/Map implementation
 
@@ -5361,6 +5216,10 @@ prettyPrintWith = (printer, type) ->
   else
     printer type
 
+_fakeContext = undefined
+fakeContext = ->
+  _fakeContext or= new Context
+
 forallToHumanReadable = (type) ->
   notConstrained = (type) ->
     if type.Types and type.types.length > 1
@@ -5373,7 +5232,7 @@ forallToHumanReadable = (type) ->
       newSet()
   _name = ({name}) -> name
   toDependent = (name, deps) -> {name, deps: map ((name) -> {name}), setToArray deps}
-  constrained = freshInstance (new Context), type
+  constrained = freshInstance fakeContext(), type
   allVars = findFree constrained
   constrainingVars = concatMaps (notConstrained c.types for c in constrained.constraints)...
   constrainingGroups = topologicallySortedGroups mapToArrayVia toDependent, constrainingVars
@@ -5404,7 +5263,7 @@ printType = (type) ->
       else
         "#{type.name}"
   else if type.QuantifiedVar
-    "#{type.var}"
+    niceName type.var
   else if type.TypeConstr
     "#{type.name}"
   else if type.TypeApp
@@ -5855,6 +5714,10 @@ findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
     #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
     # [typed, notTyped] = partitionMap typesUnify, validDefinitions
     UNTYPED_PENALTY = -1000000
+    sum = 0
+    simplePrint = (constrained) ->
+      (printType constrained.type) + ' ' + (map printType, constrained.constraints).join ' '
+
     scoreAndPrint = (def) ->
       freshedType = freshenType type.type
       checkedType = (freshInstance ctx, def.type).type
@@ -5863,7 +5726,7 @@ findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
         score = UNTYPED_PENALTY
       else
         score = -((subMagnitude checkedType, freshedType) + i * 100)
-      type: plainPrettyPrint def.type#score + ' ' +
+      type: simplePrint def.type.type #score + ' ' +
       arity: def.arity
       docs: def.docs
       rawType: def.type
@@ -5874,7 +5737,8 @@ findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
     isTyped = (completion) ->
       completion.score isnt UNTYPED_PENALTY
 
-    partitionMap isTyped, filterMap originalOrTyped, (mapMap scoreAndPrint, validDefinitions))
+    scored = (mapMap scoreAndPrint, validDefinitions)
+    partitionMap isTyped, filterMap originalOrTyped, scored)
   values concatMaps typed..., untyped...
   # allDefs = concatMaps typed, notTyped # TODO: don't use object key ordering for ordering
   # values mapMap (__ plainPrettyPrint, _type), allDefs
