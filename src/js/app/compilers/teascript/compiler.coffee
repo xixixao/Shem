@@ -1205,20 +1205,25 @@ typeConstructorCompile = (ctx, call) ->
 
 # Will have to defer if class doesn't exist yet
 typeConstraintCompile = (ctx, expression) ->
-  op = _operator expression
-  args = _arguments expression
+  if isValidTypeConstraint ctx, expression
+    op = _operator expression
+    args = _arguments expression
+    (labelOperator op)
+    className = op.symbol
+    {constraint} = ctx.classNamed className
+    paramKinds = (map kind, constraint.types.types)
+    withOrigin (new ClassConstraint op.symbol,
+      new Types (typesCompile ctx, args, paramKinds)), expression
+
+isValidTypeConstraint = (ctx, expression) ->
   if isCall expression
-    if isAtom op
-      (labelOperator op)
-      className = op.symbol
-      {constraint} = ctx.classNamed className
-      paramKinds = (map kind, constraint.types.types)
-      withOrigin (new ClassConstraint op.symbol,
-        new Types (typesCompile ctx, args, paramKinds)), expression
-    else
+    if not isAtom _operator expression
       malformed ctx, expression, 'Class name required in a constraint'
+      return no
   else
     malformed ctx, expression, 'Class constraint expected'
+    return no
+  yes
 
 typeConstraintsCompile = (ctx, expressions) ->
   filter ((t) -> t instanceof ClassConstraint),
@@ -2080,8 +2085,8 @@ ms.instance = ms_instance = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new instance'
 
     [instanceConstraint, defs...] = _validArguments call
-    if not isCall instanceConstraint
-      return malformed ctx, call, 'Instance requires a class constraint'
+    if not isValidTypeConstraint ctx, instanceConstraint
+      return jsNoop()
     else
       instanceType = typeConstraintCompile ctx, instanceConstraint
     [constraintSeq, wheres...] = defs
