@@ -82,7 +82,7 @@ markFake = (form) ->
 constantLabeling = (atom) ->
   {symbol} = atom
   labelMapping atom, [
-    ['numerical', -> /^~?\d+/.test symbol]
+    ['numerical', -> /^~?(\d+|Infinity)/.test symbol]
     ['label', -> isLabel atom]
     ['string', -> /^"/.test symbol]
     ['char', -> /^\\/.test symbol]
