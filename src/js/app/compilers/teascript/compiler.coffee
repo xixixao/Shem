@@ -840,6 +840,7 @@ callKnownCompile = (ctx, call) ->
     if nonLabeledArgs.length < positionalParams.length
       # log "currying known call"
       lambda = (fn_ extraParams, sortedCall)
+      trackTransformation lambda, sortedCall
       compiled = callMacroCompile ctx, lambda
       retrieve call, lambda
       # TODO: massive hack, erase inserted scope, will have to figure out how to fix this better
@@ -3316,7 +3317,7 @@ findSubClassParam = (ctx, constraint) ->
   if not classParams
     ctx.extendSubstitution substitutionFail
       message: "Constraint #{printType constraint} is ambiguous"
-      conflicts: [constraint.origin]
+      conflicts: [originOf constraint]
     return {}
   # return "{}" unless classParams
   for className, dict of values classParams
@@ -3560,8 +3561,10 @@ retrieve = (expression, newForm) ->
   expression.tea = newForm.tea
   expression.malformed = newForm.malformed
   expression.label = newForm.label if newForm.label
-  if newForm.tea?.type.origin is newForm
-    mutateMarkingOrigin newForm.tea.type, expression
+  trackTransformation expression, newForm
+
+trackTransformation = (transformed, newForm) ->
+  newForm.transformed = transformed
 
 filterAst = (test, expression) ->
   join (filter test, [expression]),
