@@ -3823,7 +3823,11 @@ labelComments = (call) ->
 
 toHtml = (highlighted) ->
   crawl highlighted, (node, symbol, parent) ->
-    colorize(theme[labelOf node, parent], symbol)
+    colorize(theme[labelOf node, parent],
+      if node.label is 'string'
+        "“#{symbol[1...-1]}”"
+      else
+        symbol)
 
 print = (ast) ->
   if not ast
