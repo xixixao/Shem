@@ -7365,6 +7365,7 @@ exports.__ = __
 exports._operator = _operator
 exports._arguments = _arguments
 exports._terms = _terms
+exports._validTerms = _validTerms
 exports._snd = _snd
 exports._fst = _fst
 exports._labelName = _labelName
