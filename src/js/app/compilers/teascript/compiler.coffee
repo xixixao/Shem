@@ -818,12 +818,7 @@ callKnownCompile = (ctx, call) ->
     malformed ctx, call, "Too many arguments to #{operator.symbol}"
   extraParamNames = positionalParams[nonLabeledArgs.length..]
   extraParams = map token_, ("_#{n}" for n in extraParamNames)
-  positionalArgs = map id, nonLabeledArgs # copy
-  extraArgs = map id, extraParams
-  argsInOrder = (for param in paramNames
-    (lookupInMap labeledArgs, param) or
-      positionalArgs.shift() or
-      extraArgs.shift())
+  argsInOrder = sortCallArguments paramNames, labeledArgs, nonLabeledArgs, extraParams
   sortedCall = (call_ operator,  argsInOrder)
 
   if ctx.assignTo()
@@ -854,6 +849,21 @@ callKnownCompile = (ctx, call) ->
           callSaturatedKnownCompile ctx, sortedCall
       retrieve call, sortedCall
       compiled
+
+# For use by the IDE, missing arguments are null
+sortedArgs = (paramNames, call) ->
+  args = _labeled _arguments call
+  labeledArgs = labeledToMap args
+  nonLabeledArgs = map _snd, filter (([label, value]) -> not label), args
+  sortCallArguments paramNames, labeledArgs, nonLabeledArgs, []
+
+sortCallArguments = (paramNames, labeledArgs, nonLabeledArgs, extraParams) ->
+  positionalArgs = map id, nonLabeledArgs # copy
+  extraArgs = map id, extraParams
+  (for param in paramNames
+    (lookupInMap labeledArgs, param) or
+      positionalArgs.shift() or
+      extraArgs.shift())
 
 callConstructorPattern = (ctx, call, extraParamNames) ->
   operator = _operator call
@@ -7340,6 +7350,8 @@ exports.builtInLibraryNumLines = library.split('\n').length + immutable.split('\
 #   exports"""
 
 exports.library = library
+
+exports.sortedArgs = sortedArgs
 
 exports.isForm = isForm
 exports.isCall = isCall
