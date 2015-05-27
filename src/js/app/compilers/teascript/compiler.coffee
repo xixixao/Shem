@@ -1823,6 +1823,8 @@ ms.data = ms_data = (ctx, call) ->
       return jsNoop()
 
     dataName = ctx.definitionName()
+    paramLabelsIn = (params = []) ->
+      map _labelName, (filter _is, (map _fst, _labeled _validTerms params))
 
     # Types, Arity
     {fieldTypes, dataType} = findDataType ctx, typeArgLists, typeParams, dataName
@@ -1832,7 +1834,7 @@ ms.data = ms_data = (ctx, call) ->
         typeFn (join paramTypes, [dataType])...
       else
         dataType
-      paramLabels = (_labeled _terms params or []).map(_fst).map(_labelName)
+      paramLabels = paramLabelsIn params
       # log "Adding constructor #{constr.symbol}", constrType
       ctx.declare constr.symbol,
         type: quantifyUnbound ctx, toConstrained constrType
@@ -1850,7 +1852,7 @@ ms.data = ms_data = (ctx, call) ->
     # Translate
     concat (for [constr, params] in defs
       identifier = validIdentifier constr.symbol
-      paramLabels = (_labeled _terms params or []).map(_fst).map(_labelName)
+      paramLabels = paramLabelsIn params
       paramNames = paramLabels.map(validIdentifier)
 
       constrValue = (jsAssignStatement "#{identifier}._value",
@@ -1878,29 +1880,28 @@ findDataType = (ctx, typeArgLists, typeParams, dataName) ->
   fieldTypes = for typeArgs in typeArgLists
     if typeArgs
       if isRecord typeArgs
-        for type in _snd unzip _labeled _terms typeArgs when type
-          type = typeCompile ctx, type
+        for typeExpression in _snd unzip _labeled _validTerms typeArgs when typeExpression
+          type = typeCompile ctx, typeExpression
           for name, kind of values findFree type
             if not inSet varNameSet, name
-              malformed ctx, type, "Type variable #{name} not declared"
-              throw new Error "Type variable #{name} not declared"
+              malformed ctx, typeExpression, "Type variable #{name} not declared"
             else
               if foundKind = lookupInMap kinds, name
                 if not kindsEq foundKind, kind
-                  malformed ctx, type, "Type variable #{name} must have the same kind"
+                  malformed ctx, typeExpression, "Type variable #{name} must have the same kind"
               else
                 addToMap kinds, name, kind
           type
       else
         malformed ctx, typeArgs, 'Required a record of types'
-        null
+        []
     else
-      null
+      []
 
   for typeParam in typeParams
     if not lookupInMap kinds, (_symbol typeParam)
       malformed ctx, typeParam, 'Data type parameter not used'
-      throw new Error 'Data type parameter not used'
+      # throw new Error 'Data type parameter not used'
 
   freshingSub = mapMap ((kind) -> ctx.freshTypeVariable kind), kinds
 
@@ -1908,7 +1909,7 @@ findDataType = (ctx, typeArgLists, typeParams, dataName) ->
   typeVars = map ((name) -> new TypeVariable name, (lookupInMap kinds, name)), varNames
   dataType: (substitute freshingSub,
     (applyKindFn (new TypeConstr dataName, dataKind), typeVars...))
-  fieldTypes: (map ((types) -> if types then substituteList freshingSub, types), fieldTypes)
+  fieldTypes: (map ((types) -> substituteList freshingSub, types), fieldTypes)
 
 ms.record = ms_record = (ctx, call) ->
     args = _validArguments call
@@ -3442,9 +3443,7 @@ isCall = (expression) ->
     expression[0].symbol is '('
 
 isRecord = (expression) ->
-  if isTuple expression
-    [labels, values] = unzip pairs _terms expression
-    labels.length is values.length and (allMap isLabel, labels)
+  (isTuple expression) and (isLabel _fst _terms expression)
 
 isSeq = (expression) ->
   (isForm expression) and expression[0].symbol is '{'
