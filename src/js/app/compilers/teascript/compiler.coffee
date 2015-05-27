@@ -1423,7 +1423,6 @@ declaredTypeTooGeneral = (ctx, inferredType, updatedDeclaredType, unifiedType, d
       conflicts: conflicts
 
 declaredTypeMissingConstraint = (ctx, name, constraint) ->
-  console.log replaceQuantifiedByOrigin constraint
   ctx.extendSubstitution substitutionFail
     message: "#{name}'s declared type is too weak, missing #{printType replaceQuantifiedByOrigin constraint}"
     conflicts: [(originOf constraint), (originOf constraint.types.types[0])]
@@ -5685,7 +5684,7 @@ findAvailableTypes = (moduleName, inferredType) ->
         "(#{name}#{Array(kindArity + 1).join ' '})"
     docs: null # TODO: add docs
   available = concatMaps typeNames, ctx._scope().typeNames
-  if inferredType
+  if inferredType isnt true
     if inferredType.name
       available = filterMap ((name) -> name isnt inferredType.name), available
     inferred = newMapWith 'inferred', type: plainPrettyPrint toForAll toConstrained inferredType
