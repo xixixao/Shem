@@ -1425,7 +1425,7 @@ declaredTypeTooGeneral = (ctx, inferredType, updatedDeclaredType, unifiedType, d
 declaredTypeMissingConstraint = (ctx, name, constraint) ->
   ctx.extendSubstitution substitutionFail
     message: "#{name}'s declared type is too weak, missing #{printType replaceQuantifiedByOrigin constraint}"
-    conflicts: [(originOf constraint), (originOf constraint.types.types[0])]
+    conflicts: [constraint, constraint.types.types[0]]
 
 replaceQuantifiedByOrigin = (type) ->
   if type.QuantifiedVar
@@ -2746,7 +2746,7 @@ tryDeferConstraints = (ctx, constraints, type, scopeIndex) ->
   if _notEmpty ambiguous
     {error: substitutionFail
       message: "Constraint #{printType ambiguous[0]} is ambiguous for inferred type #{printType finalType}"
-      conflicts: [(originOf type.type), (originOf ambiguous[0])]}
+      conflicts: [type.type, ambiguous[0]]}
   else
     success: [deferred, retained]
 
@@ -2849,7 +2849,7 @@ instanceLookupFailed = (constraint) ->
   [first, second] = sortBasedOnOriginPosition constraint, constraint.types.types[0]
   substitutionFail
     message: "No instance found to satisfy #{safePrintType constraint}"
-    conflicts: [(originOf first), (originOf second)]
+    conflicts: [first, second]
 
 _names = (list) ->
   map _symbol, list
@@ -3332,7 +3332,7 @@ findSubClassParam = (ctx, constraint) ->
   if not classParams
     ctx.extendSubstitution substitutionFail
       message: "Constraint #{printType constraint} is ambiguous"
-      conflicts: [originOf constraint]
+      conflicts: [constraint]
     return {}
   # return "{}" unless classParams
   for className, dict of values classParams
@@ -4716,7 +4716,7 @@ typeFail = (message, t1, t2) ->
   [first, second] = sortBasedOnOriginPosition t1, t2
   substitutionFail
     message: "#{message} #{(safePrintType first)}, #{(safePrintType second)}"
-    conflicts: [(originOf first), (originOf second)]
+    conflicts: [first, second]
     types: [t1, t2]
 
 sortBasedOnOriginPosition = (t1, t2) ->
@@ -7350,6 +7350,7 @@ exports.builtInLibraryNumLines = library.split('\n').length + immutable.split('\
 
 exports.library = library
 
+exports.originOf = originOf
 exports.sortedArgs = sortedArgs
 
 exports.isForm = isForm
