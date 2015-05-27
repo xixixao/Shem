@@ -1227,7 +1227,7 @@ typeConstraintCompile = (ctx, expression) ->
 
 isValidTypeConstraint = (ctx, expression) ->
   if isCall expression
-    if not isAtom _operator expression
+    if (not isAtom (op = _operator expression)) or isFake op
       malformed ctx, expression, 'Class name required in a constraint'
       return no
   else
@@ -1412,7 +1412,7 @@ declaredTypeTooGeneral = (ctx, inferredType, updatedDeclaredType, unifiedType, d
   [t1, t2] = sortBasedOnOriginPosition fromInferred, fromDeclared
   # Dont report for fake types
   declaringType = originOf fromDeclared
-  if isFake declaringType
+  if declaringType and isFake declaringType
     declaringType.inferredType = replaceQuantifiedByOrigin fromInferred
   else
     inferred = "inferred #{printType fromInferred}"
@@ -2096,8 +2096,8 @@ ms.instance = ms_instance = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new instance'
 
     [instanceConstraint, defs...] = _validArguments call
-    if not isValidTypeConstraint ctx, instanceConstraint
-      return jsNoop()
+    if not instanceConstraint or not isValidTypeConstraint ctx, instanceConstraint
+      return malformed ctx, call, 'Requiring the instance type'
     else
       instanceType = typeConstraintCompile ctx, instanceConstraint
     [constraintSeq, wheres...] = defs
@@ -2152,7 +2152,7 @@ ms.instance = ms_instance = (ctx, call) ->
 
       methods = map (({rhs}) -> rhs), methodsDeclarations
       # log "methods", methods
-      methodTypes = (rhs.tea for [lhs, rhs] in definitions)
+      methodTypes = (rhs?.tea for [lhs, rhs] in definitions)
       if not all methodTypes
         malformed ctx, call, "missing type of a method"
         return jsNoop()
@@ -5727,7 +5727,7 @@ findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
       def.type? and not def.type.TempType and (not isPattern or (isConst symbol: name) or def.isPattern)
     validDefinitions = filterMap isValid, definitions # TODO: filter before TempType
     validDefinitions = concatMaps validDefinitions,
-      (for name, def of values validDefinitions when returnType = maybeFunctionReturnType def.type
+      (for name, def of values validDefinitions when def.arity and returnType = maybeFunctionReturnType def.type
         newMapWith "(#{name} #{Array(def.arity.length).join ' '})",
           type: new ForAll def.type.kinds, new Constrained [], returnType
           fabricated: yes)...
