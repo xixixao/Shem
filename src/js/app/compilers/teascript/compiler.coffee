@@ -5809,6 +5809,7 @@ findDocsFor = (moduleName, reference) ->
   {name, scope} = reference
   while scope > 0 and not found
     savedScope = savedScopes[scope]
+    break if not savedScope
     found = lookupInMap savedScope.definitions, name
     scope = savedScope.parent
   found or= lookupInMap ctx._scope(), name # Top scope
