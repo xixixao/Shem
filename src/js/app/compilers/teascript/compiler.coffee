@@ -786,7 +786,7 @@ callMacroCompile = (ctx, call) ->
     compiled
 
 isTranslated = (result) ->
-  (isSimpleTranslated result) or (Array.isArray result) and (isSimpleTranslated result[0])
+  (isSimpleTranslated result) or (Array.isArray result) and ((_empty result) or (isSimpleTranslated result[0]))
 
 isSimpleTranslated = (result) ->
   result.js or result.ir or result.precs or result.assigns
@@ -1810,7 +1810,7 @@ ms.type = ms_type = (ctx, call) ->
   #     constant-name
 ms.data = ms_data = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare new algebraic data'
-    args = _arguments call
+    args = _validArguments call
     if isTuple args[0]
       [typeParamTuple, args...] = args
       typeParams = paramTupleIn ctx, call, typeParamTuple
@@ -1820,7 +1820,7 @@ ms.data = ms_data = (ctx, call) ->
     [names, typeArgLists] = unzip defs
     map (syntaxNewName ctx, 'Type constructor name required'), names
     if not hasName
-      return 'malformed'
+      return jsNoop()
 
     dataName = ctx.definitionName()
 
