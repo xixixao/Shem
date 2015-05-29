@@ -5726,7 +5726,7 @@ findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
       def.type? and not def.type.TempType and (not isPattern or (isConst symbol: name) or def.isPattern)
     validDefinitions = filterMap isValid, definitions # TODO: filter before TempType
     validDefinitions = concatMaps validDefinitions,
-      (for name, def of values validDefinitions when def.arity and returnType = maybeFunctionReturnType def.type
+      (for name, def of values validDefinitions when def.arity and returnType = concreteReturnType def.type
         newMapWith "(#{name} #{Array(def.arity.length).join ' '})",
           type: new ForAll def.type.kinds, new Constrained [], returnType
           fabricated: yes)...
@@ -5790,8 +5790,11 @@ actualOpName = (type) ->
   type.name ? actualOpName type.op
 
 # Accepts ForAll type
-maybeFunctionReturnType = ({type: {type}}) ->
-  (isFunctionType type) and functionReturnType type
+# Only returns if the return type is more than just a type variable
+# Returns (? Return-Type)
+concreteReturnType = ({type: {type}}) ->
+  (isFunctionType type) and (returnType = functionReturnType type) and
+    (not returnType.QuantifiedVar) and returnType
 
 functionReturnType = (type) ->
   if type.arg and isFunctionType type
