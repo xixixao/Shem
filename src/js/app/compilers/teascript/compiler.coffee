@@ -1862,7 +1862,7 @@ ms.data = ms_data = (ctx, call) ->
               body: [(jsReturn (jsNew identifier, paramNames))])])
         else
           (jsNew identifier, []))
-      constrFunction = dictConstructorFunction identifier, paramNames
+      constrFunction = dictConstructorFunction constr.symbol, paramNames
       accessors = dictAccessors constr.symbol, identifier, paramNames, defs.length
       (concat [constrFunction, accessors, [constrValue]]))
 
@@ -2161,7 +2161,7 @@ ms.instance = ms_instance = (ctx, call) ->
       # """var #{instanceName} = new #{className}(#{listOf methods});"""
       (jsVarDeclaration (validIdentifier instanceName),
         (irDefinition (new Constrained freshConstraints, (tupleOfTypes methodTypes).type),
-          (jsNew className, (join superClassInstances, methods))))
+          (jsNew (validIdentifier className), (join superClassInstances, methods))))
 
 # Makes sure methods are typed explicitly and returns the instance constraint
 # with renamed type variables to avoid clashes
@@ -2888,7 +2888,7 @@ dictConstructorFunction = (dictName, fieldNames, additionalFields = []) ->
   paramAssigns = allFieldNames.map (name) ->
     (jsAssignStatement (jsAccess "this", name), (validIdentifier name))
   constrFn = (jsFunction
-    name: dictName
+    name: (validIdentifier dictName)
     params: (map validIdentifier, allFieldNames)
     body: paramAssigns)
   # Not necessary
