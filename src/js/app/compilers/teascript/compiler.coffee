@@ -3209,7 +3209,7 @@ irDefinitionTranslate = (ctx, {type, expression, reference, bare}) ->
     typeMap = nestedLookupInMap classParams, names
     if not typeMap
       nestedAddToMap classParams, names, (typeMap = newMap())
-    dictName = "_#{className}_#{counter[className] ?= 0; ++counter[className]}"
+    dictName = "_#{validIdentifier className}_#{counter[className] ?= 0; ++counter[className]}"
     addToMap typeMap, className, dictName
     dictName
   ctx.addClassParams classParams
