@@ -1375,7 +1375,7 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
       # Context reduction
       isDeclaredConstraint = (c) ->
         entailed = entail ctx, unifiedType.constraints, c
-      notDeclared = filter (__ _not, isDeclaredConstraint), checked = constraints #(substituteList ctx.substitution, constraints)
+      notDeclared = filter (__ _not, isDeclaredConstraint), constraints #(substituteList ctx.substitution, constraints)
       {success} = deferConstraints ctx, notDeclared, currentType, scopeIndex
       if success
         [deferredConstraints, retainedConstraints] = success
@@ -2182,7 +2182,8 @@ assignMethodTypes = (ctx, typeExpression, freshInstanceType, instanceName, class
   for name, {arity, type} of values classDeclaration.declarations
     freshType = freshInstance ctx, type
     instanceSpecificType = substitute freshingSub, freshType
-    quantifiedType = quantifyUnbound ctx, instanceSpecificType
+    quantifiedType = quantifyUnbound ctx,
+      (addConstraints instanceSpecificType, freshInstanceType.constraints)
     # Prefix so the instance method doesn't shadow the class method
     prefixedName = instancePrefix instanceName, name
     # TODO: Check against redefing a method
