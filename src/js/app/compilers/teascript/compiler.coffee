@@ -1041,7 +1041,10 @@ seqCompile = (ctx, form) ->
     requiredElems = 0
     for elem in elems
       if isSplat elem
-        hasSplat = yes
+        if hasSplat
+          return malformed ctx, elem, 'Only one splat is allowed'
+        else
+          hasSplat = yes
       else
         requiredElems++
 
