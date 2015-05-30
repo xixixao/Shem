@@ -1455,8 +1455,10 @@ topLevelExpression = (ctx, expression) ->
     [expression, dependencyName] = deferred
     malformed ctx, expression, "#{dependencyName} is not defined"
     undefined
-  else
+  else if expression.tea
     (irDefinition expression.tea, compiled, null, yes)
+  else
+    jsNoop()
 
 topLevel = (ctx, form) ->
   definitionList ctx, spaceSeparatedPairs form
