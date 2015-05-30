@@ -2923,12 +2923,12 @@ requireName = (ctx, message) ->
 fakeCompile = (ctx, token) ->
   token.tea = toConstrained ctx.freshTypeVariable star
   token.scope = ctx.currentScopeIndex()
+  ctx.markMalformed()
   if ctx.assignTo()
     token.assignable = top: ctx.isAtDeferrableDefinition()
     precs: []
     assigns: []
   else
-    ctx.markMalformed()
     assignCompile ctx, token, jsNoop()
 
 atomCompile = (ctx, atom) ->
@@ -5578,6 +5578,7 @@ compileExpression = (source, moduleName = '@unnamed') ->
     js: library + immutable + (listOfLines map lookupJs, (setToArray runtimeDependencies moduleName)) + '\n;' + js
     ast: ast
     errors: checkTypes ctx
+    malformed: ctx.isMalformed
 
 importsFor = (moduleSet) ->
   lookupDefinitions = (name) ->
