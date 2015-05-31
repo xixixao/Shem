@@ -2638,20 +2638,6 @@ for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method', 'assi
         (irJsCompatible term.tea, compiled))
       (jsCall "js#{jsMethod[0].toUpperCase()}#{jsMethod[1...]}", compatibles)
 
-ms['parse-shem'] = ms_parse_shem = (ctx, call) ->
-  [string] = _arguments call
-  compiledString = termCompile ctx, string
-  call.tea = toConstrained markOrigin expressionType, call
-  assignCompile ctx, call, (jsMethod 'runtime', 'parseShem', [compiledString])
-
-ms['eval-shem'] = ms_eval_shem = (ctx, call) ->
-  [source] = _arguments call
-  compiledSource = termCompile ctx, source
-  call.tea = toConstrained markOrigin jsType, call
-  fucked = eval translateToJs translateIr ctx, compiledSource
-  compiled = termCompile ctx, fucked
-  assignCompile ctx, call, compiled
-
 ms['=='] = ms_eq = (ctx, call) ->
     [a, b] = _arguments call
     operatorCompile ctx, call
@@ -5586,20 +5572,16 @@ compileExpression = (source, moduleName = '@unnamed') ->
       js: ''
     }
   else
+    module = lookupCompiledModule moduleName
+    {modules, ctx} = contextWithDependencies moduleDependencies moduleName
     [expression] = _terms ast
-    result = compileExpressionFromAst expression, moduleName
-    result.ast = ast
-    result
-
-compileExpressionFromAst = (expression, moduleName) ->
-  module = lookupCompiledModule moduleName
-  {modules, ctx} = contextWithDependencies moduleDependencies moduleName
-  compilationFn = (topLevelExpressionInModule importsFor moduleDependencies moduleName)
-  {js} = compileCtxAstToJs compilationFn, ctx, expression
-  (finalizeTypes ctx, expression)
-  js: library + immutable + (listOfLines map lookupJs, (setToArray runtimeDependencies moduleName)) + '\n;' + js
-  errors: checkTypes ctx
-  malformed: ctx.isMalformed
+    compilationFn = (topLevelExpressionInModule importsFor moduleDependencies moduleName)
+    {js} = compileCtxAstToJs compilationFn, ctx, expression
+    (finalizeTypes ctx, expression)
+    js: library + immutable + (listOfLines map lookupJs, (setToArray runtimeDependencies moduleName)) + '\n;' + js
+    ast: ast
+    errors: checkTypes ctx
+    malformed: ctx.isMalformed
 
 importsFor = (moduleSet) ->
   lookupDefinitions = (name) ->
@@ -6024,16 +6006,6 @@ __ = (fna, fnb) ->
   (x) -> fna fnb x
 
 # end of Utils
-
-# Exported runtime
-runtime =
-  parseShem: (string) ->
-    astize tokenize string
-
-  evalShem: (ast) ->
-    {js} = compileExpressionFromAst ast, moduleName
-    {js} = compileCtxAstToJs topLevelExpression, (new Context), ast
-    eval js
 
 # Unit tests
 test = (testName, teaSource, result) ->
@@ -7387,7 +7359,6 @@ exports.builtInLibraryNumLines = library.split('\n').length + immutable.split('\
 #   exports"""
 
 exports.library = library
-exports.runtime = runtime
 
 exports.originOf = originOf
 exports.sortedArgs = sortedArgs
