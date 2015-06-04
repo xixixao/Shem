@@ -73,8 +73,9 @@ createIndent = (accumulator) ->
 markFake = (form) ->
   [prev, rest...] = form
   for node in rest
-    if (prev.label in ['whitespace', 'indent'] or prev.symbol in leftDelims) and
-        (node.label is 'whitespace' or node.symbol in rightDelims)
+    if (prev.label in ['whitespace', 'indent'] or (delimLeft = prev.symbol in leftDelims)) and
+        (node.label is 'whitespace' or (delimRight = node.symbol in rightDelims)) and
+          not (delimLeft and delimRight and prev.symbol in ['{', '['])
       node.fake = yes
     prev = node
   return
