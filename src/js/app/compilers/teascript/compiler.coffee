@@ -195,6 +195,7 @@ class Context
     @_isOperator = []
     @variableIndex = 0
     @typeVariabeIndex = 0
+    @logId = 0
     @nameIndex = 1
     @substitution = emptySubstitution()
     @statement = []
@@ -2646,7 +2647,7 @@ ms.log = ms_log = (ctx, call) ->
   compiled = termsCompile ctx, args
   call.tea = value.tea
   view = map (__ (__ toMultilineJsString, collapse), toHtml), args
-  assignCompile ctx, call, (jsCall "debugLog", join view, compiled)
+  assignCompile ctx, call, (jsCall "debugLog", concat [ctx.logId++, view, compiled])
 
 ms['=='] = ms_eq = (ctx, call) ->
     [a, b] = _arguments call
