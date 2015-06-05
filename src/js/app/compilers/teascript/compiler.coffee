@@ -1084,6 +1084,8 @@ seqCompile = (ctx, form) ->
     # {a b c} to (& a (& b (& c)))
     # expressionCompile ctx, arrayToConses elems
     # result =>         "[#{listOf map _compiled, elems}]"
+    if _notEmpty elems
+      elems = _terms form
 
     compiledItems = uniformCollectionCompile ctx, form, elems, arrayType
     assignCompile ctx, form, (irArray compiledItems)
@@ -5731,13 +5733,18 @@ findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
   ctx = new Context
   [typed, untyped] = unzip (for definitions, i in definitionLists
     isValid = (name, def) ->
-      def.type? and not def.type.TempType and (not isPattern or (isConst symbol: name) or def.isPattern)
+      def.type? and not def.type.TempType and (not isPattern or (isConst symbol: name) or def.isPattern)# and def.type.type?.constraints and _empty def.type.type.constraints
     validDefinitions = filterMap isValid, definitions # TODO: filter before TempType
     validDefinitions = concatMaps validDefinitions,
       (for name, def of values validDefinitions when def.arity and returnType = concreteReturnType def.type
-        newMapWith "(#{name} #{Array(def.arity.length).join ' '})",
+        newMapWith "(#{name} #{Array(def.arity.length).join ' '})", {
           type: new ForAll def.type.kinds, new Constrained [], returnType
-          fabricated: yes)...
+          docs: def.docs
+          fabricated: yes},
+        "(#{name} #{Array(def.arity.length - 1).join ' '})", {
+          type: new ForAll def.type.kinds, new Constrained [], curriedType def.type.type.type
+          docs: def.docs
+          fabricated: yes})...
     # typesUnify = (def) ->
     #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
     # [typed, notTyped] = partitionMap typesUnify, validDefinitions
@@ -5803,6 +5810,12 @@ actualOpName = (type) ->
 concreteReturnType = ({type: {type}}) ->
   (isFunctionType type) and (returnType = functionReturnType type) and
     (not returnType.QuantifiedVar) and returnType
+
+curriedType = (type) ->
+  if type.arg and isFunctionType type.arg
+    curriedType type.arg
+  else
+    type
 
 functionReturnType = (type) ->
   if type.arg and isFunctionType type
