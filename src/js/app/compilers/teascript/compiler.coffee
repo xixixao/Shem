@@ -2641,6 +2641,12 @@ for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method', 'assi
         (irJsCompatible term.tea, compiled))
       (jsCall "js#{jsMethod[0].toUpperCase()}#{jsMethod[1...]}", compatibles)
 
+ms.log = ms_log = (ctx, call) ->
+  compiled = expressionCompile ctx, arg = _fst _arguments call
+  call.tea = arg.tea
+  view = collapse toHtml arg
+  assignCompile ctx, call, (jsCall "debugLog", [(toJsString view), compiled])
+
 ms['=='] = ms_eq = (ctx, call) ->
     [a, b] = _arguments call
     operatorCompile ctx, call
