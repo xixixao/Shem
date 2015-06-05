@@ -815,8 +815,6 @@ callKnownCompile = (ctx, call) ->
   if _notEmpty invalidArgLabels
     return jsNoop()
 
-  if nonLabeledArgs.length > positionalParams.length
-    malformed ctx, call, "Too many arguments to #{operator.symbol}"
   extraParamNames = positionalParams[nonLabeledArgs.length..]
   extraParams = map token_, ("_#{n}" for n in extraParamNames)
   argsInOrder = sortCallArguments paramNames, labeledArgs, nonLabeledArgs, extraParams
@@ -849,6 +847,8 @@ callKnownCompile = (ctx, call) ->
         else
           callSaturatedKnownCompile ctx, sortedCall
       retrieve call, sortedCall
+      if nonLabeledArgs.length > positionalParams.length
+        malformed ctx, call, "Too many arguments to #{operator.symbol}"
       compiled
 
 # For use by the IDE, missing arguments are null
@@ -2642,10 +2642,11 @@ for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method', 'assi
       (jsCall "js#{jsMethod[0].toUpperCase()}#{jsMethod[1...]}", compatibles)
 
 ms.log = ms_log = (ctx, call) ->
-  compiled = expressionCompile ctx, arg = _fst _arguments call
-  call.tea = arg.tea
-  view = collapse toHtml arg
-  assignCompile ctx, call, (jsCall "debugLog", [(toJsString view), compiled])
+  [..., value] = args = _arguments call
+  compiled = termsCompile ctx, args
+  call.tea = value.tea
+  view = map (__ (__ toMultilineJsString, collapse), toHtml), args
+  assignCompile ctx, call, (jsCall "debugLog", join view, compiled)
 
 ms['=='] = ms_eq = (ctx, call) ->
     [a, b] = _arguments call
@@ -3202,7 +3203,6 @@ irDefinitionTranslate = (ctx, {type, expression, reference, bare}) ->
   finalType = type#substitute ctx.substitution, type
   # allConstraints = (addConstraintsFrom ctx,
   #   {type, name: reference?.name, scopeIndex: reference?.scopeIndex}, finalType).constraints
-
   reducedConstraints =
     if reference
       constraintsFromReference ctx, {type, name: reference.name, scopeIndex: reference.scopeIndex}
@@ -3211,7 +3211,8 @@ irDefinitionTranslate = (ctx, {type, expression, reference, bare}) ->
   if not reducedConstraints
     return jsNoop()
   if bare and _notEmpty reducedConstraints
-    malformed ctx, expression, "Ambiguous class constraints: #{map safePrintType, reducedConstraints}"
+    ctx.extendSubstitution substitutionFail
+      message: "Ambiguous class constraints: #{map safePrintType, reducedConstraints}"
     return "null";
   ctx.updateClassParams()
   # TODO: what about the class dictionaries order?
@@ -3280,7 +3281,7 @@ constraintsFromCanonicalType = (ctx, canonicalType, type) ->
   # console.log (printType canonicalType)
   # console.log (JSON.stringify inferredType)
   # console.log (JSON.stringify type.type)
-  #ctx.extendSubstitution
+  #ctx.extendSubstitution substitutionFail message:
   # Shouldn't fail
   matchType inferredType.type, type.type#(substitute ctx.substitution, type).type
   # console.log "after", (printType inferredType.type)
@@ -3345,7 +3346,7 @@ findSubClassParam = (ctx, constraint) ->
   toClassName = (c) -> c.className
   classParams = ctx.classParamsForType constraint
   if not classParams
-    ctx.extendSubstitution substitutionFail
+    ctx.extendSubstitution substitutionFail substitutionFail message:
       message: "Constraint #{printType constraint} is ambiguous"
       conflicts: [constraint]
     return {}
@@ -3835,7 +3836,8 @@ theme =
   normal: 'white'
 
 colorize = (color, string) ->
-  "<span style=\"color: #{color}\">#{string}</span>"
+  style = if color then " style=\"color: #{color}\"" else ''
+  "<span#{style}>#{string}</span>"
 
 # TODO: figure out comments
 # typeComments = (ast) ->
@@ -4196,6 +4198,9 @@ hoistWheres = (hoistable, assigns) ->
         missing: stillMissingNames
         set: stillMissingDeps
   [hoisted, notHoisted]
+
+toMultilineJsString = (symbol) ->
+  "('#{symbol.replace /\n/, "' + '"}')"
 
 toJsString = (symbol) ->
   "'#{symbol}'"
