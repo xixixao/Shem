@@ -2252,7 +2252,7 @@ ms.match = ms_match = (ctx, call) ->
     ctx.setAssignTo subjectCompiled
     ctx.cacheAssignTo()
     varNames = []
-    constraints = []
+    constraints = map id, subject.tea.constraints
     errorMessage =
       if ctx.definitionName()?
         " in #{ctx.definitionName()}"
