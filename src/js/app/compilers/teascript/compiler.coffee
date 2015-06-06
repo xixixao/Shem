@@ -2204,7 +2204,9 @@ assignMethodTypes = (ctx, typeExpression, freshInstanceType, instanceName, class
 prefixWithInstanceName = (ctx, definitionPairs, instanceName) ->
   for [lhs, rhs] in definitionPairs
     if (syntaxNewName ctx, 'Method name required', lhs) is true
-      [(token_ instancePrefix instanceName, lhs.symbol), rhs]
+      prefixedName = instancePrefix instanceName, lhs.symbol
+      lhs.tea = ctx.type prefixedName
+      [(token_ prefixedName), rhs]
     else
       [lhs, rhs]
 
