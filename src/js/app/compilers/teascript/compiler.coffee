@@ -2520,10 +2520,14 @@ ms['`'] = ms_quote = (ctx, call) ->
 
   commedAtom = (atom, otherwise) ->
     if (_symbol atom)[0] is ','
-      identifier = token_ (_symbol atom)[1...]
+      splat = (_symbol atom)[1..2] is '..'
+      identifier = token_ (_symbol atom)[(if splat then 3 else 1)...]
       compiled = termCompile ctx, identifier
       retrieve atom, identifier
-      compiled
+      if ctx.assignTo()
+        compiled
+      else
+        if splat then (jsMethod compiled, 'toArray', []) else (jsArray [compiled])
     else
       otherwise()
 
@@ -2554,18 +2558,22 @@ ms['`'] = ms_quote = (ctx, call) ->
 
     serializeAst = (ast) ->
       if isForm ast
-        if (_operator ast)?.symbol is ','
+        (jsArray [if (_operator ast)?.symbol is ','
           termCompile ctx, ast
         else
           labelDelimeters ast, 'const'
-          (jsArray (map serializeAst, ast))
+          terms = map serializeAst, ast
+          if _empty terms
+            (jsArray [])
+          else
+            (jsMethod (_fst terms), 'concat', terms[1...])])
       else
         commedAtom ast, ->
           serialized = (jsValue (JSON.stringify ast))
           if (isExpression ast)
             ast.label = 'const'
-          serialized
-    serializeAst expression
+          (jsArray [serialized])
+    _fst (serializeAst expression).elems
 
 ms[','] = ms_comma = (ctx, call) ->
   expression = firstOrCall _arguments call
