@@ -2299,7 +2299,7 @@ ms.match = ms_match = (ctx, call) ->
       [conds, assigns] = matchBranchTranslate precs, assigns, compiledResult
       [conds, join (findDefinitions ctx, (setToArray (subtractSets lifted, jointlyUsed))),
         assigns])
-    , "throw new Error('match failed to match#{errorMessage}');" #TODO: what subject?
+    , "throw new Error('match failed to match #{(print subject)}#{errorMessage}');" #TODO: what subject?
 
     ctx.setUsedNames join oldUsed, setToArray jointlyUsed
 
