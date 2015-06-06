@@ -5681,20 +5681,25 @@ injectContext = (ctx, compiledModule, moduleName, names) ->
   addToSet ctx.importedModules, moduleName
   ctx
 
+# Topologically sorted required modules
 collectRequiresFor = (name) ->
-  collectRequiresWithAcc name, newMap()
-
-collectRequiresWithAcc = (name, acc) ->
-  compiled = lookupInMap moduleGraph, name
-  if not compiled
-    console.error "#{name} module not found"
-    newMap()
-  else
-    {requires} = compiled
-    collected = reduceSet collectRequiresWithAcc,
-      (concatMaps requires, acc),
-      (subtractMaps requires, acc)
-    concatMaps collected, acc
+  marked = newSet()
+  collected = newMap()
+  visit = (name, value) ->
+    if inSet marked, name
+      throw new Error "Cyclic dependency between modules #{listOf setToArray marked}"
+    else if not lookupInMap collected, name
+      compiled = lookupInMap moduleGraph, name
+      if not compiled
+        console.error "#{name} module not found"
+      else
+        {requires} = compiled
+        addToSet marked, name
+        visit dep, v for dep, v of values requires
+        removeFromSet marked, name
+        addToMap collected, name, value
+  visit name
+  collected
 
 requiresFor = (name) ->
   compiled = lookupInMap moduleGraph, name
