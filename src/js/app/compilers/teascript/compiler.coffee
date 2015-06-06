@@ -5751,14 +5751,17 @@ findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
     validDefinitions = filterMap isValid, definitions # TODO: filter before TempType
     validDefinitions = concatMaps validDefinitions,
       (for name, def of values validDefinitions when def.arity and returnType = concreteReturnType def.type
-        newMapWith "(#{name} #{Array(def.arity.length).join ' '})", {
+        curried = if def.arity.length > 1
+          newMapWith "(#{name} #{Array(def.arity.length - 1).join ' '})", {
+            type: new ForAll def.type.kinds, new Constrained [], curriedType def.type.type.type
+            docs: def.docs
+            fabricated: yes}
+        full = newMapWith "(#{name} #{Array(def.arity.length).join ' '})", {
           type: new ForAll def.type.kinds, new Constrained [], returnType
           docs: def.docs
-          fabricated: yes},
-        "(#{name} #{Array(def.arity.length - 1).join ' '})", {
-          type: new ForAll def.type.kinds, new Constrained [], curriedType def.type.type.type
-          docs: def.docs
-          fabricated: yes})...
+          fabricated: yes}
+        if curried then (concatMaps full, curried) else full
+        )...
     # typesUnify = (def) ->
     #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
     # [typed, notTyped] = partitionMap typesUnify, validDefinitions
