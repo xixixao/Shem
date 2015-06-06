@@ -3225,6 +3225,7 @@ irDefinitionTranslate = (ctx, {type, expression, reference, bare}) ->
   if bare and _notEmpty reducedConstraints
     ctx.extendSubstitution substitutionFail
       message: "Ambiguous class constraints: #{map prettyPrintForError, reducedConstraints}"
+      conflicts: reducedConstraints
     return "null";
   ctx.updateClassParams()
   # TODO: what about the class dictionaries order?
