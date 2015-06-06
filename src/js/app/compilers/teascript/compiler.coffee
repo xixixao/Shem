@@ -1109,12 +1109,13 @@ hashmapCompile = (ctx, form) ->
     keys = (map (__ string_, _labelName), labels)
     assignCompile ctx, form, (irMap keys, compiledItems)
 
-
+# collectionType will be discarded, don't use it afterwards
 uniformCollectionCompile = (ctx, form, items, collectionType, moreConstraints = []) ->
+  markedType = mapWithOrigin collectionType, if isCall form then _operator form else form
   {constraints, itemType, compiled} = termsCompileExpectingSameType ctx, form, items
   (labelOperator form) if not isCall form
   form.tea = new Constrained (join moreConstraints, constraints),
-      (withOrigin (new TypeApp collectionType, itemType), form)
+      (withOrigin (new TypeApp markedType, itemType), form)
   compiled
 
 termsCompileExpectingSameType = (ctx, origin, items) ->
@@ -5004,6 +5005,12 @@ mutateMappingOrigin = (type, expression) ->
       mutateMappingOrigin type.op, expression
       mutateMappingOrigin type.arg, expression
     mutateMarkingOrigin type, expression
+
+# Used only on types which are being constructed from builtins and can be cloned
+mapWithOrigin = (type, expression) ->
+  clone = cloneType type
+  mapOrigin clone, expression
+  clone
 
 # Used on builtin types
 markOrigin = (typeOrConstraint, expression) ->
