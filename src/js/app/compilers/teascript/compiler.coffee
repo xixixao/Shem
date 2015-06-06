@@ -1422,8 +1422,8 @@ declaredTypeTooGeneral = (ctx, inferredType, updatedDeclaredType, unifiedType, d
   if declaringType and isFake declaringType
     declaringType.inferredType = replaceQuantifiedByOrigin fromInferred
   else
-    inferred = "inferred #{printType fromInferred}"
-    got = "got #{print declaringType}"
+    inferred = "inferred #{prettyPrintForError fromInferred}"
+    got = "got #{highlightTypeForError declaringType}"
     ctx.extendSubstitution substitutionFail
       message: "declared type is too general, " +
         if t1 is fromInferred then "#{inferred}, #{got}" else "#{got}, #{inferred}"
@@ -1431,7 +1431,7 @@ declaredTypeTooGeneral = (ctx, inferredType, updatedDeclaredType, unifiedType, d
 
 declaredTypeMissingConstraint = (ctx, name, constraint) ->
   ctx.extendSubstitution substitutionFail
-    message: "#{name}'s declared type is too weak, missing #{printType replaceQuantifiedByOrigin constraint}"
+    message: "#{name}'s declared type is too weak, missing #{prettyPrintForError replaceQuantifiedByOrigin constraint}"
     conflicts: [constraint, constraint.types.types[0]]
 
 replaceQuantifiedByOrigin = (type) ->
@@ -2772,7 +2772,8 @@ tryDeferConstraints = (ctx, constraints, type, scopeIndex) ->
   [ambiguous, retained] = partition isAmbiguous, retained
   if _notEmpty ambiguous
     {error: substitutionFail
-      message: "Constraint #{printType ambiguous[0]} is ambiguous for inferred type #{printType finalType}"
+      message: "Constraint #{prettyPrintForError ambiguous[0]} is ambiguous for
+        inferred type #{prettyPrintForError finalType}"
       conflicts: [type.type, ambiguous[0]]}
   else
     success: [deferred, retained]
@@ -2875,7 +2876,7 @@ constraintsFromInstance = (ctx, constraint) ->
 instanceLookupFailed = (constraint) ->
   [first, second] = sortBasedOnOriginPosition constraint, constraint.types.types[0]
   substitutionFail
-    message: "No instance found to satisfy #{safePrintType constraint}"
+    message: "No instance found to satisfy #{prettyPrintForError constraint}"
     conflicts: [first, second]
 
 _names = (list) ->
@@ -3223,7 +3224,7 @@ irDefinitionTranslate = (ctx, {type, expression, reference, bare}) ->
     return jsNoop()
   if bare and _notEmpty reducedConstraints
     ctx.extendSubstitution substitutionFail
-      message: "Ambiguous class constraints: #{map safePrintType, reducedConstraints}"
+      message: "Ambiguous class constraints: #{map prettyPrintForError, reducedConstraints}"
     return "null";
   ctx.updateClassParams()
   # TODO: what about the class dictionaries order?
@@ -3357,15 +3358,15 @@ findSubClassParam = (ctx, constraint) ->
   toClassName = (c) -> c.className
   classParams = ctx.classParamsForType constraint
   if not classParams
-    ctx.extendSubstitution substitutionFail substitutionFail message:
-      message: "Constraint #{printType constraint} is ambiguous"
+    ctx.extendSubstitution substitutionFail
+      message: "Constraint #{prettyPrintForError constraint} is ambiguous"
       conflicts: [constraint]
     return {}
   # return "{}" unless classParams
   for className, dict of values classParams
     if chain = findSuperClassChain ctx, className, constraint.className
       return accessList dict, chain
-  throw new Error "Couldn't find dict for #{safePrintType constraint}"
+  throw new Error "Couldn't find dict for #{safprettyPrintForErrorePrintType constraint}"
 
 findSuperClassChain = (ctx, className, targetClassName) ->
   for s in (ctx.classNamed className).supers
@@ -4553,7 +4554,7 @@ bindVariable = (variable, type) ->
     # typeFail "Kinds of types don't match: ", variable, type
     [first, second] = sortBasedOnOriginPosition variable, type
     desc = (type) ->
-      "#{safePrintType type} which
+      "#{prettyPrintForError type} which
       #{if type is variable then 'should be' else 'is'} a
       #{(printKind kind type)}"
     substitutionFail
@@ -4754,9 +4755,9 @@ bindVariable_pure = (variable, type) ->
 typeFail = (message, t1, t2) ->
   [first, second] = sortBasedOnOriginPosition t1, t2
   substitutionFail
-    message: "#{message} #{(safePrintType first)}, #{(safePrintType second)}"
+    message: "#{message} #{(prettyPrintForError first)}, #{(prettyPrintForError second)}"
     conflicts: [first, second]
-    # types: [t1, t2]
+    types: [t1, t2]
 
 sortBasedOnOriginPosition = (t1, t2) ->
   if (originOf t1)?.start > (originOf t2)?.start
@@ -5273,6 +5274,15 @@ safePrintType = (type) ->
     return printType type
   catch e
     return "#{type}"
+
+prettyPrintForError = (type) ->
+  try
+    return "<code>#{prettyPrint type}</code>"
+  catch e
+    return "#{type}"
+
+highlightTypeForError = (type) ->
+  "<code>#{collapse toHtml type}</code>"
 
 prettyPrint = (type) ->
   prettyPrintWith highlightType, type
