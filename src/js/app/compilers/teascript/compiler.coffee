@@ -2182,9 +2182,9 @@ assignMethodTypes = (ctx, typeExpression, freshInstanceType, instanceName, class
   classParams = findFree classDeclaration.constraint
   freshingSub = mapMap ((kind) -> ctx.freshTypeVariable kind), classParams
 
-  freshedClassType = substitute freshingSub, classDeclaration.constraint.types
-  if isFailed mostGeneralUnifier freshedClassType, freshInstanceType.type
-    malformed ctx, typeExpression, 'Type doesn\'t match class type'
+  freshedClassType = mapOrigin (substitute freshingSub, classDeclaration.constraint.types), (_operator typeExpression)
+  if isFailed check = mostGeneralUnifier freshedClassType, freshInstanceType.type
+    ctx.extendSubstitution check
     return null
 
   ctx.bindTypeVariableNames setToArray (findFree freshInstanceType)
@@ -4550,7 +4550,15 @@ bindVariable = (variable, type) ->
     # newMapWith variable.name, "occurs check failed"
   else if not kindsEq (kind variable), (kind type)
     # newMapWith variable.name, "kinds don't match for #{variable.name} and #{safePrintType type}"
-    typeFail "Kinds of types don't match: ", variable, type
+    # typeFail "Kinds of types don't match: ", variable, type
+    [first, second] = sortBasedOnOriginPosition variable, type
+    desc = (type) ->
+      "#{safePrintType type} which
+      #{if type is variable then 'should be' else 'is'} a
+      #{(printKind kind type)}"
+    substitutionFail
+      message: "Cannot match #{desc first} with #{desc second}"
+      conflicts: [first, second]
   else
     variable.ref.val = type
     newSubstitution()
@@ -4748,7 +4756,7 @@ typeFail = (message, t1, t2) ->
   substitutionFail
     message: "#{message} #{(safePrintType first)}, #{(safePrintType second)}"
     conflicts: [first, second]
-    types: [t1, t2]
+    # types: [t1, t2]
 
 sortBasedOnOriginPosition = (t1, t2) ->
   if (originOf t1)?.start > (originOf t2)?.start
@@ -4987,6 +4995,8 @@ mutateMappingOrigin = (type, expression) ->
     mutateMappingOrigin type.type, expression
     for c in type.constraints
       mutateMarkingOrigin c, expression
+  else if type.Types
+    mutateMappingOrigin t, expression for t in type.types
   else
     if type.TypeApp
       mutateMappingOrigin type.op, expression
@@ -5168,9 +5178,23 @@ kind = (type) ->
 
 kindsEq = (k1, k2) ->
   k1 is k2 or
+    k1 and k2 and
     k1.from and k2.from and
     (kindsEq k1.from, k2.from) and
     (kindsEq k1.to, k2.to)
+
+printKind = (kind) ->
+  if kind instanceof KindFn
+    arity = arityOfKind kind
+    "type constructor taking #{arity} argument#{if arity > 1 then 's' else ''}"
+  else
+    "type"
+
+arityOfKind = (kind) ->
+  if kind instanceof KindFn
+    1 + arityOfKind kind.arg
+  else
+    0
 
 class KindFn
   constructor: (@from, @to) ->
