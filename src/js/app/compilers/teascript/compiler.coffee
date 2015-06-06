@@ -3853,6 +3853,9 @@ colorize = (color, string) ->
   style = if color then " style=\"color: #{color}\"" else ''
   "<span#{style}>#{string}</span>"
 
+themize = (label, string) ->
+  colorize theme[label], string
+
 # TODO: figure out comments
 # typeComments = (ast) ->
 #   macro '#', ast, (node) ->
@@ -3867,7 +3870,7 @@ labelComments = (call) ->
 
 toHtml = (highlighted) ->
   crawl highlighted, (node, symbol, parent) ->
-    colorize(theme[labelOf node, parent],
+    themize((labelOf node, parent),
       if node.label is 'string'
         "“#{symbol[1...-1]}”"
       else
@@ -5293,7 +5296,7 @@ highlightTypeForError = (type) ->
   "<code>#{collapse toHtml type}</code>"
 
 prettyPrint = (type) ->
-  prettyPrintWith highlightType, type
+  prettyPrintWith printTypeToHtml, type
 
 plainPrettyPrint = (type) ->
   prettyPrintWith printType, type
@@ -5377,6 +5380,65 @@ printType = (type) ->
     "undefined"
   else
     throw new Error "Unrecognized type in printType"
+
+printTypeToHtml = (type) ->
+  if type.TypeVariable
+    if type.ref.val
+      printTypeToHtml type.ref.val
+    else
+      kindedToHtml type,
+        if /^[0-9]/.test type.name
+          niceName type.name
+        else
+          "#{type.name}"
+  else if type.TypeConstr
+    kindedToHtml type, type.name
+  else if type.TypeApp
+    flatenned = flatten type
+    if flatenned.op.name?.match /^\[\d+\]$/
+      htmlDelimited '[', ']', "#{(map printTypeToHtml, flatenned.args).join ' '}"
+    else
+      opName = if flatenned.op.name is 'Fn0' then (opNameToHtml 'Fn') else printTypeToHtml flatenned.op
+      htmlCalled "#{opName} #{(map printTypeToHtml, flatenned.args).join ' '}"
+  else if type.ClassConstraint
+    htmlCalled "#{opNameToHtml type.className} #{(map printTypeToHtml, type.types.types).join ' '}"
+  else if type.Constrained
+    htmlCalled ": #{(map printTypeToHtml, join [type.type], type.constraints).join ' '}"
+  else
+    throw new Error "Unrecognized type in printTypeToHtml"
+
+htmlCalled = (string) ->
+  htmlDelimited '(', ')', string
+
+htmlDelimited = (open, close, string) ->
+  (themize 'paren', open) + string + (themize 'paren', close)
+
+flatten = (type) ->
+  if type.TypeApp
+    op = flatten type.op
+    arg = flatten type.arg
+    if op.args and arg.op and
+        op.op.name is 'Fn' and arg.op.name is 'Fn'
+      op: op.op
+      args: join op.args, arg.args
+    else if op.args
+      op: op.op
+      args: join op.args, [arg]
+    else
+      op: op
+      args: [arg]
+  else
+    type
+
+kindedToHtml = (type, name) ->
+  themize (if type.error
+    'malformed'
+  else if (kind type).from
+    'operator'
+  else 'typename'), name
+
+opNameToHtml = (name) ->
+  themize 'operator', "#{name}"
 
 collectArgs = (type) ->
   if type.TypeVariable and type.ref.val
@@ -5622,6 +5684,7 @@ compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
       return compileTopLevel source, moduleName, request
     else
       {js} = compileCtxIrToJs ctx, ir
+  errors = checkTypes ctx
   (finalizeTypes ctx, ast)
   replaceOrAddToMap compiledModules, moduleName,
     declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
@@ -5629,7 +5692,7 @@ compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
   js: js
   ast: ast
   types: typeEnumaration ctx
-  errors: checkTypes ctx
+  errors: errors
 
 compileExpression = (source, moduleName = '@unnamed') ->
   ast = (astFromSource "(#{source})", -1, -1)
@@ -5644,10 +5707,11 @@ compileExpression = (source, moduleName = '@unnamed') ->
     [expression] = _terms ast
     compilationFn = (topLevelExpressionInModule importsFor moduleDependencies moduleName)
     {js} = compileCtxAstToJs compilationFn, ctx, expression
+    errors = checkTypes ctx
     (finalizeTypes ctx, expression)
     js: library + immutable + (listOfLines map lookupJs, (setToArray runtimeDependencies moduleName)) + '\n;' + js
     ast: ast
-    errors: checkTypes ctx
+    errors: errors
     malformed: ctx.isMalformed
 
 importsFor = (moduleSet) ->
@@ -5672,7 +5736,16 @@ reverseModuleDependencies = (moduleName) ->
 checkTypes = (ctx) ->
   # failed = mapToArray filterMap ((name) -> name is 'could not unify'), ctx.substitution
   if isFailed ctx.substitution
+    map labelConflicts, ctx.substitution.fails
     ctx.substitution.fails
+
+labelConflicts = (fail) ->
+  if not fail.conflicts
+    return fail
+  map labelConflict, fail.conflicts
+
+labelConflict = (conflict) ->
+  conflict.error = yes
 
 lookupJs = (moduleName) ->
   js = (lookupCompiledModule moduleName)?.js
@@ -6003,8 +6076,8 @@ finalizeTypes = (ctx, ast) ->
   visitExpressions ast, (expression) ->
     if expression.label is 'name' and expression.scope and (type = (ctx.finalType expression.symbol, expression.scope))
       expression.tea = type
-    else if expression.tea
-      expression.tea = substitute ctx.substitution, expression.tea
+    # else if expression.tea
+    #   expression.tea = substitute ctx.substitution, expression.tea
     return
   for scope in ctx.savedScopes when scope?
     for name, def of values scope.definitions when def.type
