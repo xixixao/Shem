@@ -5403,14 +5403,14 @@ printTypeToHtml = (type) ->
   else if type.args
     printFlattenedToHtml type
   else
-    console.log type
     throw new Error "Unrecognized type in printTypeToHtml"
 
 printFlattenedToHtml = (type) ->
-  if type.op.name?.match /^\[\d+\]$/
+  printedOp = (printType type.op)
+  if (printType type.op).match /^\[\d+\]$/
     htmlDelimited type, '[', ']', "#{(map printTypeToHtml, type.args).join ' '}"
   else
-    opName = if type.op.name is 'Fn0' then (opNameToHtml 'Fn') else printTypeToHtml type.op
+    opName = if printedOp is 'Fn0' then (opNameToHtml 'Fn') else printTypeToHtml type.op
     htmlCalled type, "#{opName} #{(map printTypeToHtml, type.args).join ' '}"
 
 htmlCalled = (type, string) ->
@@ -5432,12 +5432,15 @@ flatten = (type) ->
         op.op.name is 'Fn' and arg.op.name is 'Fn'
       op: op.op
       args: join op.args, arg.args
+      error: type.error or arg.error
     else if op.args
       op: op.op
       args: join op.args, [arg]
+      error: type.error or op.error
     else
       op: op
       args: [arg]
+      error: type.error
   else
     type
 
@@ -5747,7 +5750,7 @@ reverseModuleDependencies = (moduleName) ->
 checkTypes = (ctx) ->
   # failed = mapToArray filterMap ((name) -> name is 'could not unify'), ctx.substitution
   if isFailed ctx.substitution
-    map labelConflicts, ctx.substitution.fails
+    labelConflicts _fst ctx.substitution.fails
     ctx.substitution.fails
 
 labelConflicts = (fail) ->
@@ -5756,7 +5759,10 @@ labelConflicts = (fail) ->
   map labelConflict, fail.conflicts
 
 labelConflict = (conflict) ->
-  conflict.error = yes
+  if conflict.TypeVariable and conflict.ref.val
+    labelConflict conflict.ref.val
+  else
+    conflict.error = yes
 
 lookupJs = (moduleName) ->
   js = (lookupCompiledModule moduleName)?.js
