@@ -190,9 +190,7 @@ mapSyntax = (fn, string) ->
 
 class Context
   constructor: ->
-    @expand = {}
     @definitions = []
-    @_isOperator = []
     @variableIndex = 0
     @typeVariabeIndex = 0
     @logId = 0
@@ -322,15 +320,6 @@ class Context
 
   # isInsideSimpleDefinition: ->
   #   (definition = @_currentDefinition())
-
-  isOperator: ->
-    @_isOperator[@_isOperator.length - 1]
-
-  setIsOperator: (isOperator) ->
-    @_isOperator.push isOperator
-
-  resetIsOperator: ->
-    @_isOperator.pop()
 
   # Assignment translation works as follows:
   #   1. parent sets assign to
@@ -917,11 +906,12 @@ tagFreeLabels = (ctx, pairs) ->
   return freeLabels.length > 0
 
 operatorCompile = (ctx, call) ->
-  ctx.setIsOperator yes
+  op = _operator call
   ctx.downInsideDefinition()
-  compiledOperator = expressionCompile ctx, _operator call
+  compiledOperator = expressionCompile ctx, op
+  if isAtom op
+    labelOperator op
   ctx.upInsideDefinition()
-  ctx.resetIsOperator()
   compiledOperator
 
 callUnknownTranslate = (ctx, translatedOperator, call) ->
@@ -983,9 +973,7 @@ termsCompile = (ctx, list) ->
 
 termCompile = (ctx, term) ->
   ctx.downInsideDefinition()
-  ctx.setIsOperator no
   compiled = expressionCompile ctx, term
-  ctx.resetIsOperator()
   ctx.upInsideDefinition()
   compiled
 
@@ -2184,7 +2172,7 @@ assignMethodTypes = (ctx, typeExpression, freshInstanceType, instanceName, class
   freshingSub = mapMap ((kind) -> ctx.freshTypeVariable kind), classParams
 
   freshedClassType = mapOrigin (substitute freshingSub, classDeclaration.constraint.types), (_operator typeExpression)
-  if isFailed check = mostGeneralUnifier freshedClassType, freshInstanceType.type
+  if isFailed (check = mostGeneralUnifier freshedClassType, freshInstanceType.type)
     ctx.extendSubstitution check
     return null
 
@@ -2654,7 +2642,8 @@ for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method', 'assi
       (jsCall "js#{jsMethod[0].toUpperCase()}#{jsMethod[1...]}", compatibles)
 
 ms.log = ms_log = (ctx, call) ->
-  [..., value] = args = _arguments call
+  args = _arguments call
+  value = args[args.length - 1]
   compiled = termsCompile ctx, args
   call.tea = value.tea
   view = map (__ (__ toMultilineJsString, collapse), toHtml), args
@@ -2979,9 +2968,6 @@ atomCompile = (ctx, atom) ->
     atom.tea = type
   atom.id = id if id?
   atom.scope = ctx.currentScopeIndex()
-  if ctx.isOperator()
-    # TODO: maybe don't use label here, it's getting confusing what is its purpose
-    (labelOperator atom)
   if ctx.assignTo()
     pattern
   else
@@ -5435,7 +5421,7 @@ flatten = (type) ->
       error: type.error or arg.error
     else if op.args
       op: op.op
-      args: join op.args, [arg]
+      args: (join op.args, [arg])
       error: type.error or op.error
     else
       op: op
