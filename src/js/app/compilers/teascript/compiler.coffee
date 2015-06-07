@@ -5395,23 +5395,34 @@ printTypeToHtml = (type) ->
     kindedToHtml type, type.name
   else if type.TypeApp
     flatenned = flatten type
-    if flatenned.op.name?.match /^\[\d+\]$/
-      htmlDelimited '[', ']', "#{(map printTypeToHtml, flatenned.args).join ' '}"
-    else
-      opName = if flatenned.op.name is 'Fn0' then (opNameToHtml 'Fn') else printTypeToHtml flatenned.op
-      htmlCalled "#{opName} #{(map printTypeToHtml, flatenned.args).join ' '}"
+    printFlattenedToHtml flatenned
   else if type.ClassConstraint
-    htmlCalled "#{opNameToHtml type.className} #{(map printTypeToHtml, type.types.types).join ' '}"
+    htmlCalled type, "#{opNameToHtml type.className} #{(map printTypeToHtml, type.types.types).join ' '}"
   else if type.Constrained
-    htmlCalled ": #{(map printTypeToHtml, join [type.type], type.constraints).join ' '}"
+    htmlCalled type, ": #{(map printTypeToHtml, join [type.type], type.constraints).join ' '}"
+  else if type.args
+    printFlattenedToHtml type
   else
+    console.log type
     throw new Error "Unrecognized type in printTypeToHtml"
 
-htmlCalled = (string) ->
-  htmlDelimited '(', ')', string
+printFlattenedToHtml = (type) ->
+  if type.op.name?.match /^\[\d+\]$/
+    htmlDelimited type, '[', ']', "#{(map printTypeToHtml, type.args).join ' '}"
+  else
+    opName = if type.op.name is 'Fn0' then (opNameToHtml 'Fn') else printTypeToHtml type.op
+    htmlCalled type, "#{opName} #{(map printTypeToHtml, type.args).join ' '}"
 
-htmlDelimited = (open, close, string) ->
-  (themize 'paren', open) + string + (themize 'paren', close)
+htmlCalled = (type, string) ->
+  htmlDelimited type, '(', ')', string
+
+htmlDelimited = (type, open, close, string) ->
+  label =
+    if type.error
+      'malformed'
+    else
+      'paren'
+  (themize label, open) + string + (themize label, close)
 
 flatten = (type) ->
   if type.TypeApp
