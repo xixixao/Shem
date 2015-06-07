@@ -939,12 +939,10 @@ callTyping = (ctx, call) ->
   op = _operator call
   return if not all (tea for {tea} in terms)
   call.tea =
-    if terms.length is 1 and (_validTerms call).length is 1
+    if terms.length is 1
       callZeroInfer ctx, op, op.tea
     else
       # Fake a function call for empty parens
-      if terms.length is 1
-        terms = join terms, [tea: toConstrained (withOrigin (ctx.freshTypeVariable star), call)]
       callInfer ctx, (_operator call), terms
 
 callInfer = (ctx, operator, terms) ->
@@ -5856,7 +5854,7 @@ kindFnNumArgs = (kind) ->
 findMatchingDefinitions = (moduleName, reference) ->
   {declared: {savedScopes}} = lookupCompiledModule moduleName
   {ctx} = contextWithDependencies reverseModuleDependencies moduleName
-  {scope, type, pattern} = reference
+  {scope, type, pattern, emptyCall} = reference
   return [] unless scope?
   scoped =
     if savedScopes[scope]
@@ -5872,27 +5870,29 @@ findMatchingDefinitions = (moduleName, reference) ->
   addToMap topScope, '{}',
     type: quantifyAll toConstrained new TypeApp arrayType, (new TypeVariable 'a', star)
     isPattern: yes
-  findMatchingDefinitionsOnType type, pattern, join scoped, [topScope]
+  findMatchingDefinitionsOnType type, pattern, emptyCall, join scoped, [topScope]
 
-findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
+findMatchingDefinitionsOnType = (type, isPattern, emptyCall, definitionLists) ->
   ctx = new Context
   [typed, untyped] = unzip (for definitions, i in definitionLists
     isValid = (name, def) ->
-      def.type? and not def.type.TempType and (not isPattern or (isConst symbol: name) or def.isPattern)# and def.type.type?.constraints and _empty def.type.type.constraints
+      def.type? and not def.type.TempType and (not isPattern or (isConst symbol: name) or def.isPattern) and
+        (not emptyCall or def.type.type.type and isFunctionType def.type.type.type) # and def.type.type?.constraints and _empty def.type.type.constraints
     validDefinitions = filterMap isValid, definitions # TODO: filter before TempType
-    validDefinitions = concatMaps validDefinitions,
-      (for name, def of values validDefinitions when def.arity and returnType = concreteReturnType def.type
-        curried = if def.arity.length > 1
-          newMapWith "(#{name} #{Array(def.arity.length - 1).join ' '})", {
-            type: new ForAll def.type.kinds, new Constrained [], curriedType def.type.type.type
+    if not emptyCall
+      validDefinitions = concatMaps validDefinitions,
+        (for name, def of values validDefinitions when def.arity and returnType = concreteReturnType def.type
+          curried = if def.arity.length > 1
+            newMapWith "(#{name} #{Array(def.arity.length - 1).join ' '})", {
+              type: new ForAll def.type.kinds, new Constrained [], curriedType def.type.type.type
+              docs: def.docs
+              fabricated: yes}
+          full = newMapWith "(#{name} #{Array(def.arity.length).join ' '})", {
+            type: new ForAll def.type.kinds, new Constrained [], returnType
             docs: def.docs
             fabricated: yes}
-        full = newMapWith "(#{name} #{Array(def.arity.length).join ' '})", {
-          type: new ForAll def.type.kinds, new Constrained [], returnType
-          docs: def.docs
-          fabricated: yes}
-        if curried then (concatMaps full, curried) else full
-        )...
+          if curried then (concatMaps full, curried) else full
+          )...
     # typesUnify = (def) ->
     #   not isFailed mostGeneralUnifier (freshInstance ctx, def.type).type, type.type
     # [typed, notTyped] = partitionMap typesUnify, validDefinitions
@@ -5902,9 +5902,13 @@ findMatchingDefinitionsOnType = (type, isPattern, definitionLists) ->
       (printType constrained.type) + ' ' + (map printType, constrained.constraints).join ' '
 
     scoreAndPrint = (def) ->
+      returnTypeMatching = emptyCall and not isZeroArityFunctionType def.type.type.type
       freshedType = freshenType type.type
       checkedType = (freshInstance ctx, def.type).type
-      sub = mostGeneralUnifier checkedType, freshedType
+      sub = if returnTypeMatching
+          mostGeneralUnifier (functionReturnType checkedType), (functionReturnType freshedType)
+        else
+          mostGeneralUnifier checkedType, freshedType
       if isFailed sub
         score = UNTYPED_PENALTY
       else
@@ -5972,7 +5976,9 @@ functionReturnType = (type) ->
     type
 
 isFunctionType = (type) ->
-  type.op?.op and (typeEq type.op.op, arrowType) or
+  type.op?.op and (typeEq type.op.op, arrowType) or isZeroArityFunctionType type
+
+isZeroArityFunctionType = (type) ->
   type.op and (typeEq type.op, zeroArrowType)
 
 findDocsFor = (moduleName, reference) ->
