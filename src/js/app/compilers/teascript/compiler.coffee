@@ -5204,7 +5204,7 @@ printKind = (kind) ->
 
 arityOfKind = (kind) ->
   if kind instanceof KindFn
-    1 + arityOfKind kind.arg
+    1 + arityOfKind kind.to
   else
     0
 
