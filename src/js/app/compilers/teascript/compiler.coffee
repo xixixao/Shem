@@ -5687,7 +5687,7 @@ compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
   replaceOrAddToMap compiledModules, moduleName,
     declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
     js: js
-  # js: js
+  js: js
   ast: ast
   # types: typeEnumaration ctx
   errors: errors
