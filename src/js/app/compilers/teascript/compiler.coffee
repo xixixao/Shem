@@ -823,7 +823,7 @@ callKnownCompile = (ctx, call) ->
   else
     if nonLabeledArgs.length < positionalParams.length
       # log "currying known call"
-      lambda = (fn_ extraParams, sortedCall)
+      lambda = (fn_ extraParams, [sortedCall])
       trackTransformation lambda, sortedCall
       compiled = callMacroCompile ctx, lambda
       retrieve call, lambda
@@ -2466,7 +2466,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
   [paramTuple, rest...] = _arguments call
   [maybeType] = rest
 
-  doDeclare =  isTypeAnnotation maybeType
+  doDeclare = isTypeAnnotation maybeType
 
   if hasName
     macroName = ctx.definitionName()
@@ -2493,7 +2493,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
   if isTypeAnnotation maybeType
     [docs] = partition isComment, rest
     params = (map token_, map _symbol, _terms paramTuple)
-    typedFn_ params, maybeType, join docs, [call_ (token_ macroName), params]
+    fn_ params, concat [[maybeType], docs, [call_ (token_ macroName), params]]
   else
     # TODO: docs for macros
     [docs] = partition isComment, rest
@@ -2607,6 +2607,9 @@ ms.macro = ms_macro = (ctx, call) ->
       if (not ctx.isPreTyped macroName)
         malformed ctx, call, "Type annotation required"
       macroBody = join [type], macroBody
+      typeList = []
+    else
+      typeList = [type]
 
     # if not macroBody.length > 0
     #   return malformed ctx, call, "Macro body missing"
@@ -2619,7 +2622,7 @@ ms.macro = ms_macro = (ctx, call) ->
       malformed ctx, ctx.definitionPattern(), "Macro with this name already defined"
     else
       ctx.declareMacro ctx.definitionPattern(), simpleMacro eval compiledMacro
-      typedFn_ params, type, join docs, [call_ (token_ macroName), params]
+      fn_ params, concat [typeList, docs, [call_ (token_ macroName), params]]
 
 simpleMacro = (macroFn) ->
   (ctx, call) ->
@@ -3161,11 +3164,8 @@ tuple_ = (list) ->
     tokenize ']'
   ]
 
-fn_ = (params, body) ->
-  (call_ (token_ 'fn'), [(tuple_ params), body])
-
-typedFn_ = (params, type, body) ->
-  (call_ (token_ 'fn'), join [(tuple_ params), type], body)
+fn_ = (params, rest) ->
+  (call_ (token_ 'fn'), join [(tuple_ params)], rest)
 
 token_ = (string) ->
   (tokenize string)[0]
