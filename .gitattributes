@@ -1,2 +1,2 @@
 src/js/vendor linguist-vendored
-test linguist-documentation
+test/* linguist-documentation
