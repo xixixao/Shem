@@ -5689,7 +5689,7 @@ compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
     js: js
   js: js
   ast: ast
-  types: typeEnumaration ctx
+  # types: typeEnumaration ctx
   errors: errors
 
 compileExpression = (source, moduleName = '@unnamed') ->
