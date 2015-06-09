@@ -1967,14 +1967,15 @@ callJsMethodCompile = (ctx, call) ->
   [dotMethod, object, args...] = _validTerms call
   labelOperator dotMethod
   call.tea = toConstrained markOrigin jsType, call
-  if object
-    if /^.-/.test dotMethod.symbol
-      (jsAccess (termCompile ctx, object), dotMethod.symbol[2...])
+  assignCompile ctx, call,
+    if object
+      if /^.-/.test dotMethod.symbol
+        (jsAccess (termCompile ctx, object), dotMethod.symbol[2...])
+      else
+        (jsMethod (termCompile ctx, object), dotMethod.symbol[1...], (termsCompile ctx, args))
     else
-      (jsMethod (termCompile ctx, object), dotMethod.symbol[1...], (termsCompile ctx, args))
-  else
-    malformed ctx, call, 'Missing an object'
-    jsNoop()
+      malformed ctx, call, 'Missing an object'
+      jsNoop()
 
 ms['set!'] = ms_doset = (ctx, call) ->
   # (set! (.innerHTML e) "Ahoj")
