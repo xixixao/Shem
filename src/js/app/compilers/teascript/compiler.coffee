@@ -5376,6 +5376,10 @@ printTypeToHtml = (type) ->
           niceName type.name
         else
           "#{type.name}"
+  else if type.QuantifiedVar
+    themize (if type.error
+      'malformed'
+    else 'typename'), niceName type.var
   else if type.TypeConstr
     kindedToHtml type, type.name
   else if type.TypeApp
