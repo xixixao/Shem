@@ -5697,6 +5697,9 @@ compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
   # types: typeEnumaration ctx
   errors: errors
 
+compileModule = (moduleName = '@unnamed') ->
+  js: library + immutable + (listOfLines map lookupJs, (setToArray runtimeDependencies moduleName))
+
 compileExpression = (source, moduleName = '@unnamed') ->
   ast = (astFromSource "(#{source})", -1, -1)
   if _empty _validTerms ast
@@ -7510,6 +7513,7 @@ runTests = (tests) ->
 
 
 exports.compileTopLevel = compileTopLevel
+exports.compileModule = compileModule
 exports.compileExpression = compileExpression
 exports.findAvailableTypes = findAvailableTypes
 exports.findMatchingDefinitions = findMatchingDefinitions
@@ -7523,13 +7527,6 @@ exports.prettyPrint = prettyPrint
 exports.plainPrettyPrint = plainPrettyPrint
 exports.labelDocs = labelDocs
 exports.builtInLibraryNumLines = library.split('\n').length + immutable.split('\n').length
-
-# exports.compileModule = (source) ->
-#   """
-#   #{library}
-#   var exports = {};
-#   #{compileDefinitionsInModule source}
-#   exports"""
 
 exports.library = library
 
