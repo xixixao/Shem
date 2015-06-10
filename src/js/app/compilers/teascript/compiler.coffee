@@ -4203,7 +4203,7 @@ hoistWheres = (hoistable, assigns) ->
   [hoisted, notHoisted]
 
 toMultilineJsString = (symbol) ->
-  "('#{symbol.replace /\n/, "' + '"}')"
+  "('#{symbol.replace /\n/g, "\\n' + '"}')"
 
 toJsString = (symbol) ->
   "'#{symbol}'"
