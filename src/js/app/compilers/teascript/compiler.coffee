@@ -2644,7 +2644,7 @@ for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method', 'assi
       (jsCall "js#{jsMethod[0].toUpperCase()}#{jsMethod[1...]}", compatibles)
 
 ms.log = ms_log = (ctx, call) ->
-  args = _arguments call
+  args = _validArguments call
   value = args[args.length - 1]
   compiled = termsCompile ctx, args
   call.tea = value.tea
