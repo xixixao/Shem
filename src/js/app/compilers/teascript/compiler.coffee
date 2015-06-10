@@ -2946,7 +2946,7 @@ fakeCompile = (ctx, token) ->
     precs: []
     assigns: []
   else
-    ctx.doDefer token, token.symbol
+    ctx.doDefer token, token.symbol if ctx.isAtDeferrableDefinition()
     assignCompile ctx, token, jsNoop()
 
 atomCompile = (ctx, atom) ->
