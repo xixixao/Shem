@@ -1039,13 +1039,19 @@ seqCompile = (ctx, form) ->
     if hasSplat and requiredElems is 0
       return malformed ctx, form, 'Matching with splat requires at least one element name'
 
+    splatted = no
     compiledArgs = (for elem, i in elems
       [lhs, rhs] =
         if isSplat elem
+          splatted = yes
           elem.label = 'name'
           [(splatToName elem), (jsCall "seq_splat", [i, elems.length - i - 1, sequence])]
         else
-          [elem, (jsCall "seq_at", [i, sequence])]
+          index = if splatted
+            (jsBinary "-", (jsCall "seq_size", [sequence]), elems.length - i)
+          else
+            i
+          [elem, (jsCall "seq_at", [index, sequence])]
       ctx.setAssignTo rhs
       lhsCompiled = expressionCompile ctx, lhs
       retrieve elem, lhs
