@@ -83,7 +83,7 @@ markFake = (form) ->
 constantLabeling = (atom) ->
   {symbol} = atom
   labelMapping atom, [
-    ['numerical', -> /^~?(\d+|Infinity)/.test symbol]
+    ['numerical', -> /^-?(\d+|Infinity)/.test symbol]
     ['label', -> isLabel atom]
     ['string', -> /^"/.test symbol]
     ['char', -> /^\\/.test symbol]
@@ -2585,7 +2585,7 @@ firstOrCall = (args) ->
 constantToSource = (value) ->
   switch typeof value
     when 'boolean' then (tokenize (if value then 'True' else 'False'))[0]
-    when 'number' then (tokenize (if value < 0 then "~#{Math.abs value}" else "#{value}"))[0]
+    when 'number' then (tokenize (if value < 0 then "-#{Math.abs value}" else "#{value}"))[0]
     when 'string' then (tokenize JSON.stringify value)[0]
     when 'object'
       kind = Object.prototype.toString.call(value).slice(8, -1)
@@ -3070,7 +3070,7 @@ namespacedNameCompile = (ctx, atom, symbol) ->
   pattern: precs: []
 
 numericalCompile = (ctx, atom, symbol) ->
-  translation = if symbol[0] is '~' then (jsUnary "-", symbol[1...]) else symbol
+  translation = symbol#if symbol[0] is '-' then (jsUnary "-", symbol[1...]) else symbol
   type: toConstrained markOrigin numType, atom
   translation: translation
   pattern: literalPattern ctx, translation
@@ -6494,7 +6494,7 @@ tests = [
     ~ (macro [x]
       (: (Fn Num Num))
       (Js.unary "-" x))
-    x ~42
+    x -42
   """
   "(~ x)", 42
 
