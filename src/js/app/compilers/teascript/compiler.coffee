@@ -1586,6 +1586,8 @@ resolveDeferredTypes = (ctx) ->
           deferredConstraints = inferType ctx, binding.id, canonicalType,
             allConstraints, binding.polymorphic, binding.scopeIndex
           addToMap allDeferredConstraints, name, deferredConstraints
+          if binding.scopeIndex is ctx.currentScopeIndex()
+            ctx.addToScopeConstraints deferredConstraints or []
 
   ctx.deferredBindings().length = 0 # clear
 
