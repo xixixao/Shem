@@ -3481,7 +3481,7 @@ isForm = (expression) ->
   Array.isArray expression
 
 isModuleAccess = (atom) ->
-  /^\w+\./.test atom.symbol
+  /^\w+\.\w/.test atom.symbol
 
 isDotAccess = (atom) ->
   /^\.-?\w+/.test atom.symbol
@@ -3914,12 +3914,13 @@ walk = (ast, cb) ->
 # Valid identifiers
 
 validIdentifier = (name) ->
-  (if inSet reservedInJs, name
+  if inSet reservedInJs, name
     "#{name}_"
-  else if name is '.'
-    "dot_"
   else
-    name)
+    (if (not isModuleAccess symbol: name)
+      name.replace(/\./g, 'dot_')
+    else
+      name)
     .replace(/\+/g, 'plus_')
     .replace(/\-/g, '__')
     .replace(/\*/g, 'times_')
