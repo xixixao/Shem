@@ -767,17 +767,20 @@ callCompile = (ctx, call) ->
         (call_ (join [expandedOp], (_arguments call)))
 
 callMacroCompile = (ctx, call) ->
-  op = _operator call
-  op.label = 'keyword'
-  macro = ctx.macro op.symbol
-  op.id = macro.id
-  expanded = macro ctx, call
+  expanded = callMacroExpand ctx, call
   if isTranslated expanded
     expanded
   else
     compiled = expressionCompile ctx, expanded
     retrieve call, expanded
     compiled
+
+callMacroExpand = (ctx, call) ->
+  op = _operator call
+  op.label = 'keyword'
+  macro = ctx.macro op.symbol
+  op.id = macro.id
+  macro ctx, call
 
 isTranslated = (result) ->
   (isSimpleTranslated result) or (Array.isArray result) and ((_empty result) or (isSimpleTranslated result[0]))
@@ -5726,7 +5729,6 @@ compileExpression = (source, moduleName = '@unnamed') ->
       js: ''
     }
   else
-    module = lookupCompiledModule moduleName
     {modules, ctx} = contextWithDependencies moduleDependencies moduleName
     [expression] = _terms ast
     compilationFn = (topLevelExpressionInModule importsFor moduleDependencies moduleName)
@@ -5737,6 +5739,12 @@ compileExpression = (source, moduleName = '@unnamed') ->
     ast: ast
     errors: errors
     malformed: ctx.isMalformed
+
+expandCall = (moduleName, call) ->
+  {modules, ctx} = contextWithDependencies moduleDependencies moduleName
+  expanded = callMacroExpand ctx, call
+  if not isTranslated expanded
+    expanded
 
 importsFor = (moduleSet) ->
   lookupDefinitions = (name) ->
@@ -7538,6 +7546,7 @@ runTests = (tests) ->
 exports.compileTopLevel = compileTopLevel
 exports.compileModule = compileModule
 exports.compileExpression = compileExpression
+exports.expand = expandCall
 exports.findAvailableTypes = findAvailableTypes
 exports.findMatchingDefinitions = findMatchingDefinitions
 exports.findDocsFor = findDocsFor
