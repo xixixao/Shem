@@ -212,8 +212,11 @@ class Context
 
   req: (moduleName, names) ->
     addToMap @_requested, moduleName, names
-    if not inSet @importedModules, moduleName
+    if not @isModuleLoaded moduleName
       @_requesting = yes
+
+  isModuleLoaded: (moduleName) ->
+    inSet @importedModules, moduleName
 
   requested: ->
     if @_requested.size > 0
@@ -2343,13 +2346,26 @@ ms.req = ms_req = (ctx, call) ->
   if (not isTuple reqTuple) or _empty reqs
     return malformed ctx, reqTuple, 'req requires a tuple of names to be required'
   map (syntaxNewName ctx, 'definition name to be imported required'), reqs
-  [moduleName] = _validArguments call
-  if not moduleName or not isName moduleName
+  [moduleNameAtom] = _validArguments call
+  if not moduleNameAtom or not isName moduleNameAtom
     return malformed ctx, call, 'req requires a module name to require from'
-  moduleName.label = 'param'
+  moduleNameAtom.label = 'param'
+  moduleName = moduleNameAtom.symbol
   requiredNames = (arrayToSet (filter _is, (map _symbol, reqs)))
-  ctx.req moduleName.symbol, requiredNames
-  imports moduleName.symbol, setToArray requiredNames
+  ctx.req moduleName, requiredNames
+  if ctx.isModuleLoaded moduleName
+    for arg in reqs
+      if (isName arg)
+        name = arg.symbol
+        if ctx.isFinallyCurrentlyDeclared name
+          malformed ctx, arg, "#{name} already declared"
+        else if not ctx.isCurrentlyDeclared arg.symbol
+          malformed ctx, arg, "#{name} was not declared in #{moduleName}"
+        else
+          ctx.declareAsFinal name, ctx.currentScopeIndex()
+      else
+        malformed ctx, arg, 'Name required'
+  imports moduleName, setToArray requiredNames
 
 imports = (moduleName, names) ->
   validModuleName = validIdentifier moduleName
@@ -5759,7 +5775,7 @@ importsFor = (moduleSet) ->
   mapKeys lookupDefinitions, moduleSet
 
 contextWithDependencies = (modules) ->
-  ctx: injectedContext modules
+  ctx: injectedContext modules, yes
   modules: setToArray modules
 
 moduleDependencies = (moduleName) ->
@@ -5814,13 +5830,13 @@ subtractContexts = (ctx, what) ->
   nameIndex = ctx.nameIndex
   {definitions, typeNames, classes, macros, savedScopes, nameIndex}
 
-injectedContext = (modulesToInject) ->
+injectedContext = (modulesToInject, shouldDeclare) ->
   ctx = new Context
   for moduleName, names of values modulesToInject when compiled = lookupCompiledModule moduleName
-    injectContext ctx, compiled.declared, moduleName, names
+    injectContext ctx, shouldDeclare, compiled.declared, moduleName, names
   ctx
 
-injectContext = (ctx, compiledModule, moduleName, names) ->
+injectContext = (ctx, shouldDeclare, compiledModule, moduleName, names) ->
   {definitions, typeNames, classes, macros} = compiledModule
   topScope = ctx._scope()
   shouldImport = (name) -> not names.size or inSet names, name
@@ -5829,8 +5845,8 @@ injectContext = (ctx, compiledModule, moduleName, names) ->
       throw new Error "Macro #{name} already defined"
     else
       addToMap topScope.macros, name, macro
-  for name, {type, arity, docs, source, isClass, virtual, final} of values definitions when shouldImport name
-    addToMap topScope, name, {type, arity, docs, source, isClass, virtual, final}
+  for name, {type, arity, docs, source, isClass, virtual, final} of values definitions when (shouldImport name) and final
+    addToMap topScope, name, {type, arity, docs, source, isClass, virtual, final: shouldDeclare}
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
   ctx.scopeIndex += compiledModule.savedScopes.length
