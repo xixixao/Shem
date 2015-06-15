@@ -563,6 +563,9 @@ class Context
   assignArity: (name, arity) ->
     (@_declarationInCurrentScope name).arity = arity
 
+  addDefinitionSource: (name, source) ->
+    (@_declarationInCurrentScope name).source = source
+
   declareTyped: (names, types) ->
     for name, i in names
       @declare name, type: types[i]
@@ -1319,6 +1322,7 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
 
   constraints = matched.tea.constraints
   # log "pattern compiel", definedNames, pattern
+
   for {name, id, type} in definedNames
     deps = ctx.deferredNames()
 
@@ -1349,6 +1353,9 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
         # Ready for typing since there are no missing dependencies
         deferredConstraints = inferType ctx, name, type, constraints, polymorphic
         ctx.addToScopeConstraints deferredConstraints
+
+  if definedNames.length is 1
+    ctx.addDefinitionSource (_fst definedNames).name, matched
 
   precs: precs ? []
   assigns: assigns ? []
@@ -5807,8 +5814,8 @@ injectContext = (ctx, compiledModule, moduleName, names) ->
       throw new Error "Macro #{name} already defined"
     else
       addToMap topScope.macros, name, macro
-  for name, {type, arity, docs, isClass, virtual, final} of values definitions when shouldImport name
-    addToMap topScope, name, {type, arity, docs, isClass, virtual, final}
+  for name, {type, arity, docs, source, isClass, virtual, final} of values definitions when shouldImport name
+    addToMap topScope, name, {type, arity, docs, source, isClass, virtual, final}
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
   ctx.scopeIndex += compiledModule.savedScopes.length
@@ -6001,18 +6008,23 @@ isZeroArityFunctionType = (type) ->
   type.op and (typeEq type.op, zeroArrowType)
 
 findDocsFor = (moduleName, reference) ->
+  if found = findDeclarationFor moduleName, reference
+    {name} = reference
+    {arity, type, docs, source} = found
+    {name: name, rawType: type, docs, arity, source}
+
+findDeclarationFor = (moduleName, reference) ->
   {declared: {savedScopes}} = lookupCompiledModule moduleName
-  {ctx} = contextWithDependencies reverseModuleDependencies moduleName
   {name, scope} = reference
   while scope > 0 and not found
     savedScope = savedScopes[scope]
     break if not savedScope
     found = lookupInMap savedScope.definitions, name
     scope = savedScope.parent
-  found or= lookupInMap ctx._scope(), name # Top scope
-  if found
-    {arity, type, docs} = found
-    {name: name, rawType: type, docs, arity}
+  if not found
+    {ctx} = contextWithDependencies reverseModuleDependencies moduleName
+    found = lookupInMap ctx._scope(), name # Top scope
+  found
 
 # API
 
@@ -7573,3 +7585,7 @@ exports._snd = _snd
 exports._fst = _fst
 exports._labelName = _labelName
 exports._symbol = _symbol
+
+exports.call_ = call_
+exports.fn_ = fn_
+exports.token_ = token_
