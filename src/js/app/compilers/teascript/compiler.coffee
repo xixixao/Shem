@@ -2520,7 +2520,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
     jsNoop()
 
 ms['`'] = ms_quote = (ctx, call) ->
-  expression = firstOrCall _arguments call
+  expression = firstOrCall call
   if (_arguments call).length > 1
     labelDelimeters call, 'const'
 
@@ -2588,9 +2588,11 @@ ms[','] = ms_comma = (ctx, call) ->
   else
     (jsCall 'constantToSource', [expressionCompile ctx, expression])
 
-firstOrCall = (args) ->
+firstOrCall = (expression) ->
+  args = _arguments expression
   if args.length > 1
-    call_ args[0], args[1...]
+    opIndex = expression.indexOf args[0]
+    call_ expression[opIndex], expression[opIndex + 1...-1]
   else
     args[0]
 
@@ -5742,9 +5744,14 @@ compileExpression = (source, moduleName = '@unnamed') ->
 
 expandCall = (moduleName, call) ->
   {modules, ctx} = contextWithDependencies moduleDependencies moduleName
-  expanded = callMacroExpand ctx, call
-  if not isTranslated expanded
-    expanded
+  try
+    expanded = callMacroExpand ctx, call
+    if not isTranslated expanded
+      expanded
+  catch e
+    console.error "Error in expandCall"
+    console.error e
+    null
 
 importsFor = (moduleSet) ->
   lookupDefinitions = (name) ->
