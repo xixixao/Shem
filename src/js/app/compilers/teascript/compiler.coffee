@@ -679,6 +679,9 @@ class Context
   arity: (name) ->
     (@_declaration name)?.arity
 
+  tempType: (name) ->
+    (@_declaration name)?.tempType
+
   freshTypeVariable: (kind) ->
     if not kind
       throw new Error "Provide kind in freshTypeVariable"
@@ -2357,11 +2360,13 @@ ms.req = ms_req = (ctx, call) ->
     for arg in reqs
       if (isName arg)
         name = arg.symbol
-        if ctx.isFinallyCurrentlyDeclared name
+        if ctx.isFinallyTyped name, ctx.currentScopeIndex()
           malformed ctx, arg, "#{name} already declared"
         else if not ctx.isCurrentlyDeclared arg.symbol
+          # TODO: this will not trigger if we define in current/other module
           malformed ctx, arg, "#{name} was not declared in #{moduleName}"
         else
+          ctx.assignType name, (ctx.tempType name)
           ctx.declareAsFinal name, ctx.currentScopeIndex()
       else
         malformed ctx, arg, 'Name required'
@@ -5846,7 +5851,7 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, names) ->
     else
       addToMap topScope.macros, name, macro
   for name, {type, arity, docs, source, isClass, virtual, final} of values definitions when (shouldImport name) and final
-    addToMap topScope, name, {type, arity, docs, source, isClass, virtual, final: shouldDeclare}
+    addToMap topScope, name, {arity, docs, source, isClass, virtual, final, type: (type if shouldDeclare), tempType: type}
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
   ctx.scopeIndex += compiledModule.savedScopes.length
