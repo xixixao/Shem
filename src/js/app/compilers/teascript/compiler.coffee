@@ -2366,11 +2366,20 @@ ms.req = ms_req = (ctx, call) ->
           # TODO: this will not trigger if we define in current/other module
           malformed ctx, arg, "#{name} was not declared in #{moduleName}"
         else
-          ctx.assignType name, (ctx.tempType name)
-          ctx.declareAsFinal name, ctx.currentScopeIndex()
+          declareImported ctx, name
       else
         malformed ctx, arg, 'Name required'
   imports moduleName, setToArray requiredNames
+
+declareImportedByDefault = (ctx, modules) ->
+  for moduleName, names of values modules
+    if ctx.isModuleLoaded moduleName
+      for name in names
+        declareImported ctx, name
+
+declareImported = (ctx, name) ->
+  ctx.assignType name, (ctx.tempType name)
+  ctx.declareAsFinal name, ctx.currentScopeIndex()
 
 imports = (moduleName, names) ->
   validModuleName = validIdentifier moduleName
@@ -5723,8 +5732,9 @@ compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
   replaceOrAddToMap moduleGraph, moduleName, requires: requiredMap
   toInject = requiresFor moduleName
   ctx = injectedContext toInject
-  defaultImports = (subtractSets (newSetWith 'Prelude'), (newSetWith moduleName))
-  compilationFn = (topLevelModule moduleName, importsFor defaultImports)
+  defaultImports = importsFor (subtractSets (newSetWith 'Prelude'), (newSetWith moduleName))
+  declareImportedByDefault ctx, defaultImports
+  compilationFn = (topLevelModule moduleName, defaultImports)
   {request, ast, ir, js} = compileCtxAstToJs compilationFn, ctx, (astFromSource "(#{source})", -1, -1)
   if request
     if not allInjected request, requiredMap
@@ -5850,7 +5860,7 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, names) ->
       throw new Error "Macro #{name} already defined"
     else
       addToMap topScope.macros, name, macro
-  for name, {type, arity, docs, source, isClass, virtual, final} of values definitions when (shouldImport name) and final
+  for name, {type, arity, docs, source, isClass, virtual, final} of values definitions when shouldImport name
     addToMap topScope, name, {arity, docs, source, isClass, virtual, final, type: (type if shouldDeclare), tempType: type}
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
