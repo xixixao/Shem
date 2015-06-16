@@ -482,8 +482,10 @@ class Context
 
   ## Macro declarations
 
-  declareMacro: (name, macro) ->
+  declareMacro: (name, macro, docs) ->
     name.id = macro.id = @freshId()
+    name.scope = @currentScopeIndex()
+    macro.docs = docs
     addToMap @_scope().macros, name.symbol, macro
 
   isMacroDeclared: (name) ->
@@ -784,6 +786,7 @@ callMacroCompile = (ctx, call) ->
 callMacroExpand = (ctx, call) ->
   op = _operator call
   op.label = 'keyword'
+  op.scope = ctx.currentScopeIndex()
   macro = ctx.macro op.symbol
   op.id = macro.id
   macro ctx, call
@@ -2516,6 +2519,8 @@ ms.syntax = ms_syntax = (ctx, call) ->
   [maybeType] = rest
 
   doDeclare = isTypeAnnotation maybeType
+  [docs] = partition isComment, rest
+  typed = isTypeAnnotation maybeType
 
   if hasName
     macroName = ctx.definitionName()
@@ -2532,21 +2537,19 @@ ms.syntax = ms_syntax = (ctx, call) ->
     macroFn = eval compiledMacro
     if macroFn
       ctx.declareMacro ctx.definitionPattern(), (ctx, call) ->
+        operatorCompile ctx, call if typed
         if splatted
           constantToSource macroFn Immutable.List (_arguments call)
         else
           constantToSource macroFn (_arguments call)...
+      , extractDocs docs
     else
       malformed ctx, ctx.definitionPattern(), 'Macro failed to compile'
 
-  if isTypeAnnotation maybeType
-    [docs] = partition isComment, rest
+  if typed
     params = (map token_, map _symbol, _terms paramTuple)
     fn_ params, concat [[maybeType], docs, [call_ (token_ macroName), params]]
   else
-    # TODO: docs for macros
-    [docs] = partition isComment, rest
-    extractDocs docs
     jsNoop()
 
 ms['`'] = ms_quote = (ctx, call) ->
@@ -6070,6 +6073,9 @@ findDeclarationFor = (moduleName, reference) ->
   if not found
     {ctx} = contextWithDependencies reverseModuleDependencies moduleName
     found = lookupInMap ctx._scope(), name # Top scope
+  if not found
+    docs = (lookupInMap ctx._scope().macros, name)?.docs
+    found = {docs} if docs
   found
 
 # API
@@ -6148,7 +6154,7 @@ astizeExpressionWithWrapper = (source) ->
 
 labelDocs = (source, params) ->
   ast = (astizeList source)[1...-1]
-  labelUsedParams ast, params
+  labelUsedParams ast, params if params
   # Strip labels at the top of docs, since those are words
   for word in ast when not ((isForm word) or (word.label is 'param'))
     word.label = null
