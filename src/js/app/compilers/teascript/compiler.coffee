@@ -1697,12 +1697,12 @@ ms.fn = ms_fn = (ctx, call) ->
               type: ctx.preDeclaredType name # if any
               docs: documentation
 
+      ctx.newLateScope()
       newParamType = (param) ->
         param.scope = ctx.currentScopeIndex()
         withOrigin (ctx.freshTypeVariable star), param
       paramTypeVars = map newParamType, params
       paramTypes = map (__ toForAll, toConstrained), paramTypeVars
-      ctx.newLateScope()
       ctx.bindTypeVariables paramTypeVars
       # log "adding types", (map _symbol, params), paramTypes
       ctx.declareTyped paramNames, paramTypes
