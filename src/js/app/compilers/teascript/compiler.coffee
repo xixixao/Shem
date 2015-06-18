@@ -2355,7 +2355,7 @@ ms.req = ms_req = (ctx, call) ->
   [moduleNameAtom] = _validArguments call
   if not moduleNameAtom or not isName moduleNameAtom
     return malformed ctx, call, 'req requires a module name to require from'
-  moduleNameAtom.label = 'param'
+  moduleNameAtom.label = 'module'
   moduleName = moduleNameAtom.symbol
   requiredNames = (arrayToSet (filter _is, (map _symbol, reqs)))
   ctx.req moduleName, requiredNames
