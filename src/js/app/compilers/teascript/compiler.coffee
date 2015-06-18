@@ -2369,6 +2369,7 @@ ms.req = ms_req = (ctx, call) ->
           # TODO: this will not trigger if we define in current/other module
           malformed ctx, arg, "#{name} was not declared in #{moduleName}"
         else
+          arg.id = ctx.currentDeclarationId name
           declareImported ctx, name
       else
         malformed ctx, arg, 'Name required'
@@ -5864,7 +5865,11 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, names) ->
     else
       addToMap topScope.macros, name, macro
   for name, {type, arity, docs, source, isClass, virtual, final} of values definitions when shouldImport name
-    addToMap topScope, name, {arity, docs, source, isClass, virtual, final, type: (type if shouldDeclare), tempType: type}
+    addToMap topScope, name, {
+      arity, docs, source, isClass, virtual, final,
+      type: (type if shouldDeclare)
+      tempType: type
+      id: ctx.freshId()}
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
   ctx.scopeIndex += compiledModule.savedScopes.length
