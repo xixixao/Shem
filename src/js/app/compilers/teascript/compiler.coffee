@@ -2370,6 +2370,9 @@ ms.req = ms_req = (ctx, call) ->
           malformed ctx, arg, "#{name} was not declared in #{moduleName}"
         else
           arg.id = ctx.currentDeclarationId name
+          arg.imported =
+            module: moduleName
+            name: name # TODO: support renaming imports
           declareImported ctx, name
       else
         malformed ctx, arg, 'Name required'
