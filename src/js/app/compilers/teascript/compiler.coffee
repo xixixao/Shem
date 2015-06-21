@@ -2541,11 +2541,16 @@ ms.syntax = ms_syntax = (ctx, call) ->
     macroFn = eval compiledMacro
     if macroFn
       ctx.declareMacro ctx.definitionPattern(), (ctx, call) ->
+        args = _arguments call
         operatorCompile ctx, call if typed
         if splatted
-          constantToSource macroFn Immutable.List (_arguments call)
+          constantToSource macroFn Immutable.List args
         else
-          constantToSource macroFn (_arguments call)...
+          if macroFn.length isnt args.length
+            # tooMany = macroFn.length < args.length
+            # malformed ctx, call, "#{if tooMany then 'Too many' else 'Not enough'} arguments to #{macroName}"
+            args = join args, (fake_() for i in [args.length...macroFn.length])
+          constantToSource macroFn args...
       , extractDocs docs
     else
       malformed ctx, ctx.definitionPattern(), 'Macro failed to compile'
