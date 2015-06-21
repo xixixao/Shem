@@ -2314,7 +2314,7 @@ ms.match = ms_match = (ctx, call) ->
       [conds, assigns] = matchBranchTranslate precs, assigns, compiledResult
       [conds, join (findDefinitions ctx, (setToArray (subtractSets lifted, jointlyUsed))),
         assigns])
-    , "throw new Error('match failed to match #{(print subject)}#{errorMessage}');" #TODO: what subject?
+    , "throw new Error(#{toMultilineJsString "match failed to match #{(print subject)}#{errorMessage}"});"
 
     ctx.setUsedNames join oldUsed, setToArray jointlyUsed
 
@@ -7622,6 +7622,7 @@ exports.library = library
 exports.originOf = originOf
 exports.sortedArgs = sortedArgs
 
+exports.isNotCapital = isNotCapital
 exports.isForm = isForm
 exports.isCall = isCall
 exports.isAtom = isAtom
