@@ -2709,10 +2709,11 @@ ms.log = ms_log = (ctx, call) ->
   args = _validArguments call
   value = args[args.length - 1]
   compiled = termsCompile ctx, args
-  call.tea = value.tea
-  call.logId ?= ctx.logId++
+  if ctx.shouldDefer()
+    return jsNoop()
+  call.tea = new Constrained (concatMap (__ _constraints, _tea), args), value.tea.type
   view = map (__ (__ toMultilineJsString, collapse), toHtml), args
-  assignCompile ctx, call, (jsCall "debugLog", concat [call.logId, view, compiled])
+  assignCompile ctx, call, (jsCall "debugLog", concat [ctx.logId++, view, compiled])
 
 ms['=='] = ms_eq = (ctx, call) ->
     [a, b] = _arguments call
