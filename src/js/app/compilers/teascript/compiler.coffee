@@ -1110,7 +1110,7 @@ hashmapCompile = (ctx, form) ->
     # TODO:
     throw new Error "matching on hash maps not supported yet"
   else
-    [labels, items] = unzip pairs _terms form
+    [labels, items] = unzip filter all, pairsLeft isLabel, _terms form
     keyedType = withOrigin (new TypeApp hashmapType, stringType), form
     compiledItems = uniformCollectionCompile ctx, form, items, keyedType
     keys = (map (__ string_, _labelName), labels)
