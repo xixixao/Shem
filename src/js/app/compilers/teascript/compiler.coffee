@@ -5797,7 +5797,7 @@ parseWith = (originalAst, ast, compilationFn, moduleName, doDeclare) ->
     if doDeclare
       replaceOrAddToMap compiledModules, moduleName,
         declared: (subtractContexts ctx, (injectedContext requiresFor moduleName))
-        js: js
+        js: js # TODO: this does not work, as we need the complete compiled module, but that is not available
     ast: originalAst
     errors: errors
     malformed: ctx.isMalformed
