@@ -5737,7 +5737,7 @@ lookupCompiledModule = (name) ->
   lookupInMap compiledModules, name
 
 
-compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
+compileModuleTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
   addToMap requiredMap, 'Prelude', yes # TODO: Hardcoded prelude dependency
   removeFromMap requiredMap, moduleName
   for requiredModuleName of values requiredMap
@@ -5752,7 +5752,7 @@ compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
   {request, ast, ir, js} = compileCtxAstToJs compilationFn, ctx, (astFromSource "(#{source})", -1, -1)
   if request
     if not allInjected request, requiredMap
-      return compileTopLevel source, moduleName, request
+      return compileModuleTopLevel source, moduleName, request
     else
       {js} = compileCtxIrToJs ctx, ir
   errors = checkTypes ctx
@@ -5765,27 +5765,39 @@ compileTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
   # types: typeEnumaration ctx
   errors: errors
 
-compileModule = (moduleName = '@unnamed') ->
+compileModuleWithDependencies = (moduleName = '@unnamed') ->
   js: library + immutable + (listOfLines map lookupJs, (setToArray runtimeDependencies moduleName))
 
 compileExpression = (source, moduleName = '@unnamed') ->
+  {js} = parsed = parseExpression source, moduleName
+  extend parsed,
+    (js:  library + immutable + (listOfLines map lookupJs, (setToArray runtimeDependencies moduleName)) + '\n;' + js)
+
+parseTopLevel = (source, moduleName = '@unnamed') ->
   ast = (astFromSource "(#{source})", -1, -1)
-  if _empty _validTerms ast
+  parseWith ast, ast, topLevel, moduleName
+
+parseExpression = (source, moduleName = '@unnamed') ->
+  ast = (astFromSource "(#{source})", -1, -1)
+  [expression] = _terms ast
+  compilationFn = (topLevelExpressionInModule importsFor moduleDependencies moduleName)
+  parseWith ast, expression, compilationFn, moduleName
+
+parseWith = (originalAst, ast, compilationFn, moduleName) ->
+  if _empty _validTerms originalAst
     {
-      ast: ast
+      ast: originalAst
       js: ''
     }
   else
     {modules, ctx} = contextWithDependencies moduleDependencies moduleName
-    [expression] = _terms ast
-    compilationFn = (topLevelExpressionInModule importsFor moduleDependencies moduleName)
-    {js} = compileCtxAstToJs compilationFn, ctx, expression
+    {js} = compileCtxAstToJs compilationFn, ctx, ast
     errors = checkTypes ctx
-    (finalizeTypes ctx, expression)
-    js: library + immutable + (listOfLines map lookupJs, (setToArray runtimeDependencies moduleName)) + '\n;' + js
-    ast: ast
+    (finalizeTypes ctx, ast)
+    ast: originalAst
     errors: errors
     malformed: ctx.isMalformed
+    js: js
 
 expandCall = (moduleName, call) ->
   {modules, ctx} = contextWithDependencies moduleDependencies moduleName
@@ -6271,7 +6283,21 @@ _is = (x) -> !!x
 __ = (fna, fnb) ->
   (x) -> fna fnb x
 
+
 # end of Utils
+
+
+# Object utils
+
+merge = (objects) ->
+  c = {}
+  for a in objects
+    for key, value of a
+      c[key] = value
+  c
+
+extend = (a, b) ->
+  merge [a, b]
 
 # Unit tests
 test = (testName, teaSource, result) ->
@@ -7602,9 +7628,11 @@ runTests = (tests) ->
 # end of tests
 
 
-exports.compileTopLevel = compileTopLevel
-exports.compileModule = compileModule
+exports.compileModuleTopLevel = compileModuleTopLevel
+exports.compileModuleWithDependencies = compileModuleWithDependencies
 exports.compileExpression = compileExpression
+exports.parseTopLevel = parseTopLevel
+exports.parseExpression = parseExpression
 exports.expand = expandCall
 exports.findAvailableTypes = findAvailableTypes
 exports.findMatchingDefinitions = findMatchingDefinitions
