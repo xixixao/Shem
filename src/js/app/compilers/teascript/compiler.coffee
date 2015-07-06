@@ -5775,15 +5775,15 @@ compileExpression = (source, moduleName = '@unnamed') ->
 
 parseTopLevel = (source, moduleName = '@unnamed') ->
   ast = (astFromSource "(#{source})", -1, -1)
-  parseWith ast, ast, topLevel, moduleName
+  parseWith ast, ast, topLevel, moduleName, yes
 
 parseExpression = (source, moduleName = '@unnamed') ->
   ast = (astFromSource "(#{source})", -1, -1)
   [expression] = _terms ast
   compilationFn = (topLevelExpressionInModule importsFor moduleDependencies moduleName)
-  parseWith ast, expression, compilationFn, moduleName
+  parseWith ast, expression, compilationFn, moduleName, no
 
-parseWith = (originalAst, ast, compilationFn, moduleName) ->
+parseWith = (originalAst, ast, compilationFn, moduleName, doDeclare) ->
   if _empty _validTerms originalAst
     {
       ast: originalAst
@@ -5794,6 +5794,10 @@ parseWith = (originalAst, ast, compilationFn, moduleName) ->
     {js} = compileCtxAstToJs compilationFn, ctx, ast
     errors = checkTypes ctx
     (finalizeTypes ctx, ast)
+    if doDeclare
+      replaceOrAddToMap compiledModules, moduleName,
+        declared: (subtractContexts ctx, (injectedContext requiresFor moduleName))
+        js: js
     ast: originalAst
     errors: errors
     malformed: ctx.isMalformed
