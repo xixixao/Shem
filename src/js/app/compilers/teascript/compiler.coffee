@@ -1381,26 +1381,25 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
 
   if ctx.isFinallyTyped name, scopeIndex
     # TODO: check class constraints
-    if not includesJsType currentType.type
-      # Check the declared type
-      declaredType = ctx.type name
-      explicitType = copyOrigin (freshInstance ctx, declaredType), declaredType.type
-      updatedDeclaredType = quantifyUnbound ctx, explicitType#(substitute ctx.substitution, explicitType)
-      unify ctx, currentType.type, explicitType.type
-      unifiedType = explicitType# substitute ctx.substitution, explicitType
-      inferredType = quantifyUnbound ctx, unifiedType
-      if not typeEq inferredType, updatedDeclaredType
-        declaredTypeTooGeneral ctx, inferredType, updatedDeclaredType, unifiedType, declaredType
-      # Context reduction
-      isDeclaredConstraint = (c) ->
-        entailed = entail ctx, unifiedType.constraints, c
-      notDeclared = filter (__ _not, isDeclaredConstraint), constraints #(substituteList ctx.substitution, constraints)
-      {success} = deferConstraints ctx, notDeclared, currentType, scopeIndex
-      if success
-        [deferredConstraints, retainedConstraints] = success
-        if _notEmpty retainedConstraints
-          for constraint in retainedConstraints
-            declaredTypeMissingConstraint ctx, name, constraint
+    declaredType = ctx.type name
+    explicitType = copyOrigin (freshInstance ctx, declaredType), declaredType.type
+    # Check the declared type
+    updatedDeclaredType = quantifyUnbound ctx, explicitType#(substitute ctx.substitution, explicitType)
+    unify ctx, currentType.type, explicitType.type
+    unifiedType = explicitType# substitute ctx.substitution, explicitType
+    inferredType = quantifyUnbound ctx, unifiedType
+    if not typeEq inferredType, updatedDeclaredType
+      declaredTypeTooGeneral ctx, inferredType, updatedDeclaredType, unifiedType, declaredType
+    # Context reduction
+    isDeclaredConstraint = (c) ->
+      entailed = entail ctx, unifiedType.constraints, c
+    notDeclared = filter (__ _not, isDeclaredConstraint), constraints #(substituteList ctx.substitution, constraints)
+    {success} = deferConstraints ctx, notDeclared, currentType, scopeIndex
+    if success
+      [deferredConstraints, retainedConstraints] = success
+      if _notEmpty retainedConstraints
+        for constraint in retainedConstraints
+          declaredTypeMissingConstraint ctx, name, constraint
   else
     if not ctx.isAtNonDeferrableDefinition()
       {success} = deferConstraints ctx,
@@ -1993,8 +1992,7 @@ ms.global = ms_global = (ctx, call) ->
 callJsMethodCompile = (ctx, call) ->
   [dotMethod, object, args...] = _validTerms call
   labelOperator dotMethod
-  call.tea = toConstrained markOrigin jsType, call
-  assignCompile ctx, call,
+  compiled =
     if object
       if /^.-/.test dotMethod.symbol
         (jsAccess (termCompile ctx, object), dotMethod.symbol[2...])
@@ -2003,6 +2001,13 @@ callJsMethodCompile = (ctx, call) ->
     else
       malformed ctx, call, 'Missing an object'
       jsNoop()
+  constraints =
+    if object
+      (concatMap (__ _constraints, _tea), (join [object], args))
+    else
+      []
+  call.tea = new Constrained constraints, markOrigin jsType, call
+  assignCompile ctx, call, compiled
 
 ms['set!'] = ms_doset = (ctx, call) ->
   # (set! (.innerHTML e) "Ahoj")
@@ -3266,6 +3271,8 @@ irDefinitionTranslate = (ctx, {type, expression, reference, bare}) ->
   finalType = type#substitute ctx.substitution, type
   # allConstraints = (addConstraintsFrom ctx,
   #   {type, name: reference?.name, scopeIndex: reference?.scopeIndex}, finalType).constraints
+
+  # this is done because of bare definitons and deferred types, which dont have all constraints when compiled
   reducedConstraints =
     if reference
       constraintsFromReference ctx, {type, name: reference.name, scopeIndex: reference.scopeIndex}
@@ -5432,6 +5439,9 @@ printType = (type) ->
   else
     throw new Error "Unrecognized type in printType"
 
+printTypes = (list) ->
+  map printType, list
+
 printTypeToHtml = (type) ->
   if type.TypeVariable
     if type.ref.val
@@ -5823,7 +5833,7 @@ importsFor = (moduleSet) ->
   mapKeys lookupDefinitions, moduleSet
 
 contextWithDependencies = (modules) ->
-  ctx: injectedContext modules, yes
+  ctx: (injectedContext modules, yes)
   modules: setToArray modules
 
 moduleDependencies = (moduleName) ->
@@ -6885,6 +6895,27 @@ tests = [
   #     (fold found-or-equals False in)
   #     found-or-equals (fn [found item]
   #       (= what item))
+
+  'deferring constraints on explicitly typed Js-inferred values'
+  """
+  Eq (class [a]
+    = (fn [x y] (: (Fn a a Bool))))
+
+  num-eq (instance (Eq Num)
+    = (macro [x y]
+      (: (Fn Num Num Bool))
+      (Js.binary "===" x y)))
+
+  Set (class [set item]
+    remove (fn [what from]
+      (: (Fn item set item))))
+
+  array-set (instance (Set (Array a) a)
+    {(Eq a)}
+    remove (fn [what from]
+      (:: a (.indexOf from what))))
+  """
+  "(remove 2 {1 2 3})", 1
 
   'nested pattern matching'
   """
