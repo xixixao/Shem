@@ -5738,6 +5738,9 @@ lookupCompiledModule = (name) ->
 
 
 compileModuleTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
+  compileModuleTopLevelAst (astFromSource "(#{source})", -1, -1), moduleName, requiredMap
+
+compileModuleTopLevelAst = (ast, moduleName = '@unnamed', requiredMap = newMap()) ->
   addToMap requiredMap, 'Prelude', yes # TODO: Hardcoded prelude dependency
   removeFromMap requiredMap, moduleName
   for requiredModuleName of values requiredMap
@@ -5749,10 +5752,10 @@ compileModuleTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()
   defaultImports = importsFor (subtractSets (newSetWith 'Prelude'), (newSetWith moduleName))
   declareImportedByDefault ctx, defaultImports
   compilationFn = (topLevelModule moduleName, defaultImports)
-  {request, ast, ir, js} = compileCtxAstToJs compilationFn, ctx, (astFromSource "(#{source})", -1, -1)
+  {request, ir, js} = compileCtxAstToJs compilationFn, ctx, ast
   if request
     if not allInjected request, requiredMap
-      return compileModuleTopLevel source, moduleName, request
+      return compileModuleTopLevelAst ast, moduleName, request
     else
       {js} = compileCtxIrToJs ctx, ir
   errors = checkTypes ctx
@@ -5797,8 +5800,7 @@ parseWith = (originalAst, ast, compilationFn, moduleName, doDeclare) ->
     if doDeclare
       replaceOrAddToMap compiledModules, moduleName,
         declared: (subtractContexts ctx, (injectedContext requiresFor moduleName))
-        # TODO: this hack relies on JS overwriting values
-        js: ((lookupInMap compiledModules, moduleName)?.js or '') + js
+        ast: originalAst
     ast: originalAst
     errors: errors
     malformed: ctx.isMalformed
@@ -5852,10 +5854,13 @@ labelConflict = (conflict) ->
     conflict.error = yes
 
 lookupJs = (moduleName) ->
-  js = (lookupCompiledModule moduleName)?.js
-  if not js
+  compiled = (lookupCompiledModule moduleName)
+  if not compiled
     console.error "#{moduleName} not found"
   else
+    {js, ast} = compiled
+    if not js?
+      {js} = compileModuleTopLevelAst ast, moduleName
     js
 
 allInjected = (required, injected) ->
