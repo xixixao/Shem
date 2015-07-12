@@ -3984,6 +3984,7 @@ validIdentifier = (name) ->
       name.replace(/\./g, 'dot_')
     else
       name)
+    .replace(/\'/g, 'quote_')
     .replace(/\+/g, 'plus_')
     .replace(/\-/g, '__')
     .replace(/\*/g, 'times_')
