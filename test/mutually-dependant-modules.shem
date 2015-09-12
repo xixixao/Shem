@@ -1,0 +1,11 @@
+A (module
+  [g] (req ./B)
+
+  f (fn+ [x]
+    (g x)))
+
+B (module
+  [f] (req ./A)
+
+  g (fn+ [x]
+    (f x)))

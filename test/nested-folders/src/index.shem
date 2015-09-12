@@ -1,0 +1,6 @@
+Module-A (module)
+
+[g] (req Module-A/Some-Module)
+
+f (fn+ [x]
+  (g x))

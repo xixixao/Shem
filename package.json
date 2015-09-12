@@ -1,0 +1,30 @@
+{
+  "name": "shem",
+  "version": "0.0.1",
+  "description": "The compiler of the programming language Shem",
+  "main": "bin/shem",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "node_modules/.bin/coffee -o lib/shem/ src/",
+    "watch": "node_modules/.bin/coffee -wo lib/shem/ src/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/xixixao/Shem.git"
+  },
+  "keywords": [
+    "javascript",
+    "language",
+    "shem",
+    "compiler"
+  ],
+  "author": "xixixao",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/xixixao/Shem/issues"
+  },
+  "homepage": "https://github.com/xixixao/Shem",
+  "devDependencies": {
+    "coffee-script": "^1.10.0"
+  }
+}
