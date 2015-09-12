@@ -207,6 +207,7 @@ class Context
     @classParams = newMap()
     @types = []
     @isMalformed = no
+    @moduleName = null
     @importedModules = newSet()
     @_requested = newMap()
 
@@ -368,6 +369,7 @@ class Context
     scope.deferred = []
     scope.deferredBindings = []
     scope.boundTypeVariables = newSet()
+    scope.exportedNames = []
     scope.classes = newMap()
     scope.typeNames = newMap()
     scope.typeAliases = newMap()
@@ -396,6 +398,9 @@ class Context
 
   isInTopScope: ->
     @_scope().topLevel
+
+  exportName: (name) ->
+    @_scope().exportedNames.push name
 
   addTypeName: (dataType) ->
     if dataType instanceof TypeApp
@@ -1664,6 +1669,44 @@ exportAll = (ctx, definitions) ->
     [(jsReturn (jsDictionary exportList, exportList))]]))
 
 ms = {}
+
+
+# module+ (syntax [..args]
+#   (` export (module ,..args)))
+ms['module+'] = ms_module_export = (ctx, call) ->
+  (call_ (token_ 'export'), [(call_ (token_ 'module'), (_arguments call))])
+
+ms.module = ms_module = (ctx, call) ->
+  requireName ctx, 'Module name required'
+  name = ctx.definitionName()
+  if name
+    # TODO: here we need to propagate request and use compiled js
+    result = compileModuleTopLevelAst (form_ (_arguments call)), joinModuleNames ctx.moduleName, name
+    if result.request
+      ctx.req result.request, newSet()
+    else
+      console.log "submodule", result.js
+      if result.errors
+        ctx.extendSubstitution fails: result.errors # propagate errors TODO: rename substitution which is only used for type errors now
+      jsValue result.js
+  else
+    jsNoop()
+
+joinModuleNames = (parent, child) ->
+  "#{parent}/#{child}"
+
+ms.export = ms_export = (ctx, call) ->
+  requireName ctx, 'Name to export required'
+  name = ctx.definitionName()
+  if name
+    ctx.exportName name
+  expressionCompile ctx, _fst _arguments call
+
+# fn+ (syntax [..args]
+#   (` export (fn ,..args)))
+ms['fn+'] = ms_fn_export = (ctx, call) ->
+  (call_ (token_ 'export'), [(call_ (token_ 'fn'), (_arguments call))])
+
 ms.fn = ms_fn = (ctx, call) ->
     # For now expect the curried constructor call
     args = _arguments call
@@ -3221,10 +3264,12 @@ syntaxNameAs = (ctx, message, label, atom) ->
   if atom then curried atom else curried
 
 call_ = (op, args) ->
+  form_ join [op], args
+
+form_ = (terms) ->
   concat [
     tokenize '('
-    [op]
-    args
+    terms
     tokenize ')'
   ]
 
@@ -3872,6 +3917,7 @@ jsWrap = (value) ->
 
 jsWrapTranslate = ({value}) ->
   "(#{value})"
+
 
 blockOfLines = (lines) ->
   if lines.length is 0
@@ -5747,12 +5793,14 @@ moduleGraph = newMap()
 lookupCompiledModule = (name) ->
   lookupInMap compiledModules, name
 
+compileModule = (source) ->
+  compileModuleTopLevel source
 
 compileModuleTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
   compileModuleTopLevelAst (astFromSource "(#{source})", -1, -1), moduleName, requiredMap
 
 compileModuleTopLevelAst = (ast, moduleName = '@unnamed', requiredMap = newMap()) ->
-  addToMap requiredMap, 'Prelude', yes # TODO: Hardcoded prelude dependency
+  # addToMap requiredMap, 'Prelude', yes # TODO: Hardcoded prelude dependency
   removeFromMap requiredMap, moduleName
   for requiredModuleName of values requiredMap
     if not lookupCompiledModule requiredModuleName
@@ -5760,7 +5808,8 @@ compileModuleTopLevelAst = (ast, moduleName = '@unnamed', requiredMap = newMap()
   replaceOrAddToMap moduleGraph, moduleName, requires: requiredMap
   toInject = requiresFor moduleName
   ctx = injectedContext toInject
-  defaultImports = importsFor (subtractSets (newSetWith 'Prelude'), (newSetWith moduleName))
+  ctx.moduleName = moduleName
+  defaultImports = importsFor newSet()#(subtractSets (newSetWith 'Prelude'), (newSetWith moduleName))
   declareImportedByDefault ctx, defaultImports
   compilationFn = (topLevelModule moduleName, defaultImports)
   {request, ir, js} = compileCtxAstToJs compilationFn, ctx, ast
@@ -5770,7 +5819,7 @@ compileModuleTopLevelAst = (ast, moduleName = '@unnamed', requiredMap = newMap()
     else
       {js} = compileCtxIrToJs ctx, ir
   errors = checkTypes ctx
-  (finalizeTypes ctx, ast)
+  # (finalizeTypes ctx, ast) # TODO: this doesn't work when the AST includes multiple modules with different contexts than the current one
   replaceOrAddToMap compiledModules, moduleName,
     declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
     js: js
@@ -7669,7 +7718,7 @@ runTests = (tests) ->
     (filter _not, results).length + " failed"
 # end of tests
 
-
+exports.compileModule = compileModule
 exports.compileModuleTopLevel = compileModuleTopLevel
 exports.compileModuleWithDependencies = compileModuleWithDependencies
 exports.compileExpression = compileExpression
