@@ -207,7 +207,8 @@ class Context
     @classParams = newMap()
     @types = []
     @isMalformed = no
-    @moduleName = null
+    @modulePath = null
+    @submodules = newSet()
     @importedModules = newSet()
     @_requested = newMap()
 
@@ -225,6 +226,12 @@ class Context
 
   isRequesting: ->
     @_requesting
+
+  addSubmodule: (name) ->
+    addToSet @submodules, name
+
+  isSubmodule: (name) ->
+    inSet @submodules, name
 
   markMalformed: ->
     @isMalformed = yes
@@ -369,7 +376,7 @@ class Context
     scope.deferred = []
     scope.deferredBindings = []
     scope.boundTypeVariables = newSet()
-    scope.exportedNames = []
+    scope.exportedNames = newSet()
     scope.classes = newMap()
     scope.typeNames = newMap()
     scope.typeAliases = newMap()
@@ -400,7 +407,7 @@ class Context
     @_scope().topLevel
 
   exportName: (name) ->
-    @_scope().exportedNames.push name
+    addToSet @_scope().exportedNames, name
 
   addTypeName: (dataType) ->
     if dataType instanceof TypeApp
@@ -1486,9 +1493,42 @@ topLevelExpression = (ctx, expression) ->
 topLevel = (ctx, form) ->
   definitionList ctx, spaceSeparatedPairs form
 
-topLevelModule = (moduleName, defaultImports) -> (ctx, form) ->
-  [(jsAssignStatement (jsAccess "Shem", (validIdentifier moduleName)),
-    (exportAll ctx, (join (importAny defaultImports), (topLevel ctx, form))))]
+topLevelModule = (typedModulePath, defaultImports) -> (ctx, form) ->
+  # [(jsAssignStatement (jsAccess "Shem", (validIdentifier moduleName)),
+  #   (exportAll ctx, (join (importAny defaultImports), (topLevel ctx, form))))]
+  definitions = (join (importAny defaultImports), (topLevel ctx, form))
+  shouldBeExported = (name, declaration) ->
+    not declaration.virtual and declaration.final and isExported name
+  isExported = (name) ->
+    inSet ctx._scope().exportedNames, name
+  nonVirtual = filterMap shouldBeExported, ctx._scope()
+  exported = concatSets (subtractSets nonVirtual, builtInDefinitions()),
+    (filterSet isExported, ctx.submodules) # TODO: separate exporting namespaces according to the separation of namespaces
+  exportList = map validIdentifier, (setToArray exported)
+  exportDictionary = (jsDictionary exportList, exportList)
+  [..., type] = typedModulePath.types
+  switch type
+    when 'commonJs'
+      (concat [
+        toJsString 'use strict'
+        definitions
+        [(jsAssignStatement 'module.exports', exportDictionary)]])
+    when 'browser'
+      [(jsAssignStatement (jsAccess "Shem", (validIdentifier (modulePathToName typedModulePath.names))),
+        (iife (concat [
+          toJsString 'use strict'
+          definitions
+          [(jsReturn exportDictionary)]])))]
+    when 'submodule'
+      [..., name] = typedModulePath.names
+      [(jsVarDeclaration (validIdentifier name),
+        (iife (join definitions, [(jsReturn exportDictionary)])))]
+    else
+      throw new Error "Unspecified ctx.moduleCompilationType"
+
+importAny = (defaultImports) ->
+  concat (for name, names of values defaultImports
+    irImport name, names)
 
 topLevelExpressionInModule = (defaultImports) -> (ctx, expression) ->
   (iife (concat [
@@ -1653,47 +1693,33 @@ definitionPairCompile = (ctx, pattern, value) ->
   else
     compiled
 
-importAny = (defaultImports) ->
-  concat (for name, names of values defaultImports
-    imports name, names)
-
-exportAll = (ctx, definitions) ->
-  shouldBeExported = (name, declaration) ->
-    not declaration.virtual and declaration.final
-  nonVirtual = filterMap shouldBeExported, ctx._scope()
-  exported = subtractSets nonVirtual, builtInDefinitions()
-  exportList = map validIdentifier, (setToArray exported)
-  (iife (concat [
-    toJsString 'use strict'
-    definitions
-    [(jsReturn (jsDictionary exportList, exportList))]]))
-
 ms = {}
 
-
-# module+ (syntax [..args]
-#   (` export (module ,..args)))
 ms['module+'] = ms_module_export = (ctx, call) ->
-  (call_ (token_ 'export'), [(call_ (token_ 'module'), (_arguments call))])
+  (ms_module ctx, call, yes)
 
-ms.module = ms_module = (ctx, call) ->
+ms.module = ms_module = (ctx, call, isExported = no) ->
   requireName ctx, 'Module name required'
   name = ctx.definitionName()
   if name
-    # TODO: here we need to propagate request and use compiled js
-    result = compileModuleTopLevelAst (form_ (_arguments call)), joinModuleNames ctx.moduleName, name
-    if result.request
-      ctx.req result.request, newSet()
+    if ctx.isSubmodule name
+      # TODO: enabled malformed errors to point to other points in the code
+      malformed ctx, ctx.definitionPattern(), 'A submodule with this name already exists'
     else
-      console.log "submodule", result.js
-      if result.errors
-        ctx.extendSubstitution fails: result.errors # propagate errors TODO: rename substitution which is only used for type errors now
-      jsValue result.js
+      typedModulePath =
+        names: (join ctx.typedModulePath.names, [name])
+        types: (join ctx.typedModulePath.types, ['submodule'])
+        exported: isExported
+      result = compileModuleTopLevelAst (form_ (_arguments call)), typedModulePath
+      if result.request
+        ctx.req result.request, newSet()
+      else
+        ctx.addSubmodule name
+        if result.errors
+          ctx.extendSubstitution fails: result.errors # propagate errors TODO: rename substitution which is only used for type errors now
+        jsValue result.js
   else
     jsNoop()
-
-joinModuleNames = (parent, child) ->
-  "#{parent}/#{child}"
 
 ms.export = ms_export = (ctx, call) ->
   requireName ctx, 'Name to export required'
@@ -2404,8 +2430,10 @@ ms.req = ms_req = (ctx, call) ->
   if not moduleNameAtom or not isName moduleNameAtom
     return malformed ctx, call, 'req requires a module name to require from'
   moduleNameAtom.label = 'module'
-  moduleName = moduleNameAtom.symbol
-  requiredNames = (arrayToSet (filter _is, (map _symbol, reqs)))
+  declaredModuleName = moduleNameAtom.symbol
+  requiredNames =
+  names:  (arrayToSet (filter _is, (map _symbol, reqs)))
+  moduleName = (resolveModuleName ctx, declaredModuleName)
   ctx.req moduleName, requiredNames
   if ctx.isModuleLoaded moduleName
     for arg in reqs
@@ -2424,7 +2452,17 @@ ms.req = ms_req = (ctx, call) ->
           declareImported ctx, name
       else
         malformed ctx, arg, 'Name required'
-  imports moduleName, setToArray requiredNames
+  irImport moduleName, (setToArray requiredNames), moduleNameAtom
+
+resolveModuleName = (ctx, declaredModuleName) ->
+  modulePathToName (resolveModulePathFrom ctx.typedModulePath.names,
+      (moduleNameToPath declaredModuleName))
+
+resolveModulePathFrom = (currentPath, declaredPath) ->
+  switch _fst declaredPath
+    when '.' then join currentPath, declaredPath[1...]
+    when '..' then join currentPath[...-1], declaredPath[1...]
+    else declaredPath
 
 declareImportedByDefault = (ctx, modules) ->
   for moduleName, names of values modules
@@ -2435,12 +2473,6 @@ declareImportedByDefault = (ctx, modules) ->
 declareImported = (ctx, name) ->
   ctx.assignType name, (ctx.tempType name)
   ctx.declareAsFinal name, ctx.currentScopeIndex()
-
-imports = (moduleName, names) ->
-  validModuleName = validIdentifier moduleName
-  for name in names
-    validName = validIdentifier name
-    jsVarDeclaration validName, (jsAccess (jsAccess "Shem", validModuleName), validName)
 
 ms.format = ms_format = (ctx, call) ->
   typeTable =
@@ -3562,6 +3594,49 @@ isCustomCollectionType = ({type}) ->
     (toMatchTypes (applyKindFn hashmapType, newVar(), newVar()), type) or
     (toMatchTypes (applyKindFn hashsetType, newVar()), type)
 
+
+# Possible compilations:
+#
+#   var _temp = require('Some');
+#
+#   var _temp = require('./Some');
+#
+#   var _temp = require('./Some/Other')
+#
+#   var _temp = Some;
+#
+#   var _temp = Shem.Some;
+#
+#   // [a] (req ./Some/Submodule)              => I need to know the type of the module in the path
+#   var _temp = require('./Some').Submodule;
+#
+irImport = (moduleName, names, moduleNameAtom) ->
+  {ir: irImportTranslate, moduleName, names, moduleNameAtom}
+
+irImportTranslate = (ctx, {moduleName, names, moduleNameAtom}) ->
+  # TODO: pass this info in through context instead of a direct call
+  importedTypedModulePath = moduleNameToTypedModulePath moduleName, ctx.typedModulePath
+  if not importedTypedModulePath
+    return malformed ctx, moduleNameAtom, "Module #{moduleName} could not be found."
+  else if importedTypedModulePath.nonExportedLink
+    return malformed ctx, moduleNameAtom, "Module #{importedTypedModulePath.nonExportedLink} must be exported."
+  {names: pathNames, types} = importedTypedModulePath
+  baseType = types[i]
+  numModules = (filter ((type) -> type is baseType), types).length
+  moduleHandle =
+    switch baseType
+      when 'commonJs'
+        jsCall 'require', (toJsString (pathNames[0...numModules].join '/'))
+      when 'browser'
+        acc = "Shem"
+        for i in [0...numModules]
+          acc = (jsAccess acc, validIdentifier pathNames[i])
+        acc
+  temp = ctx.newJsVariable()
+  join [jsVarDeclaration temp, moduleHandle],
+    for name in names
+      validName = (validIdentifier name)
+      jsVarDeclaration validName, (jsAccess temp, validName)
 
 isTypeAnnotation = (expression) ->
   (isCall expression) and (':' is _symbol _operator expression)
@@ -5790,32 +5865,55 @@ reservedInJs = newSetWith ("abstract arguments boolean break byte case catch cha
 compiledModules = newMap()
 moduleGraph = newMap()
 
+# TODO: pass this info in through context instead of a direct call
+moduleNameToTypedModulePath = (moduleName, currentTypedModulePath) ->
+  module = (lookupInMap moduleGraph, moduleName)
+  if module
+    if violating = moduleAccessViolation (moduleNameToPath moduleName), currentTypedModulePath
+      nonExportedLink: violating
+  module.typedModulePath
+
+moduleAccessViolation = (toModulePath, fromTypedModulePath) ->
+  for i, moduleName in toModulePath
+    if fromTypedModulePath.names[i] isnt moduleName
+      checkedModuleName = (modulePathToName toModulePath[0..i])
+      module = (lookupInMap moduleGraph, checkedModuleName)
+      if not module
+        throw new Error "missing module #{checkedModuleName}
+         that should have been compiled for #{moduleName}"
+      if not module.exported
+        return checkedModuleName
+  false
+
 lookupCompiledModule = (name) ->
   lookupInMap compiledModules, name
 
 compileModule = (source) ->
-  compileModuleTopLevel source
+  compileModuleTopLevel source, (names: ['.'], types: ['commonJs'])
 
-compileModuleTopLevel = (source, moduleName = '@unnamed', requiredMap = newMap()) ->
-  compileModuleTopLevelAst (astFromSource "(#{source})", -1, -1), moduleName, requiredMap
+defaultTypedModulePath = (names: ['@unnamed'], types: ['browser'])
 
-compileModuleTopLevelAst = (ast, moduleName = '@unnamed', requiredMap = newMap()) ->
+compileModuleTopLevel = (source, typedModulePath = defaultTypedModulePath, requiredMap = newMap()) ->
+  compileModuleTopLevelAst (astFromSource "(#{source})", -1, -1), typedModulePath, requiredMap
+
+compileModuleTopLevelAst = (ast, typedModulePath = defaultTypedModulePath, requiredMap = newMap()) ->
   # addToMap requiredMap, 'Prelude', yes # TODO: Hardcoded prelude dependency
+  moduleName = modulePathToName typedModulePath.names
   removeFromMap requiredMap, moduleName
   for requiredModuleName of values requiredMap
     if not lookupCompiledModule requiredModuleName
       return request: requiredModuleName
-  replaceOrAddToMap moduleGraph, moduleName, requires: requiredMap
+  replaceOrAddToMap moduleGraph, moduleName, requires: requiredMap, typedModulePath: typedModulePath
   toInject = requiresFor moduleName
   ctx = injectedContext toInject
-  ctx.moduleName = moduleName
+  ctx.typedModulePath = typedModulePath
   defaultImports = importsFor newSet()#(subtractSets (newSetWith 'Prelude'), (newSetWith moduleName))
   declareImportedByDefault ctx, defaultImports
-  compilationFn = (topLevelModule moduleName, defaultImports)
+  compilationFn = (topLevelModule typedModulePath, defaultImports)
   {request, ir, js} = compileCtxAstToJs compilationFn, ctx, ast
   if request
     if not allInjected request, requiredMap
-      return compileModuleTopLevelAst ast, moduleName, request
+      return compileModuleTopLevelAst ast, typedModulePath, request
     else
       {js} = compileCtxIrToJs ctx, ir
   errors = checkTypes ctx
@@ -5894,6 +5992,12 @@ runtimeDependencies = (moduleName) ->
 
 reverseModuleDependencies = (moduleName) ->
   concatSets (newSetWith moduleName), (requiresFor moduleName)
+
+modulePathToName = (path) ->
+  path.join '/'
+
+moduleNameToPath = (name) ->
+  name.split '/'
 
 # Primitive type checking for now
 checkTypes = (ctx) ->
@@ -6297,7 +6401,7 @@ _validTerms = (form) ->
 
 _snd = ([a, b]) -> b
 
-_fst = ([a, b]) -> a
+_fst = ([a]) -> a
 
 _labelName = (atom) -> (_symbol atom)[0...-1]
 
