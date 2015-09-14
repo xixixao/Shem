@@ -208,7 +208,7 @@ class Context
     @types = []
     @isMalformed = no
     @modulePath = null
-    @submodules = newSet()
+    @submodules = newMap()
     @importedModules = newSet()
     @_requested = newMap()
 
@@ -227,8 +227,8 @@ class Context
   isRequesting: ->
     @_requesting
 
-  addSubmodule: (name) ->
-    addToSet @submodules, name
+  addSubmodule: (name, isExported) ->
+    addToMap @submodules, name, isExported
 
   isSubmodule: (name) ->
     inSet @submodules, name
@@ -376,7 +376,6 @@ class Context
     scope.deferred = []
     scope.deferredBindings = []
     scope.boundTypeVariables = newSet()
-    scope.exportedNames = newSet()
     scope.classes = newMap()
     scope.typeNames = newMap()
     scope.typeAliases = newMap()
@@ -406,8 +405,11 @@ class Context
   isInTopScope: ->
     @_scope().topLevel
 
-  exportName: (name) ->
-    addToSet @_scope().exportedNames, name
+  exportDeclared: ->
+    @_exporting = yes
+
+  stopExporting: ->
+    @_exporting = no
 
   addTypeName: (dataType) ->
     if dataType instanceof TypeApp
@@ -600,6 +602,7 @@ class Context
 
   _declare: (name, declaration) ->
     declaration.id ?= @freshId()
+    declaration.exported = @_exporting
     replaceOrAddToMap @_scope(), name, declaration
 
   _preDeclaration: (name) ->
@@ -695,6 +698,9 @@ class Context
 
   tempType: (name) ->
     (@_declaration name)?.tempType
+
+  importable: (name) ->
+    (@_declaration name)?.exported
 
   freshTypeVariable: (kind) ->
     if not kind
@@ -1498,12 +1504,12 @@ topLevelModule = (typedModulePath, defaultImports) -> (ctx, form) ->
   #   (exportAll ctx, (join (importAny defaultImports), (topLevel ctx, form))))]
   definitions = (join (importAny defaultImports), (topLevel ctx, form))
   shouldBeExported = (name, declaration) ->
-    not declaration.virtual and declaration.final and isExported name
-  isExported = (name) ->
-    inSet ctx._scope().exportedNames, name
+    not declaration.virtual and declaration.final
+  isExported = (name, exported) ->
+    exported
   nonVirtual = filterMap shouldBeExported, ctx._scope()
   exported = concatSets (subtractSets nonVirtual, builtInDefinitions()),
-    (filterSet isExported, ctx.submodules) # TODO: separate exporting namespaces according to the separation of namespaces
+    (filterMap isExported, ctx.submodules) # TODO: separate exporting namespaces according to the separation of namespaces
   exportList = map validIdentifier, (setToArray exported)
   exportDictionary = (jsDictionary exportList, exportList)
   [..., type] = typedModulePath.types
@@ -1714,7 +1720,7 @@ ms.module = ms_module = (ctx, call, isExported = no) ->
       if result.request
         ctx.req result.request, newSet()
       else
-        ctx.addSubmodule name
+        ctx.addSubmodule name, isExported
         if result.errors
           ctx.extendSubstitution fails: result.errors # propagate errors TODO: rename substitution which is only used for type errors now
         jsValue result.js
@@ -1724,9 +1730,10 @@ ms.module = ms_module = (ctx, call, isExported = no) ->
 ms.export = ms_export = (ctx, call) ->
   requireName ctx, 'Name to export required'
   name = ctx.definitionName()
-  if name
-    ctx.exportName name
-  expressionCompile ctx, _fst _arguments call
+  ctx.exportDeclared()
+  compiled = expressionCompile ctx, _fst _arguments call
+  ctx.stopExporting()
+  compiled
 
 # fn+ (syntax [..args]
 #   (` export (fn ,..args)))
@@ -2001,6 +2008,10 @@ findDataType = (ctx, typeArgLists, typeParams, dataName) ->
     (applyKindFn (new TypeConstr dataName, dataKind), typeVars...))
   fieldTypes: (map ((types) -> substituteList freshingSub, types), fieldTypes)
 
+
+ms['record+'] = ms_record_export = (ctx, call) ->
+  (call_ (token_ 'export'), [(call_ (token_ 'record'), (_arguments call))])
+
 ms.record = ms_record = (ctx, call) ->
     args = _validArguments call
     hasName = requireName ctx, 'Name required to declare new record'
@@ -2091,6 +2102,10 @@ ms['set!'] = ms_doset = (ctx, call) ->
     (jsAssign whatCompiled, toCompiled)
   else
     jsNoop()
+
+
+ms['class+'] = ms_class_export = (ctx, call) ->
+  (call_ (token_ 'export'), [(call_ (token_ 'class'), (_arguments call))])
 
 # Adds a class to the scope or defers if superclass doesn't exist
 ms.class = ms_class = (ctx, call) ->
@@ -2188,6 +2203,10 @@ declareMethods = (ctx, classConstraint, methodDeclarations) ->
       (addConstraints (freshInstance ctx, type), [classConstraint])
     ctx.declare name, {arity, docs, type, virtual: yes}
   return
+
+
+ms['instance+'] = ms_instance_export = (ctx, call) ->
+  (call_ (token_ 'export'), [(call_ (token_ 'instance'), (_arguments call))])
 
 ms.instance = ms_instance = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new instance'
@@ -2431,8 +2450,7 @@ ms.req = ms_req = (ctx, call) ->
     return malformed ctx, call, 'req requires a module name to require from'
   moduleNameAtom.label = 'module'
   declaredModuleName = moduleNameAtom.symbol
-  requiredNames =
-  names:  (arrayToSet (filter _is, (map _symbol, reqs)))
+  requiredNames = (arrayToSet (filter _is, (map _symbol, reqs)))
   moduleName = (resolveModuleName ctx, declaredModuleName)
   ctx.req moduleName, requiredNames
   if ctx.isModuleLoaded moduleName
@@ -2441,9 +2459,11 @@ ms.req = ms_req = (ctx, call) ->
         name = arg.symbol
         if ctx.isFinallyTyped name, ctx.currentScopeIndex()
           malformed ctx, arg, "#{name} already declared"
-        else if not ctx.isCurrentlyDeclared arg.symbol
+        else if not ctx.isCurrentlyDeclared name
           # TODO: this will not trigger if we define in current/other module
           malformed ctx, arg, "#{name} was not declared in #{moduleName}"
+        else if not ctx.importable name
+          malformed ctx, arg, "#{name} was not exported from #{moduleName}"
         else
           arg.id = ctx.currentDeclarationId name
           arg.imported =
@@ -3621,22 +3641,22 @@ irImportTranslate = (ctx, {moduleName, names, moduleNameAtom}) ->
   else if importedTypedModulePath.nonExportedLink
     return malformed ctx, moduleNameAtom, "Module #{importedTypedModulePath.nonExportedLink} must be exported."
   {names: pathNames, types} = importedTypedModulePath
-  baseType = types[i]
+  baseType = types[0]
   numModules = (filter ((type) -> type is baseType), types).length
   moduleHandle =
     switch baseType
       when 'commonJs'
         jsCall 'require', (toJsString (pathNames[0...numModules].join '/'))
       when 'browser'
-        acc = "Shem"
+        acc = 'Shem'
         for i in [0...numModules]
           acc = (jsAccess acc, validIdentifier pathNames[i])
         acc
   temp = ctx.newJsVariable()
-  join [jsVarDeclaration temp, moduleHandle],
-    for name in names
-      validName = (validIdentifier name)
-      jsVarDeclaration validName, (jsAccess temp, validName)
+  jsStatementList (join [jsVarDeclaration temp, moduleHandle],
+      for name in names
+        validName = (validIdentifier name)
+        jsVarDeclaration validName, (jsAccess temp, validName))
 
 isTypeAnnotation = (expression) ->
   (isCall expression) and (':' is _symbol _operator expression)
@@ -3950,6 +3970,13 @@ jsReturn = (result) ->
 
 jsReturnTranslate = ({result}) ->
   "return #{result};"
+
+
+jsStatementList = (statements) ->
+  {js: jsStatementListTranslate, statements}
+
+jsStatementListTranslate = ({statements}) ->
+  listOfLines statements
 
 
 jsTernary = (cond, thenExp, elseExp) ->
@@ -5926,32 +5953,36 @@ compileModuleTopLevelAst = (ast, typedModulePath = defaultTypedModulePath, requi
   # types: typeEnumaration ctx
   errors: errors
 
-compileModuleWithDependencies = (moduleName = '@unnamed') ->
-  js: library + immutable + (listOfLines map lookupJs, (setToArray runtimeDependencies moduleName))
+compileModuleWithDependencies = (typedModulePath = defaultTypedModulePath) ->
+  js: library + immutable + (listOfLines map lookupJs,
+    (setToArray runtimeDependencies (modulePathToName typedModulePath.names)))
 
-compileExpression = (source, moduleName = '@unnamed') ->
-  {js} = parsed = parseExpression source, moduleName
+compileExpression = (source, typedModulePath = defaultTypedModulePath) ->
+  {js} = parsed = parseExpression source, typedModulePath
   extend parsed,
-    (js:  library + immutable + (listOfLines map lookupJs, (setToArray runtimeDependencies moduleName)) + '\n;' + js)
+    (js:  library + immutable + (listOfLines map lookupJs,
+      (setToArray runtimeDependencies (modulePathToName typedModulePath.names))) + '\n;' + js)
 
-parseTopLevel = (source, moduleName = '@unnamed') ->
+parseTopLevel = (source, typedModulePath = defaultTypedModulePath) ->
   ast = (astFromSource "(#{source})", -1, -1)
-  parseWith ast, ast, topLevel, moduleName, yes
+  parseWith ast, ast, topLevel, typedModulePath, yes
 
-parseExpression = (source, moduleName = '@unnamed') ->
+parseExpression = (source, typedModulePath = defaultTypedModulePath) ->
   ast = (astFromSource "(#{source})", -1, -1)
   [expression] = _terms ast
-  compilationFn = (topLevelExpressionInModule importsFor moduleDependencies moduleName)
-  parseWith ast, expression, compilationFn, moduleName, no
+  compilationFn = (topLevelExpressionInModule importsFor moduleDependencies (modulePathToName typedModulePath.names))
+  parseWith ast, expression, compilationFn, typedModulePath, no
 
-parseWith = (originalAst, ast, compilationFn, moduleName, doDeclare) ->
+parseWith = (originalAst, ast, compilationFn, typedModulePath, doDeclare) ->
   if _empty _validTerms originalAst
     {
       ast: originalAst
       js: ''
     }
   else
+    moduleName = modulePathToName typedModulePath.names
     {modules, ctx} = contextWithDependencies moduleDependencies moduleName
+    ctx.typedModulePath = typedModulePath
     {js} = compileCtxAstToJs compilationFn, ctx, ast
     errors = checkTypes ctx
     (finalizeTypes ctx, ast)
@@ -6060,9 +6091,9 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, names) ->
       throw new Error "Macro #{name} already defined"
     else
       addToMap topScope.macros, name, macro
-  for name, {type, arity, docs, source, isClass, virtual, final} of values definitions when shouldImport name
+  for name, {type, arity, docs, source, isClass, virtual, final, exported} of values definitions when shouldImport name
     addToMap topScope, name, {
-      arity, docs, source, isClass, virtual, final,
+      arity, docs, source, isClass, virtual, final, exported,
       type: (type if shouldDeclare)
       tempType: type
       id: ctx.freshId()}
