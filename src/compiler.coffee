@@ -700,7 +700,7 @@ class Context
     (@_declaration name)?.tempType
 
   importable: (name) ->
-    (@_declaration name)?.exported
+    (@_declaration name)?.importable
 
   freshTypeVariable: (kind) ->
     if not kind
@@ -6095,9 +6095,10 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, names) ->
       addToMap topScope.macros, name, macro
   for name, {type, arity, docs, source, isClass, virtual, final, exported} of values definitions when shouldImport name
     addToMap topScope, name, {
-      arity, docs, source, isClass, virtual, final, exported,
+      arity, docs, source, isClass, virtual, final,
       type: (type if shouldDeclare)
       tempType: type
+      importable: exported
       id: ctx.freshId()}
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
