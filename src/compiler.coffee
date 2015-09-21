@@ -1504,7 +1504,7 @@ topLevelModule = (typedModulePath, defaultImports) -> (ctx, form) ->
   #   (exportAll ctx, (join (importAny defaultImports), (topLevel ctx, form))))]
   definitions = (join (importAny defaultImports), (topLevel ctx, form))
   shouldBeExported = (name, declaration) ->
-    not declaration.virtual and declaration.final
+    not declaration.virtual and declaration.final and declaration.exported
   isExported = (name, exported) ->
     exported
   nonVirtual = filterMap shouldBeExported, ctx._scope()
