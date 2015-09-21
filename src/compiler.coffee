@@ -212,8 +212,8 @@ class Context
     @importedModules = newSet()
     @_requested = newMap()
 
-  req: (moduleName, names) ->
-    addToMap @_requested, moduleName, names
+  req: (moduleName, importSetup) ->
+    addToMap @_requested, moduleName, importSetup
     if not @isModuleLoaded moduleName
       @_requesting = yes
 
@@ -2445,16 +2445,22 @@ ms.req = ms_req = (ctx, call) ->
   if (not isTuple reqTuple) or _empty reqs
     return malformed ctx, reqTuple, 'req requires a tuple of names to be required'
   map (syntaxNewName ctx, 'definition name to be imported required'), reqs
+  realReqs = filter (__ _not, isSplat), reqs
+  hasSplat = realReqs.length < reqs.length
   [moduleNameAtom] = _validArguments call
   if not moduleNameAtom or not isName moduleNameAtom
     return malformed ctx, call, 'req requires a module name to require from'
   moduleNameAtom.label = 'module'
   declaredModuleName = moduleNameAtom.symbol
-  requiredNames = (arrayToSet (filter _is, (map _symbol, reqs)))
+  requiredNames = (arrayToSet (filter _is, (map _symbol, realReqs)))
+  naming = arrayToMap (for name of values requiredNames
+    [name, name])
   moduleName = (resolveModuleName ctx, declaredModuleName)
-  ctx.req moduleName, requiredNames
+  ctx.req moduleName,
+    importAll: hasSplat
+    naming: naming
   if ctx.isModuleLoaded moduleName
-    for arg in reqs
+    for arg in realReqs
       if (isName arg)
         name = arg.symbol
         if ctx.isFinallyTyped name, ctx.currentScopeIndex()
@@ -2472,7 +2478,7 @@ ms.req = ms_req = (ctx, call) ->
           declareImported ctx, name
       else
         malformed ctx, arg, 'Name required'
-  irImport moduleName, (setToArray requiredNames), moduleNameAtom
+  irImport moduleName, naming, moduleNameAtom
 
 resolveModuleName = (ctx, declaredModuleName) ->
   modulePathToName (resolveModulePathFrom ctx.typedModulePath.names,
@@ -3630,10 +3636,10 @@ isCustomCollectionType = ({type}) ->
 #   // [a] (req ./Some/Submodule)              => I need to know the type of the module in the path
 #   var _temp = require('./Some').Submodule;
 #
-irImport = (moduleName, names, moduleNameAtom) ->
-  {ir: irImportTranslate, moduleName, names, moduleNameAtom}
+irImport = (moduleName, naming, moduleNameAtom) ->
+  {ir: irImportTranslate, moduleName, naming, moduleNameAtom}
 
-irImportTranslate = (ctx, {moduleName, names, moduleNameAtom}) ->
+irImportTranslate = (ctx, {moduleName, naming, moduleNameAtom}) ->
   # TODO: pass this info in through context instead of a direct call
   importedTypedModulePath = moduleNameToTypedModulePath moduleName, ctx.typedModulePath
   if not importedTypedModulePath
@@ -3656,9 +3662,8 @@ irImportTranslate = (ctx, {moduleName, names, moduleNameAtom}) ->
   submoduleLookup = reduce jsAccess, parts
   temp = ctx.newJsVariable()
   jsStatementList (join [jsVarDeclaration temp, submoduleLookup],
-      for name in names
-        validName = (validIdentifier name)
-        jsVarDeclaration validName, (jsAccess temp, validName))
+      for oldName, newName of values naming
+        jsVarDeclaration (validIdentifier newName), (jsAccess temp, oldName))
 
 isTypeAnnotation = (expression) ->
   (isCall expression) and (':' is _symbol _operator expression)
@@ -6018,13 +6023,13 @@ contextWithDependencies = (modules) ->
   modules: setToArray modules
 
 moduleDependencies = (moduleName) ->
-  concatSets (requiresFor moduleName), (newSetWith moduleName)
+  concatSets (requiresFor moduleName), (newMapWith moduleName, importAll: yes)
+
+reverseModuleDependencies = (moduleName) ->
+  concatSets (newMapWith moduleName, importAll: yes), (requiresFor moduleName)
 
 runtimeDependencies = (moduleName) ->
   concatSets (collectRequiresFor moduleName), (newSetWith moduleName)
-
-reverseModuleDependencies = (moduleName) ->
-  concatSets (newSetWith moduleName), (requiresFor moduleName)
 
 modulePathToName = (path) ->
   path.join '/'
@@ -6061,9 +6066,9 @@ lookupJs = (moduleName) ->
     js
 
 allInjected = (required, injected) ->
-  for name, names of values required
+  for name of values required
     injectedNames = lookupInMap injected, name
-    if not injectedNames# or
+    if not injectedNames# or  # names = {naming} = required[name]
         #names.size isnt injectedNames.size or
         #(intersectSets [names, injectedNames]).size isnt names.size
       return no
@@ -6080,21 +6085,22 @@ subtractContexts = (ctx, what) ->
 
 injectedContext = (modulesToInject, shouldDeclare) ->
   ctx = new Context
-  for moduleName, names of values modulesToInject when compiled = lookupCompiledModule moduleName
-    injectContext ctx, shouldDeclare, compiled.declared, moduleName, names
+  for moduleName, {naming, importAll} of values modulesToInject when compiled = lookupCompiledModule moduleName
+    injectContext ctx, shouldDeclare, compiled.declared, moduleName, naming or newMap(), importAll
   ctx
 
-injectContext = (ctx, shouldDeclare, compiledModule, moduleName, names) ->
+injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importAll) ->
   {definitions, typeNames, classes, macros} = compiledModule
   topScope = ctx._scope()
-  shouldImport = (name) -> not names.size or inSet names, name
-  for name, macro of values macros when shouldImport name
-    if ctx.isMacroDeclared name
-      throw new Error "Macro #{name} already defined"
+  nameAfterImport = (name) -> importAll and name or lookupInMap naming, name
+  for name, macro of values macros when newName = nameAfterImport name
+    if ctx.isMacroDeclared newName
+      throw new Error "Macro #{newName} already defined"
     else
-      addToMap topScope.macros, name, macro
-  for name, {type, arity, docs, source, isClass, virtual, final, exported} of values definitions when shouldImport name
-    addToMap topScope, name, {
+      addToMap topScope.macros, newName, macro
+  for name, definition of values definitions when newName = nameAfterImport name
+    {type, arity, docs, source, isClass, virtual, final, exported} = definition
+    addToMap topScope, newName, {
       arity, docs, source, isClass, virtual, final,
       type: (type if shouldDeclare)
       tempType: type
