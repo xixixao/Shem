@@ -3646,7 +3646,7 @@ irImportTranslate = (ctx, {moduleName, names, moduleNameAtom}) ->
   moduleHandle =
     switch baseType
       when 'commonJs'
-        jsCall 'require', (toJsString (pathNames[0...numModules].join '/'))
+        jsCall 'require', [(toJsString (pathNames[0...numModules].join '/'))]
       when 'browser'
         acc = 'Shem'
         for i in [0...numModules]
