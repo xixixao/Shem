@@ -3646,14 +3646,16 @@ irImportTranslate = (ctx, {moduleName, names, moduleNameAtom}) ->
   moduleHandle =
     switch baseType
       when 'commonJs'
-        jsCall 'require', [(toJsString (pathNames[0...numModules].join '/'))]
+        if numModules is 1 and pathNames[0] is '.'
+          []
+        else
+          [jsCall 'require', [(toJsString (pathNames[0...numModules].join '/'))]]
       when 'browser'
-        acc = 'Shem'
-        for i in [0...numModules]
-          acc = (jsAccess acc, validIdentifier pathNames[i])
-        acc
+        [fold jsAccess, 'Shem', pathNames[0...numModules]]
+  parts = join moduleHandle, map validIdentifier, pathNames[numModules...]
+  submoduleLookup = reduce jsAccess, parts
   temp = ctx.newJsVariable()
-  jsStatementList (join [jsVarDeclaration temp, moduleHandle],
+  jsStatementList (join [jsVarDeclaration temp, submoduleLookup],
       for name in names
         validName = (validIdentifier name)
         jsVarDeclaration validName, (jsAccess temp, validName))
@@ -6461,6 +6463,12 @@ id = (x) -> x
 
 map = (fn, list) ->
   if list then list.map fn
+
+fold = (fn, acc, list) ->
+  list.reduce fn, acc
+
+reduce = (fn, list) ->
+  list.reduce fn
 
 allMap = (fn, list) ->
   all (map fn, list)
