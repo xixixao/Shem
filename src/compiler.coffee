@@ -209,7 +209,7 @@ class Context
     @isMalformed = no
     @modulePath = null
     @submodules = newMap()
-    @importedModules = newSet()
+    @importedModules = newMap()
     @_requested = newMap()
 
   req: (moduleName, importSetup) ->
@@ -1499,10 +1499,8 @@ topLevelExpression = (ctx, expression) ->
 topLevel = (ctx, form) ->
   definitionList ctx, spaceSeparatedPairs form
 
-topLevelModule = (typedModulePath, defaultImports) -> (ctx, form) ->
-  # [(jsAssignStatement (jsAccess "Shem", (validIdentifier moduleName)),
-  #   (exportAll ctx, (join (importAny defaultImports), (topLevel ctx, form))))]
-  definitions = (join (importAny defaultImports), (topLevel ctx, form))
+topLevelModule = (ctx, form) ->
+  definitions = (join (importImplicit ctx), (topLevel ctx, form))
   shouldBeExported = (name, declaration) ->
     not declaration.virtual and declaration.final and declaration.exported
   isExported = (name, exported) ->
@@ -1512,6 +1510,7 @@ topLevelModule = (typedModulePath, defaultImports) -> (ctx, form) ->
     (filterMap isExported, ctx.submodules) # TODO: separate exporting namespaces according to the separation of namespaces
   exportList = map validIdentifier, (setToArray exported)
   exportDictionary = (jsDictionary exportList, exportList)
+  {typedModulePath} = ctx
   [..., type] = typedModulePath.types
   switch type
     when 'commonJs'
@@ -1532,15 +1531,15 @@ topLevelModule = (typedModulePath, defaultImports) -> (ctx, form) ->
     else
       throw new Error "Unspecified ctx.moduleCompilationType"
 
-importAny = (defaultImports) ->
-  concat (for name, names of values defaultImports
-    irImport name, names)
-
-topLevelExpressionInModule = (defaultImports) -> (ctx, expression) ->
+topLevelExpressionInModule = (ctx, expression) ->
   (iife (concat [
     toJsString 'use strict;'
-    (importAny defaultImports)
+    (importImplicit ctx)
     [(jsReturn (topLevelExpression ctx, expression))]]))
+
+importImplicit = (ctx) ->
+  concat (for name, {implicits} of values ctx.importedModules when not isMapEmpty implicits
+    irImport name, implicits)
 
 definitionList = (ctx, pairs) ->
   # log "yay"
@@ -2490,12 +2489,6 @@ resolveModulePathFrom = (currentPath, declaredPath) ->
     when '..' then join currentPath[...-1], declaredPath[1...]
     else declaredPath
 
-declareImportedByDefault = (ctx, modules) ->
-  for moduleName, names of values modules
-    if ctx.isModuleLoaded moduleName
-      for name in names
-        declareImported ctx, name
-
 declareImported = (ctx, name) ->
   ctx.assignType name, (ctx.tempType name)
   ctx.declareAsFinal name, ctx.currentScopeIndex()
@@ -2760,6 +2753,9 @@ constantToSource = (value) ->
             concat [(tokenize "{")[0], (map constantToSource, value.toJS()), (tokenize "}")[0]]
           else
             value
+
+ms['macro+'] = ms_macro_export = (ctx, call) ->
+  (call_ (token_ 'export'), [(call_ (token_ 'macro'), (_arguments call))])
 
 ms.macro = ms_macro = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare a new instance'
@@ -5941,10 +5937,7 @@ compileModuleTopLevelAst = (ast, typedModulePath = defaultTypedModulePath, requi
   toInject = requiresFor moduleName
   ctx = injectedContext toInject
   ctx.typedModulePath = typedModulePath
-  defaultImports = importsFor newSet()#(subtractSets (newSetWith 'Prelude'), (newSetWith moduleName))
-  declareImportedByDefault ctx, defaultImports
-  compilationFn = (topLevelModule typedModulePath, defaultImports)
-  {request, ir, js} = compileCtxAstToJs compilationFn, ctx, ast
+  {request, ir, js} = compileCtxAstToJs topLevelModule, ctx, ast
   if request
     if not allInjected request, requiredMap
       return compileModuleTopLevelAst ast, typedModulePath, request
@@ -5977,8 +5970,7 @@ parseTopLevel = (source, typedModulePath = defaultTypedModulePath) ->
 parseExpression = (source, typedModulePath = defaultTypedModulePath) ->
   ast = (astFromSource "(#{source})", -1, -1)
   [expression] = _terms ast
-  compilationFn = (topLevelExpressionInModule importsFor moduleDependencies (modulePathToName typedModulePath.names))
-  parseWith ast, expression, compilationFn, typedModulePath, no
+  parseWith ast, expression, topLevelExpressionInModule, typedModulePath, no
 
 parseWith = (originalAst, ast, compilationFn, typedModulePath, doDeclare) ->
   if _empty _validTerms originalAst
@@ -6012,11 +6004,6 @@ expandCall = (moduleName, call) ->
     console.error "Error in expandCall"
     console.error e
     null
-
-importsFor = (moduleSet) ->
-  lookupDefinitions = (name) ->
-    setToArray (lookupCompiledModule name).declared.definitions
-  mapKeys lookupDefinitions, moduleSet
 
 contextWithDependencies = (modules) ->
   ctx: (injectedContext modules, yes)
@@ -6092,13 +6079,22 @@ injectedContext = (modulesToInject, shouldDeclare) ->
 injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importAll) ->
   {definitions, typeNames, classes, macros} = compiledModule
   topScope = ctx._scope()
-  nameAfterImport = (name) -> importAll and name or lookupInMap naming, name
-  for name, macro of values macros when newName = nameAfterImport name
+  shouldImport = (name) ->
+    if explicitImportName = lookupInMap naming, name
+      newName: explicitImportName
+      implicit: no
+    else if importAll
+      newName: name
+      implicit: yes
+  for name, macro of values macros when imported = shouldImport name
+    {newName} = imported
     if ctx.isMacroDeclared newName
       throw new Error "Macro #{newName} already defined"
     else
       addToMap topScope.macros, newName, macro
-  for name, definition of values definitions when newName = nameAfterImport name
+  implicitImports = newMap()
+  for name, definition of values definitions when imported = shouldImport name
+    {newName, implicit} = imported
     {type, arity, docs, source, isClass, virtual, final, exported} = definition
     addToMap topScope, newName, {
       arity, docs, source, isClass, virtual, final,
@@ -6106,11 +6102,14 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importA
       tempType: type
       importable: exported
       id: ctx.freshId()}
+    if implicit
+      addToMap implicitImports, name, newName
+      declareImported ctx, newName if not shouldDeclare
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
   ctx.scopeIndex += compiledModule.savedScopes.length
   ctx.nameIndex += compiledModule.nameIndex
-  addToSet ctx.importedModules, moduleName
+  addToMap ctx.importedModules, moduleName, implicits: implicitImports
   ctx
 
 # Topologically sorted required modules
@@ -6306,11 +6305,13 @@ findDocsFor = (moduleName, reference) ->
 findDeclarationFor = (moduleName, reference) ->
   {declared: {savedScopes}} = lookupCompiledModule moduleName
   {name, scope} = reference
+  # Lookup in subscopes
   while scope > 0 and not found
     savedScope = savedScopes[scope]
     break if not savedScope
     found = lookupInMap savedScope.definitions, name
     scope = savedScope.parent
+  # If not found, look in the top scope
   if not found
     {ctx} = contextWithDependencies reverseModuleDependencies moduleName
     found = lookupInMap ctx._scope(), name # Top scope
