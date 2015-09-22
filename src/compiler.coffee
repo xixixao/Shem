@@ -598,7 +598,9 @@ class Context
     @_declare name, declaration
 
   declareAsFinal: (name, scopeIndex) ->
-    (@savedDeclaration name, scopeIndex).final = yes
+    declaration = @savedDeclaration name, scopeIndex
+    declaration.final = yes
+    declaration.exported or= @_exporting
 
   _declare: (name, declaration) ->
     declaration.id ?= @freshId()
@@ -1556,12 +1558,13 @@ definitionListCompile = (ctx, pairs) ->
       # TODO: take into account fakes (using better pairs function) and new lines
       rhs = fake_()
     compiled = definitionPairCompile ctx, lhs, rhs
-    if ctx.isRequesting()
-      break
+    # TODO: this is not possible anymore due to submodules possibly coming after req
+    # if ctx.isRequesting()
+    #   break
     compiled)
 
   if ctx.isRequesting()
-    []
+    return []
 
   shouldRecompile = yes
   while shouldRecompile
@@ -2441,6 +2444,9 @@ conditional = (condCasePairs, elseCase) ->
     if cond is 'true'
       return branch
   (jsConditional condCasePairs, elseCase)
+
+ms['req+'] = ms_req_export = (ctx, call) ->
+  (call_ (token_ 'export'), [(call_ (token_ 'req'), (_arguments call))])
 
 ms.req = ms_req = (ctx, call) ->
   reqTuple = ctx.definitionPattern()
