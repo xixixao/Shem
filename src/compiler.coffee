@@ -1512,29 +1512,33 @@ topLevelModule = (ctx, form) ->
   exportDictionary = (jsDictionary exportList, exportList)
   {typedModulePath} = ctx
   [..., type] = typedModulePath.types
-  switch type
-    when 'commonJs'
-      (concat [
-        toJsString 'use strict'
-        definitions
-        [(jsAssignStatement 'module.exports', exportDictionary)]])
-    when 'browser'
-      [(jsAssignStatement (jsAccess "Shem", (validIdentifier (modulePathToName typedModulePath.names))),
-        (iife (concat [
-          toJsString 'use strict'
-          definitions
-          [(jsReturn exportDictionary)]])))]
-    when 'submodule'
-      [..., name] = typedModulePath.names
-      [(jsVarDeclaration (validIdentifier name),
-        (iife (join definitions, [(jsReturn exportDictionary)])))]
-    else
-      throw new Error "Unspecified ctx.moduleCompilationType"
+  definitions: definitions
+  moduleWrapper:
+    (compiledDefinitions) ->
+      defs = jsStatementList [compiledDefinitions]
+      strict = jsStatementList [toJsString 'use strict']
+      switch type
+        when 'commonJs'
+          [strict
+            defs
+            (jsAssignStatement 'module.exports', exportDictionary)]
+        when 'browser'
+          [(jsAssignStatement (jsAccess "Shem", (modulePathToName typedModulePath.names)),
+            (iife [
+              strict
+              defs
+              (jsReturn exportDictionary)]))]
+        when 'submodule'
+          [..., name] = typedModulePath.names
+          [(jsVarDeclaration (validIdentifier name),
+            (iife [defs, (jsReturn exportDictionary)]))]
+        else
+          throw new Error "Unspecified ctx.moduleCompilationType"
 
-topLevelExpressionInModule = (ctx, expression) ->
+topLevelExpressionInModule = (compiledDefinitions) -> (ctx, expression) ->
   (iife (concat [
     toJsString 'use strict;'
-    (importImplicit ctx)
+    compiledDefinitions
     [(jsReturn (topLevelExpression ctx, expression))]]))
 
 importImplicit = (ctx) ->
@@ -3352,7 +3356,7 @@ ps = (string) ->
 translateIr = (ctx, irAst) ->
   walkIr irAst, (ast) ->
     if ast.ir
-      ast.ir ctx, ast
+        ast.ir ctx, ast
     else
       walked = {}
       for name, node of ast when name isnt 'js'
@@ -5937,17 +5941,20 @@ compileModuleTopLevelAst = (ast, typedModulePath = defaultTypedModulePath, requi
   toInject = requiresFor moduleName
   ctx = injectedContext toInject
   ctx.typedModulePath = typedModulePath
-  {request, ir, js} = compileCtxAstToJs topLevelModule, ctx, ast
+  {definitions, moduleWrapper} = topLevelModule ctx, ast
+  {request, ir, js: compiledDefinitions} = compileCtxAstIrToJs ctx, ast, definitions
   if request
     if not allInjected request, requiredMap
       return compileModuleTopLevelAst ast, typedModulePath, request
     else
-      {js} = compileCtxIrToJs ctx, ir
+      {js: compiledDefinitions} = compileCtxWithoutRequestIrToJs ctx, ir
+  {js} = compileCtxWithoutRequestIrToJs ctx, moduleWrapper compiledDefinitions
   errors = checkTypes ctx
   # (finalizeTypes ctx, ast) # TODO: this doesn't work when the AST includes multiple modules with different contexts than the current one
   replaceOrAddToMap compiledModules, moduleName,
     declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
     js: js
+    compiledDefinitions: compiledDefinitions
   js: js
   ast: ast
   # types: typeEnumaration ctx
@@ -5970,7 +5977,8 @@ parseTopLevel = (source, typedModulePath = defaultTypedModulePath) ->
 parseExpression = (source, typedModulePath = defaultTypedModulePath) ->
   ast = (astFromSource "(#{source})", -1, -1)
   [expression] = _terms ast
-  parseWith ast, expression, topLevelExpressionInModule, typedModulePath, no
+  compilationFn = topLevelExpressionInModule lookupCompiledDefinitions modulePathToName typedModulePath.names
+  parseWith ast, expression, compilationFn , typedModulePath, no
 
 parseWith = (originalAst, ast, compilationFn, typedModulePath, doDeclare) ->
   if _empty _validTerms originalAst
@@ -6041,6 +6049,17 @@ labelConflict = (conflict) ->
     labelConflict conflict.ref.val
   else
     conflict.error = yes
+
+lookupCompiledDefinitions = (moduleName) ->
+  compiled = (lookupCompiledModule moduleName)
+  if not compiled
+    console.error "#{moduleName} not found"
+  else
+    {compiledDefinitions} = compiled
+    # TODO:
+    # if not js?
+    #   {js} = compileModuleTopLevelAst ast, moduleName
+    compiledDefinitions
 
 lookupJs = (moduleName) ->
   compiled = (lookupCompiledModule moduleName)
@@ -6366,17 +6385,20 @@ compileAstToJs = (compileFn, ast) ->
 
 compileCtxAstToJsAlways = (compileFn, ctx, ast) ->
   ir = compileFn ctx, ast
-  {js} = compileCtxIrToJs ctx, ir
+  {js} = compileCtxWithoutRequestIrToJs ctx, ir
   {ctx, ast, ir, js}
 
 compileCtxAstToJs = (compileFn, ctx, ast) ->
   ir = compileFn ctx, ast
+  compileCtxAstIrToJs ctx, ast, ir
+
+compileCtxAstIrToJs = (ctx, ast, ir) ->
   if ctx.requested()
     return request: ctx.requested(), ast: ast, ir: ir
-  {js} = compileCtxIrToJs ctx, ir
+  {js} = compileCtxWithoutRequestIrToJs ctx, ir
   {ctx, ast, ir, js}
 
-compileCtxIrToJs = (ctx, ir) ->
+compileCtxWithoutRequestIrToJs = (ctx, ir) ->
   if ir
     jsIr = translateIr ctx, ir
     js = (if Array.isArray jsIr
