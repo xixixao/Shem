@@ -1544,7 +1544,7 @@ topLevelExpressionInModule = (compiledDefinitions) -> (ctx, expression) ->
     [(jsReturn (topLevelExpression ctx, expression))]]))
 
 importImplicit = (ctx) ->
-  concat (for name, {implicits} of values ctx.importedModules when not isMapEmpty implicits
+  concat (for name, {implicits} of values ctx.importedModules
     irImport name, implicits)
 
 definitionList = (ctx, pairs) ->
@@ -1734,7 +1734,6 @@ ms.module = ms_module = (ctx, call, isExported = no) ->
     jsNoop()
 
 ms.export = ms_export = (ctx, call) ->
-  requireName ctx, 'Name to export required'
   name = ctx.definitionName()
   ctx.exportDeclared()
   compiled = expressionCompile ctx, _fst _arguments call
@@ -3647,23 +3646,30 @@ irImport = (moduleName, naming, moduleNameAtom) ->
 
 irImportTranslate = (ctx, {moduleName, naming, moduleNameAtom}) ->
   # TODO: pass this info in through context instead of a direct call
-  importedTypedModulePath = moduleNameToTypedModulePath moduleName, ctx.typedModulePath
+  importedTypedModulePath = moduleNameToRelativeTypedModulePath moduleName, ctx.typedModulePath
+  moduleNameAtom or= fake_()
   if not importedTypedModulePath
     return malformed ctx, moduleNameAtom, "Module #{moduleName} could not be found."
   else if importedTypedModulePath.nonExportedLink
     return malformed ctx, moduleNameAtom, "Module #{importedTypedModulePath.nonExportedLink} must be exported."
+  if isMapEmpty naming # important to process empty reqs for error checking
+    return jsNoop()
   {names: pathNames, types} = importedTypedModulePath
   baseType = types[0]
-  numModules = (filter ((type) -> type is baseType), types).length
+  numModules =
+    if baseType is 'submodule'
+      1
+    else
+      (filter ((type) -> type is baseType), types).length
   moduleHandle =
-    switch baseType
-      when 'commonJs'
-        if numModules is 1 and pathNames[0] is '.'
-          []
-        else
+    if numModules is 1 and pathNames[0] is '.'
+      []
+    else
+      switch baseType
+        when 'commonJs'
           [jsCall 'require', [(toJsString (pathNames[0...numModules].join '/'))]]
-      when 'browser'
-        [fold jsAccess, 'Shem', pathNames[0...numModules]]
+        when 'browser'
+          [fold jsAccess, 'Shem', pathNames[0...numModules]]
   parts = join moduleHandle, map validIdentifier, pathNames[numModules...]
   submoduleLookup = reduce jsAccess, parts
   temp = ctx.newJsVariable()
@@ -5906,16 +5912,37 @@ compiledModules = newMap()
 moduleGraph = newMap()
 
 # TODO: pass this info in through context instead of a direct call
-moduleNameToTypedModulePath = (moduleName, currentTypedModulePath) ->
+# TODO: this probably doesn't work if start compiling in some nested module
+moduleNameToRelativeTypedModulePath = (moduleName, currentTypedModulePath) ->
   module = (lookupInMap moduleGraph, moduleName)
   if module
-    if violating = moduleAccessViolation (moduleNameToPath moduleName), currentTypedModulePath
+    if violating = moduleAccessViolation module.typedModulePath, currentTypedModulePath
       nonExportedLink: violating
-  module.typedModulePath
+    else
+      relativePathTo module.typedModulePath, currentTypedModulePath
 
-moduleAccessViolation = (toModulePath, fromTypedModulePath) ->
-  for i, moduleName in toModulePath
-    if fromTypedModulePath.names[i] isnt moduleName
+relativePathTo = (toTypedModulePath, fromTypedModulePath) ->
+  {names: toModulePath, types: toTypes} = toTypedModulePath
+  {names: fromModulePath, types: fromTypes} = fromTypedModulePath
+  for moduleName, i in toModulePath
+    if fromModulePath[i] isnt moduleName
+      return if i is 0
+          # An absolute path
+          toTypedModulePath
+        else if i < fromModulePath.length
+          # From parent
+          types: join fromTypes[i - 1...fromModulePath.length], toTypes[i...]
+          names: join ('..' for [i..fromModulePath.length]), toModulePath[i...]
+        else
+          # From current
+          types: toTypes[i - 1...]
+          names: join ['.'], toModulePath[i...]
+
+moduleAccessViolation = ({names: toModulePath}, {names: fromModulePath}) ->
+  for moduleName, i in toModulePath
+    if (from = fromModulePath[i]) and from isnt moduleName
+      if i is 0 # Top modules are always public
+        return false
       checkedModuleName = (modulePathToName toModulePath[0..i])
       module = (lookupInMap moduleGraph, checkedModuleName)
       if not module
@@ -6086,11 +6113,18 @@ allInjected = (required, injected) ->
       return no
   yes
 
+# TODO: so I did this because originally, I injected all definitions from an imported module
+# I don't do that anymore, the question is, should we save only exported definitions or not
+# If we only save exported definitions, then we cannot tell whether something is defined
+# privately inside of a module
+#
+# The bigger problem is to deal with types and classes, which are not imported currently explicitly
 subtractContexts = (ctx, what) ->
-  definitions = subtractMaps ctx._scope(), what._scope()
+  basicContext = new Context
+  definitions = subtractMaps ctx._scope(), basicContext._scope()
   typeNames = subtractMaps ctx._scope().typeNames, what._scope().typeNames
   classes = subtractMaps ctx._scope().classes, what._scope().classes
-  macros = subtractMaps ctx._scope().macros, what._scope().macros
+  macros = subtractMaps ctx._scope().macros, basicContext._scope().macros
   savedScopes = ctx.savedScopes
   nameIndex = ctx.nameIndex
   {definitions, typeNames, classes, macros, savedScopes, nameIndex}
@@ -6113,9 +6147,8 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importA
       implicit: yes
   for name, macro of values macros when imported = shouldImport name
     {newName} = imported
-    if ctx.isMacroDeclared newName
-      throw new Error "Macro #{newName} already defined"
-    else
+    # TODO: figure out how shadowing works
+    if not ctx.isMacroDeclared newName
       addToMap topScope.macros, newName, macro
   implicitImports = newMap()
   for name, definition of values definitions when imported = shouldImport name
