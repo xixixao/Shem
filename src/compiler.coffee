@@ -2449,43 +2449,51 @@ ms['req+'] = ms_req_export = (ctx, call) ->
 
 ms.req = ms_req = (ctx, call) ->
   reqTuple = ctx.definitionPattern()
-  reqs = _validTerms reqTuple
+  reqs = _terms reqTuple
   if (not isTuple reqTuple) or _empty reqs
     return malformed ctx, reqTuple, 'req requires a tuple of names to be required'
-  map (syntaxNewName ctx, 'definition name to be imported required'), reqs
-  realReqs = filter (__ _not, isSplat), reqs
-  hasSplat = realReqs.length < reqs.length
+  reqPairs = _labeled reqs
+  simpleReqs = (filter isExpression, (map _snd, reqPairs))
+  map (syntaxNewName ctx, 'definition name to be imported required'), simpleReqs
+  realPairs = filter (__ _not, (__ isSplat, _snd)), reqPairs
+  hasSplat = realPairs.length < reqPairs.length
   [moduleNameAtom] = _validArguments call
   if not moduleNameAtom or not isName moduleNameAtom
     return malformed ctx, call, 'req requires a module name to require from'
   moduleNameAtom.label = 'module'
   declaredModuleName = moduleNameAtom.symbol
-  requiredNames = (arrayToSet (filter _is, (map _symbol, realReqs)))
-  naming = arrayToMap (for name of values requiredNames
-    [name, name])
+  toNamingPair = ([label, nameAtom]) ->
+    name = (_symbol nameAtom)
+    if label
+      [(_labelName label), name]
+    else
+      [name, name]
+  reqNamingPairs = map toNamingPair, realPairs
+  naming = (arrayToMap (filter (__ _is, _snd), reqNamingPairs))
   moduleName = (resolveModuleName ctx, declaredModuleName)
   ctx.req moduleName,
     importAll: hasSplat
     naming: naming
   if ctx.isModuleLoaded moduleName
-    for arg in realReqs
-      if (isName arg)
-        name = arg.symbol
-        if ctx.isFinallyTyped name, ctx.currentScopeIndex()
-          malformed ctx, arg, "#{name} already declared"
-        else if not ctx.isCurrentlyDeclared name
+    for [reqLabel, reqAtom] in realPairs
+      if (isName reqAtom)
+        oldName = (_labelName reqLabel if reqLabel) or newName
+        oldNameAtom = reqLabel or reqAtom
+        newName = _symbol reqAtom
+        if ctx.isFinallyTyped newName, ctx.currentScopeIndex()
+          malformed ctx, reqAtom, "#{newName} already declared"
+          # TODO: for the following branches, we need to be able to declare multiple definitions of the same name for this logic to work:
+        else if not ctx.isCurrentlyDeclared newName
           # TODO: this will not trigger if we define in current/other module
-          malformed ctx, arg, "#{name} was not declared in #{moduleName}"
-        else if not ctx.importable name
-          malformed ctx, arg, "#{name} was not exported from #{moduleName}"
+          malformed ctx, oldNameAtom, "#{oldName} was not declared in #{moduleName}"
+        else if not ctx.importable newName
+          malformed ctx, oldNameAtom, "#{oldName} was not exported from #{moduleName}"
         else
-          arg.id = ctx.currentDeclarationId name
-          arg.imported =
+          reqAtom.id = ctx.currentDeclarationId newName
+          reqAtom.imported =
             module: moduleName
-            name: name # TODO: support renaming imports
-          declareImported ctx, name
-      else
-        malformed ctx, arg, 'Name required'
+            name: oldName
+          declareImported ctx, newName
   irImport moduleName, naming, moduleNameAtom
 
 resolveModuleName = (ctx, declaredModuleName) ->
