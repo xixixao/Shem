@@ -1,0 +1,24 @@
+Eq (class [a]
+  = (fn [x y] (: (Fn a a Bool))))
+
+Ord (class [a]
+  {(Eq a)}
+  <= (fn [x y] (: (Fn a a Bool))))
+
+eq-bool (instance (Eq Bool)
+  = (fn [x y]
+    (match [x y]
+      [True True] True
+      [False False] True
+      [w z] False)))
+
+ord-bool (instance (Ord Bool)
+  <= (fn [x y]
+    (match [x y]
+      [True any] True
+      [w z] (= w z))))
+
+always-holds (fn [x]
+  (== (<= x x) (= x x)))
+
+should-work (test (always-holds False) True)

@@ -1,0 +1,32 @@
+Stack (data [a]
+  Nil
+  Node [value: a tail: (Stack a)])
+
+Eq (class [a]
+  = (fn [x y] (: (Fn a a Bool))))
+
+num-eq (instance (Eq Num)
+  = (macro [x y]
+    (: (Fn Num Num Bool))
+    (Js.binary "===" x y)))
+
+Collection (class [collection item]
+  elem? (fn [what in]
+    (: (Fn item collection Bool))))
+
+Bag (class [bag item]
+  fold (fn [with initial over]
+    (: (Fn (Fn a item a) a bag a))))
+
+stack-collection (instance (Collection (Stack a) a)
+  {(Eq a)}
+  elem? (fn [what in]
+    (= what what)))
+
+stack-bag (instance (Bag (Stack a) a)
+  fold (fn [with initial over]
+    (match over
+      Nil initial
+      (Node x xs) (fold with (with initial x) xs))))
+
+should-invoke (test (elem? 2 (Node 2 Nil)) True)

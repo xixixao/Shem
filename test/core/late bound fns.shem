@@ -1,0 +1,4 @@
+f (fn [x] (g x))
+g (fn [x] 2)
+
+should-compute (test (f 4) 2)

@@ -1,0 +1,17 @@
+A (class [c e]
+  empty (: c)
+
+  first (fn [x] (: (Fn c e))))
+
+list-a (instance (A (Array a) a)
+  empty {}
+
+  first (macro [list]
+    (: (Fn (Array a) a))
+    (Js.call (Js.access list "first") {})))
+
+unshift (macro [what to]
+  (: (Fn a (Array a) (Array a)))
+  (Js.call (Js.access to "unshift") {what}))
+
+constant-works (test (first (unshift 3 empty)) 3)

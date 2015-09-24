@@ -1,0 +1,7 @@
+data (Map 3 "a" 5 "b")
+
+at (macro [key in]
+  (: (Fn k (Map k i) i))
+  (Js.call (Js.access in "get") {key}))
+
+should-contain (test (at 5 data) "b")

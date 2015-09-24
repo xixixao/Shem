@@ -1,0 +1,5 @@
+f (fn [x y]
+  (: (Fn Bool String Bool))
+  x)
+
+should-type (test (f True "a") True)

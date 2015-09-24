@@ -1,0 +1,22 @@
+fibonacci (fn [month] (adults month))
+
+adults (fn [month]
+  (match month
+    1 0
+    n (+ (adults previous-month) (babies previous-month)))
+  previous-month (- 1 month))
+
+babies (fn [month]
+  (match month
+    1 1
+    n (adults (- 1 month))))
+
++ (macro [x y]
+  (: (Fn Num Num Num))
+  (Js.binary "+" x y))
+
+- (macro [x y]
+  (: (Fn Num Num Num))
+  (Js.binary "-" y x))
+
+fibonacci (test (fibonacci 8) 13)

@@ -1,0 +1,13 @@
+Show (class [a]
+  show (fn [x] (: (Fn a String))))
+
+show-string (instance (Show String)
+  show (fn [x] x))
+
+show-snd (instance (Show [a b])
+  {(Show a) (Show b)}
+  show (fn [x]
+    (match x
+      [fst snd] (show snd))))
+
+works-on-tuples (test (show ["Adam" "Michal"]) "Michal")

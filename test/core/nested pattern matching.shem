@@ -1,0 +1,5 @@
+f (fn [x]
+  y
+  [[z y] g] x)
+
+should-match (test (f [[2 42] 3]) 42)

@@ -1,0 +1,5 @@
+c b
+b a
+a 3
+
+should-defer (test c 3)

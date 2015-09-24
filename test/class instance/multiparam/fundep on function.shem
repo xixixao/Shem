@@ -1,0 +1,17 @@
+Map (class [m k v]
+  put (fn [key value map]
+    (: (Fn k v m m))))
+
+map-map (instance (Map (Map k v) k v)
+  put (macro [key value map]
+    (: (Fn k v (Map k v) (Map k v)))
+    (Js.call (Js.access map "set") {key value})))
+
+count (macro [map]
+  (: (Fn (Map k v) Num))
+  (Js.access map "size"))
+
+magic (fn [key map]
+  (put key 42 map))
+
+should-invoke (test (count (magic \C (Map))) 1)

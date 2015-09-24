@@ -156,8 +156,9 @@ compileScript = (file, input, base = null) ->
     else if o.nodes
       printLine compiler.nodes(t.input, t.options).toString().trim()
     else if o.run
-      compiler.register()
-      compiler.eval opts.prelude, t.options if opts.prelude
+      # TODO:
+      # compiler.register()
+      # compiler.eval opts.prelude, t.options if opts.prelude
       compiler.run t.input, t.options
     else
       compiled = compiler.compileModule t.input, t.options

@@ -1,0 +1,14 @@
+Show (class [a]
+  show (fn [x] (: (Fn a String))))
+
+show-string (instance (Show String)
+  show (fn [x] x))
+
+show-bool (instance (Show Bool)
+  show (fn [x]
+    (match x
+      True "True"
+      False "False")))
+
+bools (test (show False) "False")
+strings (test (show "hello") "hello")

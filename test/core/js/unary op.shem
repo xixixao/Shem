@@ -1,0 +1,7 @@
+~ (macro [x]
+  (: (Fn Num Num))
+  (Js.unary "-" x))
+
+x -42
+
+should-negate (test (~ x) 42)

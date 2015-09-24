@@ -1053,6 +1053,8 @@ seqOrMapCompile = (ctx, form) ->
   else
     seqCompile) ctx, form
 
+# TODO: support empty splat
+# {a .. z} alphabet
 seqCompile = (ctx, form) ->
   elems = _validTerms form
   size = elems.length
@@ -2842,6 +2844,24 @@ ms['=='] = ms_eq = (ctx, call) ->
 
     callTyping ctx, call
     assignCompile ctx, call, (jsBinary "===", compiledA, compiledB)
+
+ms.test = ms_test = (ctx, call) ->
+  [tested, expected] = _validArguments call
+  description = ctx.definitionName()
+  compiledTested = termCompile ctx, tested
+  compiledExpected = termCompile ctx, expected
+  testedTemp = ctx.newJsVariable()
+  js: ({test, tested, temp}) ->
+    """
+    #{temp}
+    if (!#{test}) {
+      console.error(#{testedTemp});
+      throw new Error("#{description} failed");
+    }
+    """
+  test: (jsBinary "===", testedTemp, compiledExpected)
+  tested: compiledTested # TODO: investigate why this is required for correct constraint compilation
+  temp: (jsVarDeclaration testedTemp, compiledTested)
 
 ms.Set = ms_Set = (ctx, call) ->
   if ctx.assignTo()
@@ -6688,8 +6708,6 @@ tests = [
         [x y] y))"""
   "(snd [1 2])", 2
 
-  # TODO: add test for matching on tuples with multiple branches
-
   'match data'
   """Person (record name: String id: Num)
     name (fn [person]
@@ -7959,6 +7977,7 @@ exports.labelDocs = labelDocs
 exports.builtInLibraryNumLines = library.split('\n').length + immutable.split('\n').length
 
 exports.library = library
+exports.immutable = immutable
 
 exports.originOf = originOf
 exports.sortedArgs = sortedArgs

@@ -1,0 +1,5 @@
+snd (fn [pair]
+  (match pair
+    [x y] y))
+
+should-match (test (snd [1 2]) 2)

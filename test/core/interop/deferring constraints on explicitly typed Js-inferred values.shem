@@ -1,0 +1,18 @@
+Eq (class [a]
+  = (fn [x y] (: (Fn a a Bool))))
+
+num-eq (instance (Eq Num)
+  = (macro [x y]
+    (: (Fn Num Num Bool))
+    (Js.binary "===" x y)))
+
+Set (class [set item]
+  remove (fn [what from]
+    (: (Fn item set item))))
+
+array-set (instance (Set (Array a) a)
+  {(Eq a)}
+  remove (fn [what from]
+    (:: a (.indexOf from what))))
+
+should-type-check (test (remove 2 {1 2 3}) 1)

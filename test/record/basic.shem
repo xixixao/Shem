@@ -1,0 +1,7 @@
+Person (record name: String id: Num)
+
+name (fn [person]
+  (match person
+    (Person name id) name))
+
+should-work (test (name ((Person id: 3) "Mike")) "Mike")

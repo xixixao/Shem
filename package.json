@@ -4,7 +4,7 @@
   "description": "The compiler of the programming language Shem",
   "main": "bin/shem",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "coffee test/test.coffee",
     "build": "node_modules/.bin/coffee -o lib/shem/ src/",
     "watch": "node_modules/.bin/coffee -wo lib/shem/ src/"
   },
@@ -25,6 +25,8 @@
   },
   "homepage": "https://github.com/xixixao/Shem",
   "devDependencies": {
-    "coffee-script": "^1.10.0"
+    "coffee-script": "^1.10.0",
+    "fs-walk": "0.0.1",
+    "mocha": "^2.3.3"
   }
 }

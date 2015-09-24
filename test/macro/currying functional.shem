@@ -1,0 +1,7 @@
+* (macro [x y]
+  (: (Fn Num Num Num))
+  (Js.binary "*" x y))
+
+f (* 2)
+
+should-be-callable (test (f 3) 6)

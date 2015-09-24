@@ -1,0 +1,13 @@
+Collection (class [ce e]
+  first (fn [in]
+    (: (Fn ce e))))
+
+list-first (macro [in]
+  (: (Fn (Array item) item))
+  (Js.call (Js.access in "first") {}))
+
+list-collection (instance (Collection (Array a) a)
+  first (fn [in]
+    (list-first in)))
+
+should-invoke (test (first {42 43 44}) 42)

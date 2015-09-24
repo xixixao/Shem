@@ -1,0 +1,8 @@
+a (f 3)
+f (fn [x] (h g x))
+g (fn [x] b)
+h (fn [y z] (y z))
+b 4
+c (f 2)
+
+should-equal (test a 4)

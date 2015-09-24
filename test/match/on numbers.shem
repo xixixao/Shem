@@ -1,0 +1,6 @@
+positive (fn [n]
+  (match n
+    0 False
+    m True))
+
+should-work (test (positive 3) True)

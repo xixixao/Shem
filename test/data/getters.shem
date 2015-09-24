@@ -1,0 +1,6 @@
+Person (record
+  first: String last: String)
+
+jack (Person "Jack" "Jack")
+
+should-get (test (Person-first jack) (Person-last jack))

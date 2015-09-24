@@ -1,0 +1,4 @@
+[x y] z
+z [1 2]
+
+should-rearrange (test y 2)

@@ -1,0 +1,13 @@
+Person (data
+  Baby
+  Adult [name: String])
+
+a (Adult "Adam")
+
+b Baby
+
+name (fn [person]
+  (match person
+    (Adult name) name))
+
+should-contain (test (name a) "Adam")

@@ -1,0 +1,26 @@
+Bag (class [b i]
+  length (fn [bag]
+    (: (Fn b Num)))
+  id (fn [item]
+    (: (Fn i i))))
+
+Map (class [m k v]
+  {(Bag m v)}
+  put (fn [key value map]
+    (: (Fn k v m m))))
+
+map-bag (instance (Bag (Map k v) v)
+  length (macro [map]
+    (: (Fn (Map k v) Num))
+    (Js.access map "size"))
+  id (fn [x] x))
+
+map-map (instance (Map (Map k v) k v)
+  put (macro [key value map]
+    (: (Fn k v (Map k v) (Map k v)))
+    (Js.call (Js.access map "set") {key value})))
+
+magic (fn [key map]
+  (put key 42 map))
+
+should-still-work (test (length (magic \C (Map))) 1)

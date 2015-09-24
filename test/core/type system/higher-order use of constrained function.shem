@@ -1,0 +1,16 @@
+Show (class [a]
+  show (fn [x] (: (Fn a String))))
+
+show-string (instance (Show String)
+  show (fn [x] x))
+
+f (fn [pair]
+  [(show a) (show b)]
+  [a b] pair)
+
+apply (fn [m to]
+  (m to))
+
+[x y] (apply f ["A" "B"])
+
+should-equal (test x "A")

@@ -1,0 +1,9 @@
+Point (type [Num Num])
+
+x (fn [p]
+  (: (Fn Point Num))
+  first
+  [first second] p)
+
+should-typecheck (test (x [3 4]) 3)
+

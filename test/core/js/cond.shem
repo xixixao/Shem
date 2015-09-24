@@ -1,0 +1,6 @@
+if (macro [what then else]
+  (: (Fn Bool a a a))
+  (Js.ternary what then else))
+
+just-works (test (if False 1 2) 2)
+short-circuits (test (if False (.error "Wrong" global.console) 2) 2)

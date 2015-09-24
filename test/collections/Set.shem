@@ -1,0 +1,8 @@
+data (Set "Adam" "Vojta" "Michal")
+
+elem? (macro [what in]
+  (: (Fn i (Set i) Bool))
+  (Js.call (Js.access in "has") {what}))
+
+in (test (elem? "Michal" data) True)
+out (test (elem? "George" data) False)

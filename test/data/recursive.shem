@@ -1,0 +1,5 @@
+Tree (data [a]
+  Val [value: a]
+  Node [child: (Tree a)])
+
+should-work (test (Val-value (Node-child (Node (Val 42)))) 42)

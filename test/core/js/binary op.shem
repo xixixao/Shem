@@ -1,0 +1,5 @@
++ (macro [x y]
+  (: (Fn Num Num Num))
+  (Js.binary "+" x y))
+
+should-negate (test (+ 1 2) 3)

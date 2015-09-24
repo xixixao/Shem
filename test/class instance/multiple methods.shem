@@ -1,0 +1,13 @@
+Util (class [a]
+  show (fn [x] (: (Fn a String)))
+  read (fn [x] (: (Fn String a))))
+
+util-string (instance (Util String)
+   show (fn [x] x)
+   read (fn [x] x))
+
+noop (fn [string]
+  (: (Fn String String))
+  (read (show string)))
+
+should-work (test (noop "Hello") "Hello")

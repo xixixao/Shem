@@ -1,0 +1,16 @@
+Show (class [a]
+  show (fn [x] (: (Fn a String))))
+
+show-string (instance (Show String)
+  show (fn [x] x))
+
+head (fn [array]
+  x
+  {x ..xs} array)
+
+show-snd (instance (Show (Array a))
+  {(Show a)}
+  show (fn [array]
+    (show (head array))))
+
+tests-where-clause-typing (test (show {"Michal" "Adam"}) "Michal")

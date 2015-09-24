@@ -1,0 +1,9 @@
+Person (record name: String id: Num)
+
+special-id (fn [person]
+  (match person
+    (Person "Joe" id) 0
+    (Person name id) id))
+
+joe (test (special-id (Person "Joe" 42)) 0)
+not-joe (test (special-id (Person "Mike" 3)) 3)

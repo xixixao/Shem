@@ -1,0 +1,9 @@
+Maybe (data [a]
+  None
+  Just [value: a])
+
+from-just (fn [maybe]
+  (match maybe
+    (Just x) x))
+
+should-work (test (from-just (Just 42)) 42)

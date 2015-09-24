@@ -1,0 +1,6 @@
+Color (data Red Blue)
+r Red
+b Blue
+r2 Red
+
+should-equal (test r r2)

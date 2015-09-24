@@ -1,0 +1,28 @@
++ (macro [x y]
+  (: (Fn Num Num Num))
+  (Js.binary "+" x y))
+
+get (macro [key from]
+  (: (Fn k (Map k v) v))
+  (Js.method from "get" {key}))
+
+put (macro [key value into]
+  (: (Fn k v (Map k v) (Map k v)))
+  (Js.method into "set" {key value}))
+
+Mappable (class [wrapper]
+  map (fn [what onto]
+    (: (Fn (Fn a b) (wrapper a) (wrapper b)))
+    (# Apply what to every value inside onto .)))
+
+reduce-map (macro [with initial over]
+  (: (Fn (Fn a v k a) a (Map k v) a))
+  (Js.method over "reduce" {with initial}))
+
+map-mappable (instance (Mappable (Map k))
+  map (fn [what onto]
+    (reduce-map helper (Map) onto)
+    helper (fn [acc value key]
+      (put key (what value) acc))))
+
+should-allow (test (get "c" (map (+ 1) {a: 3 b: 2 c: 4})) 5)

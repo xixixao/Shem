@@ -1,0 +1,25 @@
+Collection (class [collection]
+  elem? (fn [what in]
+    (: (Fn item (collection item) Bool))))
+
+Bag (class [bag]
+  {(Collection bag)}
+
+  fold (fn [with initial over]
+    (: (Fn (Fn item b b) b (bag item))))
+
+  length (fn [bag]
+    (: (Fn (bag item) Num)))
+
+  empty? (fn [bag]
+    (: (Fn (bag item) Bool))))
+
+list-elem? (macro [what in]
+  (: (Fn item (Array item) Bool))
+  (Js.call (Js.access in "contains") {what}))
+
+collection-list (instance (Collection Array)
+  elem? (fn [what in]
+    (list-elem? what in)))
+
+collections (test (elem? 3 {1 2 3}) True)

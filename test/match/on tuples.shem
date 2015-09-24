@@ -1,0 +1,9 @@
+tuple-xor (fn [pair]
+  (match pair
+    [0 y] y
+    [x 0] x
+    [x y] 0))
+
+branch-1 (test (tuple-xor [0 2]) 2)
+branch-2 (test (tuple-xor [2 0]) 2)
+branch-3 (test (tuple-xor [3 4]) 0)

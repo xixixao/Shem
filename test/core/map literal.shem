@@ -1,0 +1,11 @@
+data {a: True b: False}
+
+key? (macro [what in]
+  (: (Fn k (Map k i) Bool))
+  (Js.call (Js.access in "has") {what}))
+
+at (macro [key in]
+  (: (Fn k (Map k i) i))
+  (Js.call (Js.access in "get") {key}))
+
+should-translate-to-map (test (key? "c" data) (at "b" data))

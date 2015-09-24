@@ -1,0 +1,32 @@
+Bag (class [bag item]
+  empty (: bag)
+
+  fold (fn [with initial over]
+    (: (Fn (Fn item a a) a bag a)))
+
+  append (fn [what to]
+    (: (Fn bag bag bag)))
+
+  first (fn [of]
+    (: (Fn bag item))))
+
+array-bag (instance (Bag (Array a) a)
+  empty {}
+
+  fold (macro [with initial list]
+    (: (Fn (Fn a b b) b (Array a) b))
+    (Js.method list "reduce"
+      {(fn [acc x] (with x acc)) initial}))
+
+  append (macro [what to]
+    (: (Fn (Array a) (Array a) (Array a)))
+    (Js.method to "concat" {what}))
+
+  first (macro [list]
+    (: (Fn (Array a) a))
+    (Js.method list "first" {})))
+
+concat (fn [bag-of-bags]
+  (fold append empty bag-of-bags))
+
+should-call (test (first (concat {{1} {2} {3}})) 1)

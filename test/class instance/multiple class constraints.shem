@@ -1,0 +1,16 @@
+Show (class [a]
+  show (fn [x] (: (Fn a String))))
+
+Hide (class [a]
+  hide (fn [x] (: (Fn a String))))
+
+show-string (instance (Show String)
+  show (fn [x] x))
+
+hide-string (instance (Hide String)
+  hide (fn [x] x))
+
+f (fn [x]
+  (== (show x) (hide x)))
+
+should-work (test (f "Hello") yes)

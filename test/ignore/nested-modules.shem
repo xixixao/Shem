@@ -5,3 +5,8 @@ Module-A (module
 
     f (fn [x]
       x)))
+
+[g] (req ./Module-A/Some-Module)
+
+f (fn+ [x]
+  (g x))

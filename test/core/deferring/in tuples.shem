@@ -1,0 +1,5 @@
+g [f {} 3]
+f 4
+[o t r] g
+
+should-rearrange (test o 4)

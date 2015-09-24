@@ -1,0 +1,12 @@
+& (macro [what to]
+  (: (Fn a (Array a) (Array a)))
+  (Js.call (Js.access to "unshift") {what}))
+
+map (fn [what to]
+  (match to
+    {} {}
+    {x ..xs} (& (what x) (map what xs))))
+
+{{x} ..xs} (map (& 42) {{}})
+
+should-map (test x 42)

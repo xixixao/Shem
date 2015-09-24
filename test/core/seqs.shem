@@ -1,0 +1,4 @@
+{x y z} list
+list {1 2 3}
+
+should-match (test z 3)

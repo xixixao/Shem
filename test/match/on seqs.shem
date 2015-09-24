@@ -1,0 +1,7 @@
+tail? (fn [list]
+  (match list
+    {} False
+    xx True))
+
+empty (test (tail? {}) False)
+elems (test (tail? {1 2 3}) True)

@@ -1,0 +1,21 @@
+a (e 3)
+
+map (fn [l] (l 2))
+
+e (fn [x]
+  (map f)
+  k (g 2))
+
+f (fn [x]
+  (h 2))
+
+g (fn [x]
+  2)
+
+h (fn [x]
+  (j 1))
+
+j (fn [x]
+  2)
+
+should-defer (test a 2)

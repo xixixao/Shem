@@ -1,0 +1,12 @@
+Show (class [a]
+  show (fn [x] (: (Fn a String))))
+
+num-to-string (macro [n]
+  (: (Fn Num String))
+  (Js.binary "+" n "\"\""))
+
+show-num (instance (Show Num)
+  show (fn [x]
+    (num-to-string x)))
+
+should-work (test (show 3) "3")
