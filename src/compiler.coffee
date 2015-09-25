@@ -2742,7 +2742,7 @@ ms['`'] = ms_quote = (ctx, call) ->
     _fst (serializeAst expression).elems
 
 ms[','] = ms_comma = (ctx, call) ->
-  expression = firstOrCall _arguments call
+  expression = firstOrCall call
   if matched = ctx.assignTo()
     expressionCompile ctx, expression
   else
