@@ -1,0 +1,11 @@
+f (fn [x]
+  g)
+
+g "2"
+
+r (fn [y]
+  (f y))
+
+k (r "4")
+
+should-be-deferred (test k "2")
