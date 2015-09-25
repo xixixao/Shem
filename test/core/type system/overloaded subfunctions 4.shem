@@ -62,8 +62,8 @@ my-split (fn [separators text]
     {first-word ..rest-words} words
     [seps-in-order words] done))
 
-separators (Set \\space \\, \\!)
+separators (Set \space \, \!)
 
 [seps words] (my-split separators "Hello, world!")
 
-should-equal(test seps ", !")
+should-equal (test seps ", !")
