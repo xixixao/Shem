@@ -8,9 +8,10 @@ exports.compileModule = compile = (source, options) ->
   if result.request
     console.error options
     console.error result
+  else if result.errors
+    throw new Error result.errors[0].message
   else
     result.js
-
 
 # Compile and execute a string of CoffeeScript (on the server), correctly
 # setting `__filename`, `__dirname`, and relative `require()`.
