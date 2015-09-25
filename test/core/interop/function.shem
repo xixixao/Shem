@@ -1,5 +1,5 @@
 upper-case (fn [x]
   (: (Fn String String))
-  (.toUpperCase x))
+  (:: String (.toUpperCase x)))
 
 should-call (test (upper-case "Hello") "HELLO")
