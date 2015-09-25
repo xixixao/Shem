@@ -1,0 +1,21 @@
+Show (class [a]
+  show (fn [x] (: (Fn a String))))
+
+show-string (instance (Show String)
+  show (fn [x] x))
+
+s (fn [y]
+  (show y))
+
+f (fn [x]
+  g)
+
+g "2"
+
+r (fn [y]
+  (f (s y)))
+
+j (fn [x]
+  (r "src"))
+
+should-compile (test (j 2) "2")

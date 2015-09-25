@@ -1,0 +1,7 @@
+f (fn [x]
+  ""
+  g (fn [y]
+    ((fn [x] x) h))
+  h ((fn [x] x) x))
+
+should-compile (test 3 3)

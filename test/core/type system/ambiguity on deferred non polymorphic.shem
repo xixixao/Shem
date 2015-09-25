@@ -1,0 +1,17 @@
+Show (class [a]
+  show (fn [x] (: (Fn a String))))
+
+show-string (instance (Show String)
+  show (fn [x] x))
+
+f (fn [x]
+  (g x))
+
+g (fn [y]
+  "")
+
+expand (fn [z w]
+  ""
+  d (f (show w)))
+
+should-compute (test (expand 3 "2") "")

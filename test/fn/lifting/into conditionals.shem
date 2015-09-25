@@ -1,0 +1,7 @@
+f (fn [x]
+  (cond
+    x False
+    True g)
+  g (f True))
+
+should-not-loop (test (f False) False)

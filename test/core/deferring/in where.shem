@@ -1,0 +1,11 @@
+f (fn [x] g)
+
+g 3
+
+h (fn [x]
+  2
+  gg (fn [x]
+    ff)
+  ff (f ""))
+
+should-compile (test (h 3) 2)

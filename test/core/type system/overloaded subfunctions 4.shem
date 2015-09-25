@@ -1,0 +1,69 @@
+id (fn [x] x)
+
+if (macro [what then else]
+  (: (Fn Bool a a a))
+  (Js.ternary what then else))
+
+Bag (class [bag item]
+  fold (fn [with initial over]
+    (: (Fn (Fn item a a) a bag a))
+    (# Fold over using with and initial folded value .)))
+
+Appendable (class [collection item]
+  & (fn [what to]
+    (: (Fn item collection collection))))
+
+fold-right (fn [with initial over]
+  ((fold wrap id over) initial)
+  wrap (fn [x r acc]
+    (r (with x acc))))
+
+array-bag (instance (Bag (Array a) a)
+  fold (macro [with initial list]
+    (: (Fn (Fn a b b) b (Array a) b))
+    (Js.method list "reduce"
+      {(fn [acc x] (with x acc)) initial})))
+
+array-appendable (instance (Appendable (Array a) a)
+  & (macro [what to]
+    (: (Fn a (Array a) (Array a)))
+    (Js.method to "unshift" {what})))
+
+chars (macro [string]
+  (: (Fn String (Array Char)))
+  (Js.call "Immutable.List"
+    {(Js.method string "split" {"''"})}))
+
+string-bag (instance (Bag String Char)
+  fold (fn [with initial string]
+    (fold with initial (chars string))))
+
+string-appendable (instance (Appendable String Char)
+  & (macro [what to]
+    (: (Fn Char String String))
+    (Js.binary "+" what to)))
+
+Set (class [set item]
+  elem? (fn [what in]
+    (: (Fn item set Bool))
+    (# Whether in contains what .)))
+
+set-set (instance (Set (Set a) a)
+  elem? (macro [what in]
+    (: (Fn (Set a) a Bool))
+    (Js.method in "contains" {what})))
+
+my-split (fn [separators text]
+  (fold-right distinguish ["" {""}] text)
+  distinguish (fn [letter done]
+    (if (elem? letter separators)
+      [(& letter seps-in-order) (& "" words)]
+      [seps-in-order (& (& letter first-word) rest-words)])
+    {first-word ..rest-words} words
+    [seps-in-order words] done))
+
+separators (Set \\space \\, \\!)
+
+[seps words] (my-split separators "Hello, world!")
+
+should-equal(test seps ", !")

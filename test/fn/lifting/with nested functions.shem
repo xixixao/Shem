@@ -1,0 +1,7 @@
+f (fn [x]
+  ((fn [y]
+      g) 2)
+  g 3)
+
+
+should-compute (test (f False) 3)

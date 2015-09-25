@@ -1,0 +1,5 @@
+f (fn [] 4)
+
+g (f)
+
+should-compute (test g 4)

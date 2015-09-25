@@ -1,0 +1,18 @@
+Show (class [a]
+  show (fn [x] (: (Fn a String))))
+
+show-string (instance (Show String)
+  show (fn [x] x))
+
+show-bool (instance (Show Bool)
+  show (fn [x] "Bool"))
+
+aliased-show (fn [something b]
+  (match b
+    True (aliased-show something False)
+    False (show something)))
+
+x (aliased-show "Bool" True)
+y (fn [x] (aliased-show x True))
+
+should-equal (test x (y True))

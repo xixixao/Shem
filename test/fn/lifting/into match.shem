@@ -1,0 +1,11 @@
+Maybe (data [a]
+  None
+  Just [value: a])
+
+f (fn [x]
+  (match x
+    None 0
+    (Just y) g)
+  g y)
+
+should-compute (test (f (Just 4)) 4)

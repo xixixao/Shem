@@ -1,0 +1,12 @@
+Maybe (data [a]
+  None
+  Just [value: a])
+
+deferred (fn []
+  (Just x)
+  x (test2))
+
+test2 (fn []
+  42)
+
+should-compute (test (Just-value (deferred)) 42)

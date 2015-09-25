@@ -1,0 +1,8 @@
+f (fn [x]
+  (match x
+    True False
+    False g)
+  g (f h)
+  h True)
+
+should-not-loop (test (f False) False)

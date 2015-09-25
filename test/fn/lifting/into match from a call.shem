@@ -1,0 +1,11 @@
+Maybe (data [a]
+  None
+  Just [value: a])
+
+f (fn [x]
+  (match x
+    None 0
+    (Just [y z]) g)
+  g (y z))
+
+should-compute (test (f (Just [(fn [w] w) 2])) 2)

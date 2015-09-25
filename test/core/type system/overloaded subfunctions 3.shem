@@ -1,0 +1,26 @@
+Deq (class [seq item]
+  && (fn [what to]
+    (: (Fn item seq seq))))
+
+array-deq (instance (Deq (Array a) a)
+  && (macro [what to]
+    (: (Fn a (Array a) (Array a)))
+    (Js.method to "push" {what})))
+
+Appendable (class [collection item]
+  & (fn [what to]
+    (: (Fn item collection collection))))
+
+Bag (class [bag item]
+  empty (: bag)
+
+  fold (fn [with initial over]
+    (: (Fn (Fn item a a) a bag a))))
+
+split (fn [bag]
+  (: (Fn ba (Array ba)) (Appendable ba a) (Bag ba a))
+  (fold wrap {} bag)
+  wrap (fn [x all]
+    (&& (& x empty) all)))
+
+todo-should-dispatch (test 6 6)

@@ -1,0 +1,12 @@
+id (fn [x] x)
+
+Bag (class [bag item]
+  fold (fn [with initial over]
+    (: (Fn (Fn item a a) a bag a))))
+
+fold-right (fn [with initial over]
+  ((fold helper id over) initial)
+  helper (fn [x r acc]
+    (r (with x acc))))
+
+todo-should-dispatch (test 6 6)

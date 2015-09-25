@@ -1,0 +1,15 @@
+Maybe (data [a]
+  None
+  Some [value: a])
+
+f (fn [x]
+  (match x
+    None (g 4)
+    (Some v) h)
+  h 45
+  hh h
+  g (fn [x]
+    h)
+  p (fn [x] (p x)))
+
+should-not-lift (test (f None) 45)

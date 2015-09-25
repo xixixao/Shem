@@ -6,3 +6,11 @@ elem? (macro [what in]
 
 in (test (elem? "Michal" data) True)
 out (test (elem? "George" data) False)
+
+first (macro [set]
+  (: (Fn (Set a) a))
+  (Js.method set "first" {}))
+x 2
+y (Set x 1 3)
+
+should-have-method-first (test (first y) 2)

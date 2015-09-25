@@ -1,0 +1,7 @@
+f (fn [x]
+  (match x
+    True False
+    False g)
+  g (f True))
+
+should-typecheck (test False False)

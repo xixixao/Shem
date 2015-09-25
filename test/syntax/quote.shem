@@ -1,0 +1,7 @@
+id (syntax [x]
+  x)
+
+some (syntax [y]
+  (` (id (, y))))
+
+should-expand (test (some 42) 42)

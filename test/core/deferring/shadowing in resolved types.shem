@@ -1,0 +1,13 @@
+f (fn [x]
+  (g x))
+
+g (fn [y]
+  "")
+
+d 4
+
+expand (fn [z w]
+  ""
+  d (f 3))
+
+should-not-confuse-d (test (expand 3 "2") "")

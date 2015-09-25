@@ -1,0 +1,20 @@
+Mappable (class [wrapper]
+  map (fn [what onto]
+    (: (Fn (Fn a b) (wrapper a) (wrapper b)))))
+
+array-mappable (instance (Mappable Array)
+  map (macro [what over]
+    (: (Fn (Fn a b) (Array a) (Array b)))
+    (Js.method over "map" {what})))
+
+g (fn [lines]
+  (map f lines))
+
+f (fn [x]
+  x)
+
+expand (fn [x]
+  gg
+  gg (g {""}))
+
+should-compile (test 3 3)

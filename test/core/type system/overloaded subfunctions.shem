@@ -1,0 +1,49 @@
+Mappable (class [wrapper]
+  map (fn [what onto]
+    (: (Fn (Fn a b) (wrapper a) (wrapper b)))))
+
+Bag (class [bag item]
+  size (fn [bag]
+    (: (Fn bag Num)))
+
+  empty (: bag)
+
+  fold (fn [with initial over]
+    (: (Fn (Fn item a a) a bag a)))
+
+  join (fn [what with]
+    (: (Fn bag bag bag))))
+
+array-mappable (instance (Mappable Array)
+  map (macro [what over]
+    (: (Fn (Fn a b) (Array a) (Array b)))
+    (Js.method over "map" {what})))
+
+array-bag (instance (Bag (Array a) a)
+  size (macro [list]
+    (: (Fn (List a) Num))
+    (Js.access list "size"))
+
+  empty {}
+
+  fold (macro [with initial list]
+    (: (Fn (Fn a b b) b (Array a) b))
+    (Js.method list "reduce"
+      {(fn [acc x] (with x acc)) initial}))
+
+  join (macro [what with]
+    (: (Fn (Array a) (Array a) (Array a)))
+    (Js.method what "concat" {with})))
+
+concat (fn [bag-of-bags]
+  (fold join empty bag-of-bags))
+
+concat-map (fn [what over]
+  (concat (map what over)))
+
+concat-suffix (fn [suffix what]
+    (fold join-suffix empty what)
+    join-suffix (fn [x joined]
+      (concat {joined suffix x})))
+
+concat-suffix-should-work  (test (size (concat-suffix {1} (concat-map (fn [x] {{1}}) {1 2 3}))) 6)
