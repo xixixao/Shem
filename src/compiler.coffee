@@ -1676,7 +1676,7 @@ compileDeferred = (ctx) ->
       prevSize = ctx.deferred().length
       [expression, dependencyName, useScope, lhs, rhs] = deferred = ctx.deferred().shift()
       if useScope isnt ctx.currentScopeIndex() and (ctx.isDeclared dependencyName) or
-          (ctx.isTyped dependencyName)
+          (ctx.isFinallyDeclaredCurrentlyTyped dependencyName)
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
         deferredCount = 0
       else
@@ -3211,8 +3211,8 @@ nameCompile = (ctx, atom, symbol) ->
       type = mapOrigin (freshInstance ctx, contextType), atom
       nameTranslate ctx, atom, symbol, type
     # In sub-scope (function) only defer compilation for declarations in current scope
-    else if ((not ctx.isCurrentlyDeclared symbol) and (ctx.isDeclared symbol)) or
-        contextType instanceof TempType
+    else if (b = ((not ctx.isCurrentlyDeclared symbol) and (ctx.isDeclared symbol)))# or
+        #contextType instanceof TempType
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
       ctx.addToDeferredNames
