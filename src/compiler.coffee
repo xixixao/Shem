@@ -233,8 +233,8 @@ class Context
   isSubmodule: (name) ->
     inSet @submodules, name
 
-  markMalformed: ->
-    @isMalformed = yes
+  markMalformed: (message) ->
+    @isMalformed or= message
 
   # Creates a deferrable definition to be associated with given pattern
   definePattern: (pattern) ->
@@ -3102,7 +3102,7 @@ cond_ = (x) ->
 
 malformed = (ctx, expression, message) ->
   # TODO support multiple malformations
-  ctx.markMalformed()
+  ctx.markMalformed message
   expression.malformed = message
   jsNoop()
 
@@ -3787,7 +3787,7 @@ spaceSeparatedPairs = (nodes) ->
       lhs = no
     else if not expression
       space = yes
-  if lhs
+  if lhs and not isFake lhs
     pairs.push [lhs, fake_()]
   pairs
 
@@ -6020,6 +6020,7 @@ compileModuleTopLevelAst = (ast, typedModulePath = defaultTypedModulePath, requi
   ast: ast
   # types: typeEnumaration ctx
   errors: errors
+  malformed: ctx.isMalformed
 
 compileModuleWithDependencies = (typedModulePath = defaultTypedModulePath) ->
   js: library + immutable + (listOfLines map lookupJs,

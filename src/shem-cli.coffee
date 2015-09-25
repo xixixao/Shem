@@ -8,6 +8,9 @@ exports.compileModule = compile = (source, options) ->
   if result.request
     console.error options
     console.error result
+  else if result.malformed
+    # TODO: add info
+    throw new Error "The input is not a complete valid Shem program: #{result.malformed}"
   else if result.errors
     throw new Error result.errors[0].message
   else
