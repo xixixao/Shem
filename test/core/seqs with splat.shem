@@ -5,6 +5,6 @@ list {1 2 3 4 5 6}
 
 at-end (test a 2)
 
-{i ..j k l}
+{i ..j k l} list
 
 in-middle (test k 5)

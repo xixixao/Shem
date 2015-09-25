@@ -41,4 +41,4 @@ concat (fn [bag-of-bags]
 concat-map (fn [what over]
   (concat (map what over)))
 
-should-work  (test (size (concat-map (fn [x] {1}) {1 2 3})) 3)
+should-work (test (size (concat-map (fn [x] {1}) {1 2 3})) 3)
