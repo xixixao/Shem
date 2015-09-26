@@ -3,6 +3,8 @@ path = require 'path'
 Mocha = require 'mocha'
 child_process = require 'child_process'
 
+shem = require '../lib/shem/shem-cli'
+
 Test = Mocha.Test
 Suite = Mocha.Suite
 mocha = new Mocha
@@ -50,14 +52,6 @@ walk './test',
       name = path.basename file, ext
       source = fs.readFileSync filepath, 'utf8'
       currentSuite().addTest new Test name, ->
-        {error, stderr, stdout} = res = child_process.spawnSync "./bin/shem",
-          [filepath], encoding: 'utf8'
-        if stdout and stdout.length > 0
-          console.log stdout
-        if stderr and stderr.length > 0
-          [_, info, message] = stderr.match /^([\s\S]*)Error: ([^\n]+)/
-          throw new Error message + '\nGot:\n' + info
-        if error
-          throw error
+        shem.run source, filename: filepath
 
 mocha.run ->
