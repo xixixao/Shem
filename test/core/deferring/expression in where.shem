@@ -1,0 +1,11 @@
+g (fn [x]
+  (f x))
+
+f (fn [x]
+  x)
+
+h (fn [x]
+  y
+  y (g x))
+
+should-type (test (h 5) 5)
