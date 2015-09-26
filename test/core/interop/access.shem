@@ -1,1 +1,1 @@
-should-access (test Math.PI 3.141592653589793)
+should-access (test (:: Num Math.PI) 3.141592653589793)

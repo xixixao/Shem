@@ -1,1 +1,1 @@
-should-call (test (.toUpperCase "x") "X")
+should-call (test (:: String (.toUpperCase "x")) "X")

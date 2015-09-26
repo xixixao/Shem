@@ -13,4 +13,4 @@ hide-string (instance (Hide String)
 f (fn [x]
   (== (show x) (hide x)))
 
-should-work (test (f "Hello") yes)
+should-work (test (f "Hello") True)
