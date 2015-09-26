@@ -1382,7 +1382,8 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
         # for dep in deps
         #   ctx.addToDeferredBindings {name: dep.name, type: dep.type, reversed: name}
         if not ctx.isTyped name
-          ctx.assignType name, (new TempType type)
+          originatingScope = Math.max (originScopeIndex for {originScopeIndex} in deps)...
+          ctx.assignType name, (new TempType type, originatingScope)
       else
         # Ready for typing since there are no missing dependencies
         deferredConstraints = inferType ctx, name, type, constraints, polymorphic
@@ -3211,15 +3212,16 @@ nameCompile = (ctx, atom, symbol) ->
       type = mapOrigin (freshInstance ctx, contextType), atom
       nameTranslate ctx, atom, symbol, type
     # In sub-scope (function) only defer compilation for declarations in current scope
-    else if (b = ((not ctx.isCurrentlyDeclared symbol) and (ctx.isDeclared symbol)))# or
-        #contextType instanceof TempType
+    else if (not ctx.isCurrentlyDeclared symbol) and (ctx.isDeclared symbol) or
+        contextType instanceof TempType and contextType.originatingScope < ctx.currentScopeIndex()
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
       ctx.addToDeferredNames
-        name: scopedName symbol, ctx.scopeIndexOfDeclaration symbol
+        name: scopedName symbol, originScopeIndex = ctx.scopeIndexOfDeclaration symbol
         id: symbol
         type: (mapOrigin type, atom)
         scopeIndex: ctx.currentScopeIndex()
+        originScopeIndex: originScopeIndex
       nameTranslate ctx, atom, symbol, type
     else
       # log "deferring in rhs for #{symbol}", ctx._deferrableDefinition().name
@@ -5483,7 +5485,7 @@ class ForAll
   constructor: (@kinds, @type) ->
     @ForAll = yes
 class TempType
-  constructor: (@type) ->
+  constructor: (@type, @originatingScope) ->
     @TempType = yes
 
 class Types
