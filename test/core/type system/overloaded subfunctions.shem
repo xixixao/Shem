@@ -42,8 +42,8 @@ concat-map (fn [what over]
   (concat (map what over)))
 
 concat-suffix (fn [suffix what]
-    (fold join-suffix empty what)
-    join-suffix (fn [x joined]
-      (concat {joined suffix x})))
+  (fold join-suffix empty what)
+  join-suffix (fn [x joined]
+    (concat {joined suffix x})))
 
-concat-suffix-should-work  (test (size (concat-suffix {1} (concat-map (fn [x] {{1}}) {1 2 3}))) 6)
+concat-suffix-should-work (test (size (concat-suffix {1} (concat-map (fn [x] {{1}}) {1 2 3}))) 6)
