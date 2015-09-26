@@ -19,4 +19,4 @@ babies (fn [month]
   (: (Fn Num Num Num))
   (Js.binary "-" y x))
 
-fibonacci (test (fibonacci 8) 13)
+fibonacci-computes (test (fibonacci 8) 13)

@@ -2851,18 +2851,28 @@ ms.test = ms_test = (ctx, call) ->
   description = ctx.definitionName()
   compiledTested = termCompile ctx, tested
   compiledExpected = termCompile ctx, expected
+
+  fakeComparison = (call_ (token_ "=="), [tested, expected])
+  operatorCompile ctx, fakeComparison
+  callTyping ctx, fakeComparison
+  call.tea = fakeComparison.tea
+
   testedTemp = ctx.newJsVariable()
-  js: ({test, tested, temp}) ->
-    """
-    #{temp}
-    if (!#{test}) {
-      console.error(#{testedTemp});
-      throw new Error("#{description} failed");
-    }
-    """
-  test: (jsBinary "===", testedTemp, compiledExpected)
-  tested: compiledTested # TODO: investigate why this is required for correct constraint compilation
-  temp: (jsVarDeclaration testedTemp, compiledTested)
+  assignCompile ctx, call,
+    js: ({expected, temp}) ->
+      """
+      ((#{temp} == #{expected}) ?
+        null
+      :
+        (function () {
+          console.error(#{testedTemp});
+          throw new Error("#{description} failed");
+        })()
+      )
+      """
+    expected: compiledExpected
+    # tested: compiledTested # TODO: investigate why this is required for correct constraint compilation
+    temp: (jsAssign testedTemp, compiledTested)
 
 ms.Set = ms_Set = (ctx, call) ->
   if ctx.assignTo()
