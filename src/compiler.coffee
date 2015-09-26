@@ -3261,10 +3261,10 @@ namespacedNameCompile = (ctx, atom, symbol) ->
   if ctx.assignTo()
     malformed ctx, atom, 'Matching on namespaced not supported'
   translation:
-    if /^global./.test symbol
-      "global.#{symbol['global.'.length...]}"
-    else
-      symbol
+    jsValue (if /^global./.test symbol
+        "global.#{symbol['global.'.length...]}"
+      else
+        symbol)
   type: toConstrained markOrigin jsType, atom
   pattern: precs: []
 
