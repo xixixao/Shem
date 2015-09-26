@@ -1,1 +1,9 @@
-to-do (test False True)
+A (data
+  A-Const
+  B [value: B])
+
+B (data
+  B-Const
+  A [value: A])
+
+to-do (test (B-value (A-value (A (B B-Const)))) B-Const)

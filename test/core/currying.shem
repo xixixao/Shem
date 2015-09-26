@@ -1,1 +1,11 @@
-todo (test False True)
+f (fn [a b]
+  a)
+
+simple (test ((f 3) False) 3)
+using-label (test ((f a: 3) False) 3)
+using-label-to-alter-order (test ((f b: 3) False) False)
+
+g (fn [a b c]
+  c)
+
+reorder (test ((g c: 4 b: 2) 5) 4)
