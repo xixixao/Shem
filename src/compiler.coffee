@@ -2859,20 +2859,19 @@ ms.test = ms_test = (ctx, call) ->
 
   testedTemp = ctx.newJsVariable()
   assignCompile ctx, call,
-    js: ({expected, temp}) ->
+    js: ({expected, tested}) ->
       """
-      ((#{temp} == #{expected}) ?
-        null
-      :
-        (function () {
+      (function () {
+        var #{testedTemp} = #{tested};
+        if (#{testedTemp} !== #{expected}) {
           console.error(#{testedTemp});
           throw new Error("#{description} failed");
-        })()
-      )
+        }
+      })()
       """
     expected: compiledExpected
     # tested: compiledTested # TODO: investigate why this is required for correct constraint compilation
-    temp: (jsAssign testedTemp, compiledTested)
+    tested: compiledTested
 
 ms.Set = ms_Set = (ctx, call) ->
   if ctx.assignTo()
