@@ -3913,7 +3913,7 @@ jsAccess = (lhs, name) ->
 jsAccessTranslate = ({lhs, name}) ->
   if /^\d/.test name
     "#{lhs}[#{name}]"
-  else if (validIdentifier name) isnt name
+  else if (validIdentifier name) isnt name or /\s/.test name
     "#{lhs}['#{name}']"
   else
     "#{lhs}.#{name}"
