@@ -1,0 +1,9 @@
+Show (class [a]
+  show (fn [x] (: (Fn a String))))
+
+showed-simply (show "Hello")
+
+show-string (instance (Show String)
+  show (fn [x] x))
+
+should-invoke (test (== showed-simply showed-via-alias) True)

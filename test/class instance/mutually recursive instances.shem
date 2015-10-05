@@ -1,0 +1,19 @@
+A (class [a]
+  aoo (fn [x] (: (Fn a Bool))))
+
+a-bool (instance (A Bool)
+  aoo (fn [x]
+    (boo False)))
+
+
+B (class [a]
+  boo (fn [x] (: (Fn a Bool))))
+
+b-bool (instance (B Bool)
+  boo (fn [x]
+    (match x
+      True (aoo x)
+      False False)))
+
+bools (test (boo True) False)
+
