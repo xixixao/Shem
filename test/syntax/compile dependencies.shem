@@ -4,6 +4,6 @@ f (fn [x]
   x)
 
 m (syntax [y]
-  x)
+  -x)
 
 should-equal (test (m 7) 3)

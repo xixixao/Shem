@@ -3,8 +3,8 @@ Util (class [a]
   read (fn [x] (: (Fn String a))))
 
 util-string (instance (Util String)
-   show (fn [x] x)
-   read (fn [x] x))
+  show (fn [x] x)
+  read (fn [x] x))
 
 noop (fn [string]
   (: (Fn String String))
