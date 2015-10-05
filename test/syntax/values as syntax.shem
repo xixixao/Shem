@@ -1,0 +1,15 @@
+num (syntax [x]
+  3)
+
+num-converts (test (num False) 3)
+
+string (syntax [x]
+  "hello")
+
+string-converts (test (string False) "hello")
+
+bool (syntax [x]
+  True)
+
+bool-converts (test (bool False) True)
+

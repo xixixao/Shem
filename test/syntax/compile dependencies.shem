@@ -1,0 +1,9 @@
+x (f 3)
+
+f (fn [x]
+  x)
+
+m (syntax [y]
+  x)
+
+should-equal (test (m 7) 3)
