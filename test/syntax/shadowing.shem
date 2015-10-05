@@ -1,0 +1,6 @@
+m (syntax [y]
+  (` (fn [x] (,y x))))
+
+x 5
+
+should-equal (test ((m (fn [z] x)) 3) 5)
