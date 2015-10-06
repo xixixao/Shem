@@ -1,5 +1,6 @@
 fs = require 'fs'
 path = require 'path'
+util = require 'util'
 Mocha = require 'mocha'
 child_process = require 'child_process'
 
@@ -52,6 +53,13 @@ walk './test',
       name = path.basename file, ext
       source = fs.readFileSync filepath, 'utf8'
       currentSuite().addTest new Test name, ->
-        shem.run source, filename: filepath
+        values = ''
+        console.error = (output) ->
+          values += '\n' + (util.inspect output, colors: yes)
+        try
+          shem.run source, filename: filepath
+        catch e
+          e.message = e.message + (if values then '\nGot:' else '') + values
+          throw e
 
 mocha.run ->
