@@ -1,0 +1,17 @@
+Show (class [a]
+  show (fn [x] (: (Fn a String))))
+
+f (fn [x]
+  x)
+
+y (f "7")
+
+num-show (instance (Show Num)
+  show (fn [x] y))
+
+x (show 3)
+
+m (syntax [y]
+  x)
+
+should-equal (test (m 7) "7")
