@@ -3283,7 +3283,7 @@ constPattern = (ctx, symbol) ->
 
 nameTranslate = (ctx, atom, symbol, type) ->
   id = ctx.declarationId symbol
-  ctx.addToUsedNames symbol unless ctx.isMacroDeclared symbol
+  use = no
   translation =
     if isConst atom
       atom.label = 'const'
@@ -3291,9 +3291,12 @@ nameTranslate = (ctx, atom, symbol, type) ->
         when 'True' then 'true'
         when 'False' then 'false'
         else
+          use = yes
           (jsAccess (validIdentifier symbol), "_value")
     else
+      use = yes
       (irReference symbol, type, ctx.currentScopeIndex())
+  ctx.addToUsedNames symbol if use and not (ctx.isMacroDeclared symbol)
   {id, type, translation}
 
 namespacedNameCompile = (ctx, atom, symbol) ->
