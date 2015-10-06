@@ -6,10 +6,7 @@ num-show (instance (Show Num)
 
 x (show 3)
 
-f (fn [x]
+m (syntax [y]
   x)
 
-m (syntax [y]
-  x2)
-
-should-equal (test (m 7) 3)
+should-equal (test (m 7) "num")
