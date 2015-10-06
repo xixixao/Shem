@@ -670,15 +670,12 @@ class Context
   setUsedNames: (usedNames) ->
     @_scope().usedNames = usedNames
 
-  setAuxiliaryDefinitions: (compiledDefinitions) ->
-    auxiliaries = newMap()
-    for def in compiledDefinitions when def.definedNames
-      for defined in def.definedNames
-        addToMap auxiliaries, defined,
-          deps: unique def.usedNames
-          defines: def.definedNames
-          definition: def
-    @_scope().auxiliaries = auxiliaries
+  registerAuxiliaryDefinition: (usedNames, definedNames, def) ->
+    for defined in definedNames
+      addToMap @_scope().auxiliaries, defined,
+        deps: unique usedNames
+        defines: definedNames
+        definition: def
 
   auxiliaries: ->
     @_scope().auxiliaries
@@ -1306,8 +1303,9 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
     if assigns.length is 0
       return malformed ctx, to, 'Not an assignable pattern'
     translation = map compileVariableAssignment, (join translationCache, assigns)
-    translation.usedNames = ctx.usedNames()
-    translation.definedNames = (name for {name} in ctx.definedNames())
+    # directly add to dep graph
+    definedNames = (name for {name} in ctx.definedNames())
+    ctx.registerAuxiliaryDefinition ctx.usedNames(), definedNames, translation
     ctx.setUsedNames []
     translation
   else
@@ -1798,14 +1796,11 @@ ms.fn = ms_fn = (ctx, call) ->
       #log "compiling wheres", pairs wheres
       compiledWheres = definitionListCompile ctx, pairs wheres
 
-      # 1. Construct dependency graph
-      # 2. Add to context
-      ctx.setAuxiliaryDefinitions compiledWheres
-      # compiledWheres = concat filter _is, compiledWheres
-
       if body
         compiledBody = termCompile ctx, body
 
+      # Data for a dependency graph is automatically registered when compiling
+      # assignments (we use this to get a graph for the current where clause)
       nonLiftedWheres = concat findDefinitionsIncludingDeps ctx, ctx.usedNames()
       ctx.setUsedNames []
 
