@@ -2677,7 +2677,8 @@ ms.syntax = ms_syntax = (ctx, call) ->
     usedNames = ctx.usedNames()
     requiredNames = (findDeps ctx) usedNames
     # Or do this directly from name compile?
-    if not isSetEmpty notCompiled = subtractSets requiredNames, ctx.auxiliaries()
+    notCompiled = subtractSets (concatSets (arrayToSet usedNames), requiredNames), ctx.auxiliaries()
+    if not isSetEmpty notCompiled
       ctx.doDefer call, _fst setToArray notCompiled
       deferCurrentDefinition ctx, call
       return deferredExpression()
