@@ -653,6 +653,7 @@ class Context
   addToDefinedNames: (binding) ->
     @_currentDefinition()?.definedNames?.push binding
 
+  # TODO: use a set instead of an array?
   addToUsedNames: (name) ->
     # log "adding", name, ((print @_currentDeferrableDefinition()?.pattern) or
     #   (@_scopeOfDeclared @scopes.length - 1, name)?.index)
@@ -1675,7 +1676,8 @@ compileDeferred = (ctx) ->
       prevSize = ctx.deferred().length
       [expression, dependencyName, useScope, lhs, rhs] = deferred = ctx.deferred().shift()
       if useScope isnt ctx.currentScopeIndex() and (ctx.isDeclared dependencyName) or
-          (ctx.isFinallyDeclaredCurrentlyTyped dependencyName)
+          (ctx.isFinallyDeclaredCurrentlyTyped dependencyName) or
+          (ctx.isMacroDeclared dependencyName)
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
         deferredCount = 0
       else
@@ -2650,7 +2652,16 @@ ms.syntax = ms_syntax = (ctx, call) ->
 
     macroSource = call_ (token_ 'fn'), (join [paramTuple], rest)
     macroCompiled = (termCompile ctx, macroSource)
-    compiledMacro = translateToJs translateIr ctx, macroCompiled
+
+    usedNames = ctx.usedNames()
+    # Or do this directly from name compile?
+    if not isSetEmpty notCompiled = subtractSets (arrayToSet usedNames), ctx.auxiliaries()
+      ctx.doDefer call, _fst setToArray notCompiled
+      deferCurrentDefinition ctx, call
+      return deferredExpression()
+
+    dependencies = concat findDefinitionsIncludingDeps ctx, usedNames
+    compiledMacro = listOfLines translateToJs translateIr ctx, join dependencies, [macroCompiled]
     retrieve call, macroSource
     macroFn = eval compiledMacro
     if macroFn

@@ -1,9 +1,10 @@
-x (f 3)
+expression (id 3)
 
-f (fn [x]
-  x)
+id (fn [z]
+  z)
 
-m (syntax [y]
-  -x)
+macro-depending-on-expression (syntax [y]
+  expression)
 
-should-equal (test (m 7) 3)
+should-equal (test (macro-depending-on-expression 7) 3)
+
