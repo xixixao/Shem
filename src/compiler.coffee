@@ -1542,7 +1542,7 @@ topLevelModule = (ctx, form) ->
 
 topLevelExpressionInModule = (compiledDefinitions) -> (ctx, expression) ->
   (iife (concat [
-    toJsString 'use strict;'
+    toJsString 'use strict'
     compiledDefinitions
     [(jsReturn (topLevelExpression ctx, expression))]]))
 
