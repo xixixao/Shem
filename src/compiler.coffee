@@ -380,6 +380,8 @@ class Context
     scope.typeNames = newMap()
     scope.typeAliases = newMap()
     scope.deferredConstraints = []
+    # Clarify the mechanism of usedNames - they are recorded on the scope
+    # of the used name!
     scope.usedNames = []
     scope.auxiliaries = newMap()
     scope
@@ -673,13 +675,18 @@ class Context
 
   registerAuxiliaryDefinition: (usedNames, definedNames, def) ->
     for defined in definedNames
-      addToMap @_scope().auxiliaries, defined,
-        deps: unique usedNames
+      addToMap @auxiliaries(), defined,
+        deps: unique usedNames # TODO: use a set??
         defines: definedNames
         definition: def
+    def
 
   auxiliaries: ->
     @_scope().auxiliaries
+
+  addAuxiliaryDependency: (dependent, dependency) ->
+    aux = (lookupInMap @auxiliaries(), dependent)
+    aux.deps = unique join aux.deps, [dependency]
 
   deferredNames: ->
     @_definition().deferredBindings
@@ -2153,8 +2160,11 @@ ms.class = ms_class = (ctx, call) ->
           ctx.addClass name, classConstraint, superClasses, freshedDeclarations
           declareMethods ctx, classConstraint, freshedDeclarations
           ctx.declare name, isClass: yes
+          methodNames = (keysOfMap freshedDeclarations)
 
-          dictConstructorFunction name, (keysOfMap freshedDeclarations), superClassNames
+          ctx.registerAuxiliaryDefinition [], methodNames,
+            dictConstructorFunction name,
+              methodNames, superClassNames
         else
           jsNoop()
     else
@@ -2260,6 +2270,8 @@ ms.instance = ms_instance = (ctx, call) ->
       ## else
       ctx.addInstance instanceName, instance
 
+      oldUsed = ctx.usedNames()
+      ctx.setUsedNames []
       ctx.newScope()
 
       assignMethodTypes ctx, instanceConstraint, freshInstanceType, instanceName,
@@ -2268,6 +2280,11 @@ ms.instance = ms_instance = (ctx, call) ->
       methodsDeclarations = definitionList ctx,
         (prefixWithInstanceName ctx, definitions, instanceName)
       ctx.closeScope()
+
+      methodNames = (keysOfMap classDefinition.declarations)
+      for methodName in methodNames
+        ctx.addAuxiliaryDependency methodName, instanceName
+
       if ctx.shouldDefer()
         return deferCurrentDefinition ctx, call
 
@@ -2278,12 +2295,16 @@ ms.instance = ms_instance = (ctx, call) ->
         malformed ctx, call, "missing type of a method"
         return jsNoop()
 
-      ctx.declare instanceName, virtual: no
+
+      ctx.declare instanceName, virtual: no, final: yes, type: yes
+      usedNames = ctx.usedNames()
+      ctx.setUsedNames oldUsed
 
       # """var #{instanceName} = new #{className}(#{listOf methods});"""
-      (jsVarDeclaration (validIdentifier instanceName),
-        (irDefinition (new Constrained freshConstraints, (tupleOfTypes methodTypes).type),
-          (jsNew (validIdentifier className), (join superClassInstances, methods))))
+      ctx.registerAuxiliaryDefinition usedNames, [instanceName],
+        (jsVarDeclaration (validIdentifier instanceName),
+          (irDefinition (new Constrained freshConstraints, (tupleOfTypes methodTypes).type),
+            (jsNew (validIdentifier className), (join superClassInstances, methods))))
 
 # Makes sure methods are typed explicitly and returns the instance constraint
 # with renamed type variables to avoid clashes
@@ -2654,8 +2675,9 @@ ms.syntax = ms_syntax = (ctx, call) ->
     macroCompiled = (termCompile ctx, macroSource)
 
     usedNames = ctx.usedNames()
+    requiredNames = (findDeps ctx) usedNames
     # Or do this directly from name compile?
-    if not isSetEmpty notCompiled = subtractSets (arrayToSet usedNames), ctx.auxiliaries()
+    if not isSetEmpty notCompiled = subtractSets requiredNames, ctx.auxiliaries()
       ctx.doDefer call, _fst setToArray notCompiled
       deferCurrentDefinition ctx, call
       return deferredExpression()
@@ -2663,6 +2685,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
     dependencies = concat findDefinitionsIncludingDeps ctx, usedNames
     compiledMacro = listOfLines translateToJs translateIr ctx, join dependencies, [macroCompiled]
     retrieve call, macroSource
+    # TODO: try and catch errors during macro execution
     macroFn = eval compiledMacro
     if macroFn
       ctx.declareMacro ctx.definitionPattern(), (ctx, call) ->
@@ -2861,6 +2884,7 @@ ms.test = ms_test = (ctx, call) ->
   fakeComparison = (call_ (token_ "=="), [tested, expected])
   operatorCompile ctx, fakeComparison
   callTyping ctx, fakeComparison
+
   call.tea = fakeComparison.tea
 
   testedTemp = ctx.newJsVariable()
@@ -3258,7 +3282,7 @@ constPattern = (ctx, symbol) ->
 
 nameTranslate = (ctx, atom, symbol, type) ->
   id = ctx.declarationId symbol
-  ctx.addToUsedNames symbol
+  ctx.addToUsedNames symbol unless ctx.isMacroDeclared symbol
   translation =
     if isConst atom
       atom.label = 'const'
