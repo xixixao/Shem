@@ -1,0 +1,18 @@
+shadower (syntax [shadowed which]
+  (` (fn [by-macro,] (by-callsite ,which ,shadowed by-macro,))))
+
+by-callsite (fn [which x y]
+  (match which
+    1 x
+    2 y))
+
+by-macro 42
+
+dont-shadow-by-macro (test
+  ((fn [by-callsite]
+      ((shadower by-macro 1) "shadowing-value")) "ignored") 42)
+
+dont-shadow-by-callsite (test
+  ((fn [by-callsite]
+      ((shadower by-macro 2) 42)) "ignored") "shadowing-value")
+
