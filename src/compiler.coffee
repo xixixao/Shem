@@ -206,6 +206,7 @@ class Context
     @savedScopes = []
     @classParams = newMap()
     @types = []
+    @gensymMaps = []
     @isMalformed = no
     @modulePath = null
     @submodules = newMap()
@@ -2715,12 +2716,15 @@ ms['`'] = ms_quote = (ctx, call) ->
   if (_arguments call).length > 1
     labelDelimeters call, 'const'
 
-  if ctx.assignTo()
+  ctx.gensymMaps.push newMap()
+  compiled = if ctx.assignTo()
     matchAst ctx, expression
   else
     call.tea = toConstrained markOrigin expressionType, call
 
     _fst ((serializeAst ctx) expression).elems
+  ctx.gensymMaps.pop()
+  compiled
 
 serializeAst = (ctx) -> (ast) ->
   if isForm ast
@@ -2760,15 +2764,24 @@ matchAst = (ctx, ast) ->
           (jsAccess matched, "symbol"), toJsString ast.symbol))]
 
 commedAtom = (ctx, atom, otherwise) ->
-  if (_symbol atom)[0] is ','
-    splat = (_symbol atom)[1..2] is '..'
-    identifier = token_ (_symbol atom)[(if splat then 3 else 1)...]
+  symbol = (_symbol atom)
+  if symbol[0] is ','
+    splat = symbol[1..2] is '..'
+    identifier = token_ symbol[(if splat then 3 else 1)...]
     compiled = termCompile ctx, identifier
     retrieve atom, identifier
     if ctx.assignTo()
       compiled
     else
       if splat then (jsMethod compiled, 'toArray', []) else (jsArray [compiled])
+  else if symbol[symbol.length - 1] is ','
+    name = symbol[...-1]
+    gensyms = ctx.gensymMaps[ctx.gensymMaps.length - 1]
+    if not gensym = lookupInMap gensyms, name
+      gensym = token_ symbol[...-1] + '_' + ctx.freshId()
+      addToMap gensyms, name, gensym
+    atom.label = 'param'
+    (jsArray [(jsValue (JSON.stringify gensym))])
   else
     otherwise()
 

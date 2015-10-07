@@ -1,5 +1,5 @@
-m (syntax [y]
-  (` (fn [x] (,y x))))
+m (syntax [f]
+  (` (fn [x,] (,f x,))))
 
 x 5
 
