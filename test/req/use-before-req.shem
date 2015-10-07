@@ -7,3 +7,4 @@ f (fn+ [x]
 
 [g] (req ./Module-A)
 
+should-equal (test (f 3) 3)
