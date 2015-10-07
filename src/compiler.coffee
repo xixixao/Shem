@@ -2715,62 +2715,62 @@ ms['`'] = ms_quote = (ctx, call) ->
   if (_arguments call).length > 1
     labelDelimeters call, 'const'
 
-  commedAtom = (atom, otherwise) ->
-    if (_symbol atom)[0] is ','
-      splat = (_symbol atom)[1..2] is '..'
-      identifier = token_ (_symbol atom)[(if splat then 3 else 1)...]
-      compiled = termCompile ctx, identifier
-      retrieve atom, identifier
-      if ctx.assignTo()
-        compiled
-      else
-        if splat then (jsMethod compiled, 'toArray', []) else (jsArray [compiled])
-    else
-      otherwise()
-
   if ctx.assignTo()
-
-    matchAst = (ast) ->
-      matched = ctx.assignTo()
-      if isForm ast
-        if (_operator ast)?.symbol is ','
-          termCompile ctx, ast
-        else
-          labelDelimeters ast, 'const'
-          combinePatterns (for term, i in _terms ast
-            ctx.setAssignTo (jsAccess (jsCall "_terms", [matched]), i)
-            precs = matchAst term
-            ctx.resetAssignTo()
-            termsCheck = precs: [(cond_ (jsAccess matched, "length"))]
-            combinePatterns [termsCheck, precs])
-      else
-        commedAtom ast, ->
-          ast.label = 'const'
-          precs: [(cond_ (jsBinary "===",
-              (jsAccess matched, "symbol"), toJsString ast.symbol))]
-
-    matchAst expression
+    matchAst ctx, expression
   else
     call.tea = toConstrained markOrigin expressionType, call
 
-    serializeAst = (ast) ->
-      if isForm ast
-        (jsArray [if (_operator ast)?.symbol is ','
-          termCompile ctx, ast
-        else
-          labelDelimeters ast, 'const'
-          terms = map serializeAst, ast
-          if _empty terms
-            (jsArray [])
-          else
-            (jsMethod (_fst terms), 'concat', terms[1...])])
+    _fst ((serializeAst ctx) expression).elems
+
+serializeAst = (ctx) -> (ast) ->
+  if isForm ast
+    (jsArray [if (_operator ast)?.symbol is ','
+      termCompile ctx, ast
+    else
+      labelDelimeters ast, 'const'
+      terms = map (serializeAst ctx), ast
+      if _empty terms
+        (jsArray [])
       else
-        commedAtom ast, ->
-          serialized = (jsValue (JSON.stringify ast))
-          if (isExpression ast)
-            ast.label = 'const'
-          (jsArray [serialized])
-    _fst (serializeAst expression).elems
+        (jsMethod (_fst terms), 'concat', terms[1...])])
+  else
+    commedAtom ctx, ast, ->
+      serialized = (jsValue (JSON.stringify ast))
+      if (isExpression ast)
+        ast.label = 'const'
+      (jsArray [serialized])
+
+matchAst = (ctx, ast) ->
+  matched = ctx.assignTo()
+  if isForm ast
+    if (_operator ast)?.symbol is ','
+      termCompile ctx, ast
+    else
+      labelDelimeters ast, 'const'
+      combinePatterns (for term, i in _terms ast
+        ctx.setAssignTo (jsAccess (jsCall "_terms", [matched]), i)
+        precs = matchAst ctx, term
+        ctx.resetAssignTo()
+        termsCheck = precs: [(cond_ (jsAccess matched, "length"))]
+        combinePatterns [termsCheck, precs])
+  else
+    commedAtom ctx, ast, ->
+      ast.label = 'const'
+      precs: [(cond_ (jsBinary "===",
+          (jsAccess matched, "symbol"), toJsString ast.symbol))]
+
+commedAtom = (ctx, atom, otherwise) ->
+  if (_symbol atom)[0] is ','
+    splat = (_symbol atom)[1..2] is '..'
+    identifier = token_ (_symbol atom)[(if splat then 3 else 1)...]
+    compiled = termCompile ctx, identifier
+    retrieve atom, identifier
+    if ctx.assignTo()
+      compiled
+    else
+      if splat then (jsMethod compiled, 'toArray', []) else (jsArray [compiled])
+  else
+    otherwise()
 
 ms[','] = ms_comma = (ctx, call) ->
   expression = firstOrCall call
