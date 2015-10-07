@@ -1,0 +1,16 @@
+Module-A (module
+  [g] (req+ ./Some-Module)
+  
+  Some-Module (module
+    g (fn+ [x]
+      x)
+    
+    f (fn [x]
+      5)))
+
+[g] (req ./Module-A)
+
+f (fn+ [x]
+  (g x))
+
+should-equal (test (f 3) 3)
