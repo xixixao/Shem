@@ -1,13 +1,13 @@
 A (module
   C (module+
     [g] (req ../B/C)
-
+    
     f (fn+ [x]
       (g x))))
 
 B (module
   C (module+
     [f] (req ../A/C)
-
+    
     g (fn+ [x]
       (f x))))

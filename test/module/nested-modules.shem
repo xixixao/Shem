@@ -2,7 +2,7 @@ Module-A (module
   Some-Module (module+
     g (fn+ [x]
       x)
-
+    
     f (fn [x]
       x)))
 

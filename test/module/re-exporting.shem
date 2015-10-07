@@ -1,14 +1,14 @@
 Module-A (module
-  [g: f] (req+ ./Some-Module)
-
+  [g] (req+ ./Some-Module)
+  
   Some-Module (module
     g (fn+ [x]
       x)
-
+    
     f (fn [x]
       x)))
 
-[f: m] (req ./Module-A)
+[g] (req ./Module-A)
 
 f (fn+ [x]
-  (m x))
+  (g x))
