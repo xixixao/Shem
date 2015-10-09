@@ -2856,7 +2856,7 @@ ms['macro+'] = ms_macro_export = (ctx, call) ->
   (call_ (token_ 'export'), [(call_ (token_ 'macro'), (_arguments call))])
 
 ms.macro = ms_macro = (ctx, call) ->
-  hasName = requireName ctx, 'Name required to declare a new instance'
+  hasName = requireName ctx, 'Name required to declare a new macro'
   [paramTuple, body...] = _arguments call
   [docs, defs] = partition isComment, body
   [type, macroBody...] = defs
@@ -3863,7 +3863,7 @@ isNotCapital = (atom) ->
 
 isName = (expression) ->
   throw new Error "Nothing passed to isName" unless expression
-  (isAtom expression) and (expression.symbol in ['/', '//'] or /^[^-"\/\\\d].*/.test expression.symbol)
+  (isAtom expression) and (expression.symbol in ['/', '//', '-'] or /^[^-"\/\\\d].*/.test expression.symbol)
 
 isAtom = (expression) ->
   not (Array.isArray expression)
