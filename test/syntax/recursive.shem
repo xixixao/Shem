@@ -1,0 +1,6 @@
+-> (syntax [..args]
+  (match args
+    {x} x
+    {x f ..fs} (` -> (,f ,x) ,..fs)))
+
+should-run (test (-> 3 (fn [x] x)) 3)

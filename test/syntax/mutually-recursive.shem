@@ -1,0 +1,12 @@
+->1 (syntax [..args]
+  (match args
+    {x} x
+    {x f ..fs} (` ->2 (,f ,x) ,..fs)))
+
+->2 (syntax [..args]
+  (match args
+    {x} x
+    {x f ..fs} (` ->1 (,f ,x) ,..fs)))
+
+should-run-1 (test (->1 3 (fn [x] x)) 3)
+should-run-2 (test (->2 3 (fn [x] x)) 3)

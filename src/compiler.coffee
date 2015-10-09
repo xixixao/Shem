@@ -499,11 +499,18 @@ class Context
 
   ## Macro declarations
 
+  preDeclareMacro: (name) ->
+    addToMap @_scope().macros, name, final: no
+
   declareMacro: (name, macro, docs) ->
     name.id = macro.id = @freshId()
     name.scope = @currentScopeIndex()
     macro.docs = docs
-    addToMap @_scope().macros, name.symbol, macro
+    macro.final = yes
+    replaceInMap @_scope().macros, name.symbol, macro
+
+  isMacroFinallyDeclared: (name) ->
+    (@macro name)?.final
 
   isMacroDeclared: (name) ->
     !!@macro name
@@ -826,6 +833,9 @@ callMacroExpand = (ctx, call) ->
   op.label = 'keyword'
   op.scope = ctx.currentScopeIndex()
   macro = ctx.macro op.symbol
+  if not macro.final
+    ctx.doDefer op, op.symbol
+    return deferredExpression()
   op.id = macro.id
   macro ctx, call
 
@@ -1701,7 +1711,7 @@ compileDeferred = (ctx) ->
       [expression, dependencyName, useScope, lhs, rhs] = deferred = ctx.deferred().shift()
       if useScope isnt ctx.currentScopeIndex() and (ctx.isDeclared dependencyName) or
           (ctx.isFinallyDeclaredCurrentlyTyped dependencyName) or
-          (ctx.isMacroDeclared dependencyName)
+          (ctx.isMacroFinallyDeclared dependencyName) # TODO: but this should be finally declared for not macros
         compiledPairs.push definitionPairCompile ctx, lhs, rhs
         deferredCount = 0
       else
@@ -2689,6 +2699,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
       paramTuple = tuple_ splatToName param
 
     macroSource = call_ (token_ 'fn'), (join [paramTuple], rest)
+    ctx.preDeclareMacro macroName
     macroCompiled = (termCompile ctx, macroSource)
 
     usedNames = ctx.usedNames()
@@ -2877,11 +2888,12 @@ ms.macro = ms_macro = (ctx, call) ->
     # if not macroBody.length > 0
     #   return malformed ctx, call, "Macro body missing"
 
+    ctx.preDeclareMacro macroName
     compiledMacro = translateToJs translateIr ctx,
       (termCompile ctx, call_ (token_ 'fn'), (join [paramTuple], macroBody))
     params = (map token_, paramNames) # freshen
 
-    if ctx.isMacroDeclared macroName
+    if ctx.isMacroFinallyDeclared macroName
       malformed ctx, ctx.definitionPattern(), "Macro with this name already defined"
     else
       ctx.declareMacro ctx.definitionPattern(), simpleMacro eval compiledMacro
@@ -2996,7 +3008,10 @@ ms.Map = ms_Map = (ctx, call) ->
 #     assignCompile ctx, call, (jsBinary "+", compiled_x, compiled_b)
 
 builtInMacros = ->
-  objectToMap ms
+  macros = objectToMap ms
+  for name, macro of values macros
+    macro.final = yes
+  macros
 
 
 iife = (body) ->
@@ -3366,7 +3381,10 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
     translation: malformed ctx, atom, 'Macros cannot be referenced'
   else
     validSymbol = validIdentifier symbol
-    type: (freshInstance ctx, ctx.typeInTopScope symbol)
+    type = ctx.typeInTopScope symbol
+    # if not type
+    #   return translation: malformed ctx, atom, 'Macros cannot be referenced'
+    type: (freshInstance ctx, type)
     translation:
       if atom.builtInDefinition or
           (modulePathsEqual atom.modulePath, ctx.typedModulePath.names)
@@ -3860,9 +3878,10 @@ isCapital = (atom) ->
 isNotCapital = (atom) ->
   /^[a-z]/.test atom.symbol
 
+# TODO: come up with most efficient way, could use labels here instead
 isName = (expression) ->
   throw new Error "Nothing passed to isName" unless expression
-  (isAtom expression) and (expression.symbol in ['/', '//', '-'] or /^[^-"\/\\\d].*/.test expression.symbol)
+  (isAtom expression) and (expression.symbol in ['/', '//', '-'] or /^([^-"\/\\\d]|-[^\d]).*/.test expression.symbol)
 
 isAtom = (expression) ->
   not (Array.isArray expression)
@@ -6305,7 +6324,7 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importA
   for name, macro of values macros when imported = shouldImport name
     {newName} = imported
     # TODO: figure out how shadowing works
-    if not ctx.isMacroDeclared newName
+    if not ctx.isMacroFinallyDeclared newName
       addToMap topScope.macros, newName, macro
   implicitImports = newMap()
   for name, definition of values definitions when imported = shouldImport name
