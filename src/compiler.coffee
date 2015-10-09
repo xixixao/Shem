@@ -3362,18 +3362,17 @@ namespacedNameCompile = (ctx, atom, symbol) ->
   pattern: precs: []
 
 quotedReferenceCompile = (ctx, atom, symbol) ->
-  validSymbol = validIdentifier symbol
   if atom.builtin
     translation: malformed ctx, atom, 'Macros cannot be referenced'
-  else if atom.builtInDefinition
-    type: ctx.typeInTopScope symbol
-    translation: (jsAccess '_', validSymbol)
   else
+    validSymbol = validIdentifier symbol
     type: (freshInstance ctx, ctx.typeInTopScope symbol)
     translation:
-      if (modulePathToName atom.modulePath) is (modulePathToName ctx.typedModulePath.names)
+      if atom.builtInDefinition or
+          (modulePathsEqual atom.modulePath, ctx.typedModulePath.names)
         (jsAccess '_', validSymbol)
       else
+        # TODO: access from other module
         throw "NOT SUPPORTED YET"
 
 isQuotedReference = (atom) ->
@@ -6219,6 +6218,9 @@ modulePathToName = (path) ->
 
 moduleNameToPath = (name) ->
   name.split '/'
+
+modulePathsEqual = (path1, path2) ->
+  (modulePathToName path1) is (modulePathToName path2)
 
 # Primitive type checking for now
 checkTypes = (ctx) ->
