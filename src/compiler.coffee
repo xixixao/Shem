@@ -1360,6 +1360,7 @@ polymorphicAssignCompile = (ctx, expression, translatedExpression) ->
 patternCompile = (ctx, pattern, matched, polymorphic) ->
   # caching can occur while compiling the pattern
   # precs are {cond}s and {cache}s, sorted in order they need to be executed
+  console.log (print pattern)
   {precs, assigns} = expressionCompile ctx, pattern
 
   definedNames = ctx.definedNames()
@@ -3293,7 +3294,7 @@ nameCompile = (ctx, atom, symbol) ->
       atom.label = 'const'
       if contextType
         type: mapOrigin (freshInstance ctx, ctx.type symbol), atom
-        pattern: constPattern ctx, symbol
+        pattern: constPattern ctx, symbol, validIdentifier symbol
       else
         # log "deferring in pattern for #{symbol}"
         ctx.doDefer atom, symbol
@@ -3338,13 +3339,13 @@ nameCompile = (ctx, atom, symbol) ->
 scopedName = (name, scopeIndex) ->
   "#{name}_#{scopeIndex}"
 
-constPattern = (ctx, symbol) ->
+constPattern = (ctx, symbol, compiledReference) ->
   exp = ctx.assignTo()
   precs: [(cond_ switch symbol
       when 'True' then exp
       when 'False' then (jsUnary "!", exp)
       else
-        (jsBinary "instanceof", exp, (validIdentifier symbol)))]
+        (jsBinary "instanceof", exp, compiledReference))]
 
 nameTranslate = (ctx, atom, symbol, type) ->
   id = ctx.declarationId symbol
@@ -3381,17 +3382,26 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
     translation: malformed ctx, atom, 'Macros cannot be referenced'
   else
     validSymbol = validIdentifier symbol
-    type = ctx.typeInTopScope symbol
-    # if not type
-    #   return translation: malformed ctx, atom, 'Macros cannot be referenced'
-    type: (freshInstance ctx, type)
-    translation:
-      if atom.builtInDefinition or
-          (modulePathsEqual atom.modulePath, ctx.typedModulePath.names)
-        (jsAccess '_', validSymbol)
+    # TODO: we probably need to defer anyway, because the top level might not be
+    #       typed yet when we expand a macro referencing it
+    #    more generally we should probably just combine this with nameCompile
+    type = mapOrigin (freshInstance ctx, (ctx.typeInTopScope symbol)), atom
+    fromCurrentModule = atom.builtInDefinition or
+      (modulePathsEqual atom.modulePath, ctx.typedModulePath.names)
+    if fromCurrentModule
+      if ctx.assignTo()
+        if isConst atom
+          type: type
+          pattern: constPattern ctx, symbol, (jsAccess '_', validSymbol)
+        else
+          malformed atom, 'Cannot use a quoted reference as a new name'
+          pattern: []
       else
-        # TODO: access from other module
-        throw "NOT SUPPORTED YET"
+        type: type
+        translation: (jsAccess '_', validSymbol)
+    else
+      # TODO: access from other module
+      throw "NOT SUPPORTED YET"
 
 isQuotedReference = (atom) ->
   atom.builtin or atom.builtInDefinition or atom.modulePath
