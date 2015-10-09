@@ -1,0 +1,12 @@
+Some (data [a]
+  None
+  Some [value: a])
+
+? (syntax [maybe default]
+  (` match ,maybe
+    None ,default
+    (Some value,) value,))
+
+should-match-none (== (? None 3) 3)
+should-match-some (== (? (Some 42) 5) 42)
+

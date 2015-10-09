@@ -1360,7 +1360,6 @@ polymorphicAssignCompile = (ctx, expression, translatedExpression) ->
 patternCompile = (ctx, pattern, matched, polymorphic) ->
   # caching can occur while compiling the pattern
   # precs are {cond}s and {cache}s, sorted in order they need to be executed
-  console.log (print pattern)
   {precs, assigns} = expressionCompile ctx, pattern
 
   definedNames = ctx.definedNames()
@@ -1992,6 +1991,7 @@ ms.data = ms_data = (ctx, call) ->
       paramLabels = paramLabelsIn params
       paramNames = paramLabels.map(validIdentifier)
 
+      constrName = constr.symbol
       constrValue = (jsAssignStatement "#{identifier}._value",
         if params
           (jsCall "λ#{paramNames.length}",
@@ -2000,9 +2000,10 @@ ms.data = ms_data = (ctx, call) ->
               body: [(jsReturn (jsNew identifier, paramNames))])])
         else
           (jsNew identifier, []))
-      constrFunction = dictConstructorFunction constr.symbol, paramNames
-      accessors = dictAccessors constr.symbol, identifier, paramNames, defs.length
-      (concat [constrFunction, accessors, [constrValue]]))
+      constrFunction = dictConstructorFunction constrName, paramNames
+      assignToModuleObject = compileAssignmentToModuleObject constrName, constrName
+      accessors = dictAccessors constrName, identifier, paramNames, defs.length
+      (concat [constrFunction, assignToModuleObject, accessors, [constrValue]]))
 
 findDataType = (ctx, typeArgLists, typeParams, dataName) ->
   varNames = map _symbol, typeParams
@@ -4625,6 +4626,9 @@ compileDefinitionAssignment = (ctx) -> ([to, from]) ->
       (jsAssign (jsAccess '_', to), from)
     else
       from)
+
+compileAssignmentToModuleObject = (to, from) ->
+  (jsAssignStatement (jsAccess '_', to), from)
 
 # Takes a tuple!
 compileAssignment = ([to, from]) ->
