@@ -673,8 +673,8 @@ array-set (instance (Set (Array a) a)
 
 array-eq (instance (Eq (Array a))
   {(Eq a)}
-  = (macro [x y]
-    (.is global.Immutable x y)))
+  = (fn [x y]
+    (:: Bool (.is global.Immutable x y))))
 
 list-bag (instance (Bag (List a) a)
   size (macro [list]
