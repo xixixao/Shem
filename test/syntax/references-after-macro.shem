@@ -1,0 +1,6 @@
+gives-top-level-x (syntax [y]
+  (` x))
+
+x False
+
+should-equal (test (gives-top-level-x "ignored") False)

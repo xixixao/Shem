@@ -1,0 +1,10 @@
+macro-depending-on-expression (syntax [y]
+  expression)
+
+expression (id 3)
+
+id (fn [z]
+  z)
+
+should-equal (test (macro-depending-on-expression 7) 3)
+
