@@ -6,13 +6,13 @@ by-callsite (fn [which x y]
     1 x
     2 y))
 
-by-macro 42
+by-macro "42"
 
 dont-shadow-by-macro (test
   ((fn [by-callsite]
-      ((shadower by-macro 1) "shadowing-value")) "ignored") 42)
+      ((shadower by-macro 1) "shadowing-value")) "ignored") "42")
 
 dont-shadow-by-callsite (test
   ((fn [by-callsite]
-      ((shadower by-macro 2) 42)) "ignored") "shadowing-value")
+      ((shadower by-macro 2) "42")) "shadowing-value") "42")
 

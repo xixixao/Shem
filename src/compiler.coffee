@@ -539,8 +539,8 @@ class Context
     declaration = (@_declarationInCurrentScope name)
     declaration?.final and declaration?.type
 
-  isDeclaredInTopScope: (name) ->
-    !!@_declarationInScope 0, name
+  isDeclaredInTopScopeOrMacro: (name) ->
+    (!!@_declarationInScope 0, name) or (@isMacroDeclared name)
 
   isBuiltIn: (name) ->
     (inSet cachedBuiltInMacros, name)
@@ -795,7 +795,7 @@ expressionCompile = (ctx, expression) ->
 callCompile = (ctx, call) ->
   operator = _operator call
   operatorName = _symbol operator
-  if isName operator
+  if isAtom operator
     (if isDotAccess operator
       callJsMethodCompile
     else if (ctx.isMacroDeclared operatorName) and not ctx.isDeclared operatorName
@@ -1323,7 +1323,7 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
 
     if assigns.length is 0
       return malformed ctx, to, 'Not an assignable pattern'
-    translation = map (compileAssignment ctx), (join translationCache, assigns)
+    translation = map (compileDefinitionAssignment ctx), (join translationCache, assigns)
     # directly add to dep graph
     definedNames = (name for {name} in ctx.definedNames())
     ctx.registerAuxiliaryDefinition ctx.usedNames(), definedNames, translation
@@ -1521,9 +1521,11 @@ topLevelExpression = (ctx, expression) ->
     jsNoop()
 
 topLevel = (ctx, form) ->
-  moduleObjectDeclaration = jsVarDeclaration '_', jsWrap '{}'
-  join [moduleObjectDeclaration],
+  join [moduleObjectDeclaration()],
     definitionList ctx, spaceSeparatedPairs form
+
+moduleObjectDeclaration = ->
+  jsVarDeclaration '_', jsWrap '{}'
 
 topLevelModule = (ctx, form) ->
   definitions = (join (importImplicit ctx), (topLevel ctx, form))
@@ -2317,9 +2319,9 @@ ms.instance = ms_instance = (ctx, call) ->
 
       # """var #{instanceName} = new #{className}(#{listOf methods});"""
       ctx.registerAuxiliaryDefinition usedNames, [instanceName],
-        ((compileAssignment ctx) (validIdentifier instanceName),
+        ((compileDefinitionAssignment ctx) [(validIdentifier instanceName),
           (irDefinition (new Constrained freshConstraints, (tupleOfTypes methodTypes).type),
-            (jsNew (validIdentifier className), (join superClassInstances, methods))))
+            (jsNew (validIdentifier className), (join superClassInstances, methods)))])
 
 # Makes sure methods are typed explicitly and returns the instance constraint
 # with renamed type variables to avoid clashes
@@ -2455,7 +2457,7 @@ ms.match = ms_match = (ctx, call) ->
     translationCache = ctx.resetAssignTo()
     call.tea = new Constrained constraints, resultType
     assignCompile ctx, call, iife concat (filter _is, [
-      (map jsVarDeclaration, translationCache)
+      (map compileAssignment, translationCache)
       varList varNames
       compiledCases])
 
@@ -2465,7 +2467,7 @@ matchBranchTranslate = (precs, assigns, compiledResult) ->
   # [hoistedWheres, furtherHoistable] = hoistWheres [], assigns #hoistWheres hoistableWheres, assigns
 
   [conds, concat [
-    (map jsVarDeclaration, (join preassigns, assigns))
+    (map compileAssignment, (join preassigns, assigns))
     # hoistedWheres.map(compileDef)
     [(jsReturn compiledResult)]]]
 
@@ -2695,11 +2697,14 @@ ms.syntax = ms_syntax = (ctx, call) ->
     notCompiled = subtractSets (concatSets (arrayToSet usedNames), requiredNames), ctx.auxiliaries()
     if not isSetEmpty notCompiled
       ctx.doDefer call, _fst setToArray notCompiled
+
+    if ctx.shouldDefer()
       deferCurrentDefinition ctx, call
       return deferredExpression()
 
     dependencies = concat findDefinitionsIncludingDeps ctx, usedNames
-    compiledMacro = listOfLines translateToJs translateIr ctx, join dependencies, [macroCompiled]
+    compiledMacro = listOfLines translateToJs translateIr ctx, concat [
+      [moduleObjectDeclaration()], dependencies, [macroCompiled]]
     retrieve call, macroSource
     # TODO: try and catch errors during macro execution
     macroFn = eval compiledMacro
@@ -2735,7 +2740,6 @@ ms['`'] = ms_quote = (ctx, call) ->
     matchAst ctx, expression
   else
     call.tea = toConstrained markOrigin expressionType, call
-
     _fst ((serializeAst ctx) expression).elems
   ctx.gensymMaps.pop()
   compiled
@@ -2765,12 +2769,12 @@ serializeAst = (ctx) -> (ast) ->
 quotedReference = (ctx, atom) ->
   symbol = _symbol atom
   compiled = token_ symbol
-  if ctx.isDeclaredInTopScope symbol
-    compiled.modulePath = ctx.typedModulePath.names
-  else if ctx.isBuiltIn symbol
+  if ctx.isBuiltIn symbol
     compiled.builtin = yes
   else if ctx.isBuiltInDefinition symbol
     compiled.builtInDefinition = yes
+  else if ctx.isDeclaredInTopScopeOrMacro symbol
+    compiled.modulePath = ctx.typedModulePath.names
   else
     ctx.doDefer atom, symbol
   compiled
@@ -3358,16 +3362,17 @@ namespacedNameCompile = (ctx, atom, symbol) ->
   pattern: precs: []
 
 quotedReferenceCompile = (ctx, atom, symbol) ->
+  validSymbol = validIdentifier symbol
   if atom.builtin
     translation: malformed ctx, atom, 'Macros cannot be referenced'
   else if atom.builtInDefinition
     type: ctx.typeInTopScope symbol
-    translation: (jsAccess '_', symbol)
+    translation: (jsAccess '_', validSymbol)
   else
     type: (freshInstance ctx, ctx.typeInTopScope symbol)
     translation:
       if (modulePathToName atom.modulePath) is (modulePathToName ctx.typedModulePath.names)
-        (jsAccess '_', symbol)
+        (jsAccess '_', validSymbol)
       else
         throw "NOT SUPPORTED YET"
 
@@ -3858,7 +3863,7 @@ isNotCapital = (atom) ->
 
 isName = (expression) ->
   throw new Error "Nothing passed to isName" unless expression
-  (isAtom expression) and (expression.symbol in ['~', '/', '//'] or /[^~"'\/].*/.test expression.symbol)
+  (isAtom expression) and (expression.symbol in ['/', '//'] or /^[^-"\/\\\d].*/.test expression.symbol)
 
 isAtom = (expression) ->
   not (Array.isArray expression)
@@ -4586,12 +4591,16 @@ toJsString = (symbol) ->
 
 # TODO: this compilation is only required for running macros referencing
 # definitions from current
-compileAssignment= (ctx) -> ([to, from]) ->
+compileDefinitionAssignment = (ctx) -> ([to, from]) ->
   (jsVarDeclaration to,
     if ctx.isInTopScope()
       (jsAssign (jsAccess '_', to), from)
     else
       from)
+
+# Takes a tuple!
+compileAssignment = ([to, from]) ->
+  (jsVarDeclaration to, from)
 
 # Takes precs and constructs the correct condition
 # if precs empty, returns true
