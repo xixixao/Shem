@@ -362,7 +362,7 @@ from-? (fn [default of]
     If maybe is Some , default is not evaluated.)
   (` match ,maybe
     None ,default
-    (Some value) value))
+    (Some value,) value,))
 
 !! (fn [x]
   (# The value of Some x .
