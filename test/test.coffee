@@ -15,15 +15,18 @@ mocha = new Mocha
   timeout: 3000 # for large modules
   grep: process.argv[2] # first argument is passed as grep to mocha
 
+INDEX = 'index.shem'
+EXT = '.shem'
 
-walk = (dir, dirCallback, fileCallback) ->
-  files = fs.readdirSync dir
+walk = (dir, dirCallback, fileCallback, files) ->
+  files ?= fs.readdirSync dir
   for file in files
     filepath = path.join dir, file
     stats = fs.statSync filepath
     if stats.isDirectory()
-      dirCallback file, ->
-        walk filepath, dirCallback, fileCallback
+      children = fs.readdirSync filepath
+      dirCallback file, filepath, children, ->
+        walk filepath, dirCallback, fileCallback, children
     else if stats.isFile()
       fileCallback file, filepath
 
@@ -40,26 +43,34 @@ openSuite = (name) ->
 closeSuite = ->
   suites.pop()
 
+addTest = (name, filepath) ->
+  source = fs.readFileSync filepath, 'utf8'
+  currentSuite().addTest new Test name, ->
+    values = ''
+    console.error = (output) ->
+      values += '\n' + (util.inspect output, colors: yes)
+    try
+      shem.run source, filename: filepath
+    catch e
+      e.message = e.message + (if values then '\nGot:' else '') + values
+      throw e
+
 walk './test',
-  (dir, walkOn) ->
+  (dir, filepath, fileNames, walkOn) ->
+    hasIndex = INDEX in fileNames
     if dir isnt 'ignore'
-      openSuite dir
-      walkOn()
-      closeSuite()
+      if hasIndex
+        indexpath = path.join filepath, INDEX
+        addTest dir, indexpath
+      else
+        openSuite dir
+        walkOn()
+        closeSuite()
 
   (file, filepath) ->
     ext = (path.extname file)
-    if ext is '.shem'
+    if ext is EXT
       name = path.basename file, ext
-      source = fs.readFileSync filepath, 'utf8'
-      currentSuite().addTest new Test name, ->
-        values = ''
-        console.error = (output) ->
-          values += '\n' + (util.inspect output, colors: yes)
-        try
-          shem.run source, filename: filepath
-        catch e
-          e.message = e.message + (if values then '\nGot:' else '') + values
-          throw e
+      addTest name, filepath
 
 mocha.run ->
