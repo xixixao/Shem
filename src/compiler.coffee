@@ -6134,7 +6134,7 @@ moduleAccessViolation = ({names: toModulePath}, {names: fromModulePath}) ->
       if not module
         throw new Error "missing module #{checkedModuleName}
          that should have been compiled for #{moduleName}"
-      if not module.exported
+      if not module.typedModulePath.exported
         return checkedModuleName
   false
 
