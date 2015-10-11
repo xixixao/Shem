@@ -6117,8 +6117,9 @@ relativePathTo = (toTypedModulePath, fromTypedModulePath) ->
           toTypedModulePath
         else if i < fromModulePath.length
           # From parent
-          types: join fromTypes[i - 1...fromModulePath.length], toTypes[i...]
-          names: join ('..' for [i..fromModulePath.length]), toModulePath[i...]
+          parentTypes = fromTypes[i - 1...fromModulePath.length - 1]
+          types: join parentTypes, toTypes[i...]
+          names: join ('..' for _ in parentTypes), toModulePath[i...]
         else
           # From current
           types: toTypes[i - 1...]
@@ -6129,13 +6130,16 @@ moduleAccessViolation = ({names: toModulePath}, {names: fromModulePath}) ->
     if (from = fromModulePath[i]) and from isnt moduleName
       if i is 0 # Top modules are always public
         return false
-      checkedModuleName = (modulePathToName toModulePath[0..i])
-      module = (lookupInMap moduleGraph, checkedModuleName)
-      if not module
-        throw new Error "missing module #{checkedModuleName}
-         that should have been compiled for #{moduleName}"
-      if not module.typedModulePath.exported
-        return checkedModuleName
+      if insideSiblings
+        checkedModuleName = (modulePathToName toModulePath[0..i])
+        module = (lookupInMap moduleGraph, checkedModuleName)
+        if not module
+          throw new Error "missing module #{checkedModuleName}
+           that should have been compiled for #{moduleName}"
+        if not module.typedModulePath.exported
+          return checkedModuleName
+      else
+        insideSiblings = yes
   false
 
 lookupCompiledModule = (name) ->
