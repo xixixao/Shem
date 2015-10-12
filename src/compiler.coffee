@@ -1744,9 +1744,11 @@ definitionPairCompile = (ctx, pattern, value) ->
 
 ms = {}
 
+# deprecate for now
 ms['module+'] = ms_module_export = (ctx, call) ->
   (ms_module ctx, call, yes)
 
+# deprecate for now
 ms.module = ms_module = (ctx, call, isExported = no) ->
   requireName ctx, 'Module name required'
   name = ctx.definitionName()
@@ -2550,11 +2552,16 @@ resolveModuleName = (ctx, declaredModuleName) ->
   modulePathToName (resolveModulePathFrom ctx.typedModulePath.names,
       (moduleNameToPath declaredModuleName))
 
+# TODO: do path normalization like Node
 resolveModulePathFrom = (currentPath, declaredPath) ->
   switch _fst declaredPath
     when '.' then join currentPath, declaredPath[1...]
-    when '..' then join currentPath[...-1], declaredPath[1...]
-    else declaredPath
+    when '..'
+      up = Math.min (part for part in declaredPath when part is '..').length,
+        currentPath.length
+      join currentPath[...-up], declaredPath[up...]
+    else
+      declaredPath
 
 declareImported = (ctx, name) ->
   ctx.assignType name, (ctx.tempType name)
