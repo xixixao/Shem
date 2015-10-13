@@ -1,0 +1,16 @@
+A (module
+  [g] (req ../B)
+  
+  C (module+
+    g (fn+ [x] x)))
+
+B (module
+  g (fn+ [x] x)
+  
+  D (module+
+    [g] (req ../../A/C)
+    
+    k (fn [x] x)))
+
+
+
