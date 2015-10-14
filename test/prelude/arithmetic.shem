@@ -1,0 +1,4 @@
+[..] (req ../Prelude)
+
+should-add (test (+ 3 2) 5)
+

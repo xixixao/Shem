@@ -85,11 +85,11 @@ exports.run = run = (code, options = {}) ->
 
   # Compile the main module and all required modules
   compiledShemCache = []
+  compiler.initCompilationServer()
   compileAndAddToCache = (code, options) ->
     while requestedModule = (compiled = compile code, options).request
       requestedSourceFilename = findModuleSourceFile requestedModule, mainModule.filename
       requestedSource = fs.readFileSync requestedSourceFilename, 'utf8'
-      # TODO: convert to js file name
       compiledShemCache[requestedSourceFilename] =
         compileAndAddToCache requestedSource,
           filename: requestedSourceFilename

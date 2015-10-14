@@ -2552,16 +2552,26 @@ resolveModuleName = (ctx, declaredModuleName) ->
   modulePathToName (resolveModulePathFrom ctx.typedModulePath.names,
       (moduleNameToPath declaredModuleName))
 
-# TODO: do path normalization like Node
 resolveModulePathFrom = (currentPath, declaredPath) ->
-  switch _fst declaredPath
-    when '.' then join currentPath, declaredPath[1...]
-    when '..'
-      up = Math.min (part for part in declaredPath when part is '..').length,
-        currentPath.length
-      join currentPath[...-up], declaredPath[up...]
+  normalizePath join currentPath, declaredPath
+
+normalizePath = (parts) ->
+  res = []
+  isRelative = parts[0] in ['.', '..']
+  for part in parts
+    if part is '.'
+      continue
+
+    if part is '..'
+      if res.length > 0 && ([..., prev] = res; prev) isnt '..'
+        res.pop()
+      else
+        res.push '..'
     else
-      declaredPath
+      res.push part
+  if isRelative and res[0] isnt '..'
+    res.unshift '.'
+  res
 
 declareImported = (ctx, name) ->
   ctx.assignType name, (ctx.tempType name)
@@ -6106,6 +6116,11 @@ reservedInJs = newSetWith ("abstract arguments boolean break byte case catch cha
 compiledModules = newMap()
 moduleGraph = newMap()
 
+# TODO: fix this whole API
+initCompilationServer = ->
+  compiledModules = newMap()
+  moduleGraph = newMap()
+
 # TODO: pass this info in through context instead of a direct call
 # TODO: this probably doesn't work if start compiling in some nested module
 moduleNameToRelativeTypedModulePath = (moduleName, currentTypedModulePath) ->
@@ -8138,6 +8153,7 @@ cachedBuiltInDefinitions = builtInDefinitions()
 
 # end of tests
 
+exports.initCompilationServer = initCompilationServer
 exports.compileModule = compileModule
 exports.compileModuleTopLevel = compileModuleTopLevel
 exports.compileModuleWithDependencies = compileModuleWithDependencies
