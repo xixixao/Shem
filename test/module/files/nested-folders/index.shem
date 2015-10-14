@@ -1,4 +1,3 @@
 [g] (req ./Module-A/Some-Module)
 
-f (fn+ [x]
-  (g x))
+should-req (test (g 3) 3)

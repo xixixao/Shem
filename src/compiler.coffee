@@ -1556,7 +1556,7 @@ topLevelModule = (ctx, form) ->
       defs = jsStatementList [compiledDefinitions]
       strict = jsStatementList [toJsString 'use strict']
       switch type
-        when 'commonJs'
+        when 'commonJs', 'index'
           [strict
             defs
             (jsAssignStatement 'module.exports', exportDictionary)]
@@ -1571,7 +1571,7 @@ topLevelModule = (ctx, form) ->
           [(jsVarDeclaration (validIdentifier name),
             (iife [defs, (jsReturn exportDictionary)]))]
         else
-          throw new Error "Unspecified ctx.moduleCompilationType"
+          throw new Error "Unspecified ctx.moduleCompilationType #{type}"
 
 topLevelExpressionInModule = (compiledDefinitions) -> (ctx, expression) ->
   (iife (concat [
@@ -3843,7 +3843,9 @@ irImportTranslate = (ctx, {moduleName, naming, moduleNameAtom}) ->
     else
       switch baseType
         when 'commonJs'
-          [jsCall 'require', [(toJsString (pathNames[0...numModules].join '/'))]]
+          [..., currentType] = ctx.typedModulePath.types
+          start = if currentType isnt 'index' and pathNames[0] is '..' then '.' else pathNames[0]
+          [jsCall 'require', [(toJsString ((join [start], pathNames[1...numModules]).join '/'))]]
         when 'browser'
           [fold jsAccess, 'Shem', pathNames[0...numModules]]
   parts = join moduleHandle, map validIdentifier, pathNames[numModules...]
@@ -6152,8 +6154,9 @@ moduleAccessViolation = ({names: toModulePath}, {names: fromModulePath}) ->
 lookupCompiledModule = (name) ->
   lookupInMap compiledModules, name
 
-compileModule = (source) ->
-  compileModuleTopLevel source, (names: ['.'], types: ['commonJs'])
+compileModule = (source, isIndex) ->
+  compileModuleTopLevel source,
+    (names: ['.'], types: [if isIndex then 'index' else 'commonJs'])
 
 defaultTypedModulePath = (names: ['@unnamed'], types: ['browser'])
 

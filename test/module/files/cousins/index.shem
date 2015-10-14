@@ -1,0 +1,3 @@
+[f] (req ./A/AB)
+
+should-req (test (f 3) 3)
