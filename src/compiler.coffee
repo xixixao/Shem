@@ -2529,9 +2529,9 @@ ms.req = ms_req = (ctx, call) ->
   if ctx.isModuleLoaded moduleName
     for [reqLabel, reqAtom] in realPairs
       if (isName reqAtom)
+        newName = _symbol reqAtom
         oldName = (_labelName reqLabel if reqLabel) or newName
         oldNameAtom = reqLabel or reqAtom
-        newName = _symbol reqAtom
         if ctx.isFinallyTyped newName, ctx.currentScopeIndex()
           malformed ctx, reqAtom, "#{newName} already declared"
           # TODO: for the following branches, we need to be able to declare multiple definitions of the same name for this logic to work:
