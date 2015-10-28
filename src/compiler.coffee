@@ -6137,8 +6137,9 @@ relativePathTo = (toTypedModulePath, fromTypedModulePath) ->
   {names: toModulePath, types: toTypes} = toTypedModulePath
   {names: fromModulePath, types: fromTypes} = fromTypedModulePath
   for moduleName, i in toModulePath
+    differs = fromModulePath[i] isnt moduleName
     last = i is toModulePath.length - 1
-    if fromModulePath[i] isnt moduleName or last
+    if differs or last
       return if i is 0
           # An absolute path
           toTypedModulePath
@@ -6149,7 +6150,7 @@ relativePathTo = (toTypedModulePath, fromTypedModulePath) ->
           names: join ('..' for _ in parentTypes), toModulePath[i...]
         else
           # From current
-          if last
+          if not differs and last
             # TODO: handle the case when module requires itself
             throw new Error "Module cannot require itself"
           types: toTypes[i - 1...]
