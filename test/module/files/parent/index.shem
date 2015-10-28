@@ -1,0 +1,3 @@
+[f] (req ./A/Child-Module)
+
+should-import (test (f 3) 3)
