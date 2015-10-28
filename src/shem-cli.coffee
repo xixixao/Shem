@@ -90,11 +90,10 @@ exports.run = run = (code, options = {}) ->
     while requestedModule = (compiled = compile code, options).request
       requestedSourceFilename = findModuleSourceFile requestedModule, mainModule.filename
       requestedSource = fs.readFileSync requestedSourceFilename, 'utf8'
-      compiledShemCache[requestedSourceFilename] =
-        compileAndAddToCache requestedSource,
-          filename: requestedSourceFilename
-          name: requestedModule
-    runnable compiled
-  code = runnable compileAndAddToCache code, options
+      compileAndAddToCache requestedSource,
+        filename: requestedSourceFilename
+        name: requestedModule
+    compiledShemCache[options.filename] = runnable compiled
+  code = compileAndAddToCache code, options
 
   mainModule._compile code, mainModule.filename

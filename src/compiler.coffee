@@ -1540,7 +1540,8 @@ moduleObjectDeclaration = ->
 topLevelModule = (ctx, form) ->
   definitions = (join (importImplicit ctx), (topLevel ctx, form))
   shouldBeExported = (name, declaration) ->
-    not declaration.virtual and declaration.final and declaration.exported
+    # Exporting all to allow for private members to be imported by submodules
+    not declaration.virtual and declaration.final# and declaration.exported
   isExported = (name, exported) ->
     exported
   nonVirtual = filterMap shouldBeExported, ctx._scope()
@@ -3842,11 +3843,12 @@ irImportTranslate = (ctx, {moduleName, naming, moduleNameAtom}) ->
     return jsNoop()
   {names: pathNames, types} = importedTypedModulePath
   baseType = types[0]
-  numModules =
-    if baseType is 'submodule'
-      1
-    else
-      (filter ((type) -> type is baseType), types).length
+  numModules = types.length
+  # Submodules not supported now
+    # if baseType is 'submodule'
+    #   1
+    # else
+    #   (filter ((type) -> type is baseType), types).length
   moduleHandle =
     if numModules is 1 and pathNames[0] is '.'
       []
@@ -3857,7 +3859,8 @@ irImportTranslate = (ctx, {moduleName, naming, moduleNameAtom}) ->
           start = if currentType isnt 'index' and pathNames[0] is '..' then '.' else pathNames[0]
           [jsCall 'require', [(toJsString ((join [start], pathNames[1...numModules]).join '/'))]]
         when 'browser'
-          [fold jsAccess, 'Shem', pathNames[0...numModules]]
+          # [fold jsAccess, 'Shem', pathNames[0...numModules]]
+          [jsAccess 'Shem', pathNames[0...numModules].join '/']
   parts = join moduleHandle, map validIdentifier, pathNames[numModules...]
   submoduleLookup = reduce jsAccess, parts
   temp = ctx.newJsVariable()
@@ -6169,6 +6172,12 @@ moduleAccessViolation = ({names: toModulePath}, {names: fromModulePath}) ->
         insideSiblings = yes
   false
 
+isParentAccess = ({names: toModulePath}, {names: fromModulePath}) ->
+  for moduleName, i in toModulePath
+    if (from = fromModulePath[i]) and from isnt moduleName
+      return false
+  true
+
 lookupCompiledModule = (name) ->
   lookupInMap compiledModules, name
 
@@ -6190,8 +6199,7 @@ compileModuleTopLevelAst = (ast, typedModulePath = defaultTypedModulePath, requi
       return request: requiredModuleName
   replaceOrAddToMap moduleGraph, moduleName, requires: requiredMap, typedModulePath: typedModulePath
   toInject = requiresFor moduleName
-  ctx = injectedContext toInject
-  ctx.typedModulePath = typedModulePath
+  ctx = injectedContext toInject, typedModulePath
   {definitions, moduleWrapper} = topLevelModule ctx, ast
   {request, ir, js: compiledDefinitions} = compileCtxAstIrToJs ctx, ast, definitions
   if request
@@ -6203,9 +6211,11 @@ compileModuleTopLevelAst = (ast, typedModulePath = defaultTypedModulePath, requi
   errors = checkTypes ctx
   # (finalizeTypes ctx, ast) # TODO: this doesn't work when the AST includes multiple modules with different contexts than the current one
   replaceOrAddToMap compiledModules, moduleName,
-    declared: (subtractContexts ctx, (injectedContext toInject)) # must recompute because ctx is mutated
+    # TODO: get rid of this subtract, use final declaration
+    declared: (subtractContexts ctx, (injectedContext toInject, typedModulePath)) # must recompute because ctx is mutated
     js: js
     compiledDefinitions: compiledDefinitions
+    typedModulePath: typedModulePath
   js: js
   ast: ast
   # types: typeEnumaration ctx
@@ -6240,22 +6250,23 @@ parseWith = (originalAst, ast, compilationFn, typedModulePath, doDeclare) ->
     }
   else
     moduleName = modulePathToName typedModulePath.names
-    {modules, ctx} = contextWithDependencies moduleDependencies moduleName
-    ctx.typedModulePath = typedModulePath
+    {modules, ctx} = contextWithDependencies (moduleDependencies moduleName), typedModulePath
     {js} = compileCtxAstToJs compilationFn, ctx, ast
     errors = checkTypes ctx
     (finalizeTypes ctx, ast)
     if doDeclare
       replaceOrAddToMap compiledModules, moduleName,
-        declared: (subtractContexts ctx, (injectedContext requiresFor moduleName))
+        declared: (subtractContexts ctx, (injectedContext (requiresFor moduleName), typedModulePath))
         ast: originalAst
+        typedModulePath: typedModulePath
     ast: originalAst
     errors: errors
     malformed: ctx.isMalformed
     js: js
 
 expandCall = (moduleName, call) ->
-  {modules, ctx} = contextWithDependencies moduleDependencies moduleName
+  {typedModulePath} = lookupCompiledModule moduleName
+  {modules, ctx} = contextWithDependencies (moduleDependencies moduleName), typedModulePath
   try
     expanded = callMacroExpand ctx, call
     if not isTranslated expanded
@@ -6265,8 +6276,8 @@ expandCall = (moduleName, call) ->
     console.error e
     null
 
-contextWithDependencies = (modules) ->
-  ctx: (injectedContext modules, yes)
+contextWithDependencies = (modules, typedModulePath) ->
+  ctx: (injectedContext modules, typedModulePath, yes)
   modules: setToArray modules
 
 moduleDependencies = (moduleName) ->
@@ -6351,13 +6362,16 @@ subtractContexts = (ctx, what) ->
   nameIndex = ctx.nameIndex
   {definitions, typeNames, classes, macros, savedScopes, nameIndex}
 
-injectedContext = (modulesToInject, shouldDeclare) ->
+# shouldDeclare means that the definitions will be finally declared, as opposed to just readied for import
+injectedContext = (modulesToInject, typedModulePath, shouldDeclare = no) ->
   ctx = new Context
   for moduleName, {naming, importAll} of values modulesToInject when compiled = lookupCompiledModule moduleName
-    injectContext ctx, shouldDeclare, compiled.declared, moduleName, naming or newMap(), importAll
+    isParent = isParentAccess compiled.typedModulePath, typedModulePath
+    injectContext ctx, shouldDeclare, compiled.declared, moduleName, naming or newMap(), importAll, isParent
+  ctx.typedModulePath = typedModulePath
   ctx
 
-injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importAll) ->
+injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importAll, isParent) ->
   {definitions, typeNames, classes, macros} = compiledModule
   topScope = ctx._scope()
   shouldImport = (name) ->
@@ -6380,7 +6394,7 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importA
       arity, docs, source, isClass, virtual, final,
       type: (type if shouldDeclare)
       tempType: type
-      importable: exported
+      importable: isParent or exported
       id: ctx.freshId()}
     if implicit
       addToMap implicitImports, name, newName
@@ -6421,8 +6435,8 @@ requiresFor = (name) ->
     compiled.requires
 
 findAvailableTypes = (moduleName, inferredType) ->
-  {declared: {typeNames}} = lookupCompiledModule moduleName
-  {ctx} = contextWithDependencies reverseModuleDependencies moduleName
+  {declared: {typeNames}, typedModulePath} = lookupCompiledModule moduleName
+  {ctx} = contextWithDependencies (reverseModuleDependencies moduleName), typedModulePath
   printed = (kind, name) ->
     kindArity = kindFnNumArgs kind
     type:
@@ -6447,8 +6461,8 @@ kindFnNumArgs = (kind) ->
     1 + kindFnNumArgs kind.to
 
 findMatchingDefinitions = (moduleName, reference) ->
-  {declared: {savedScopes}} = lookupCompiledModule moduleName
-  {ctx} = contextWithDependencies reverseModuleDependencies moduleName
+  {declared: {savedScopes}, typedModulePath} = lookupCompiledModule moduleName
+  {ctx} = contextWithDependencies (reverseModuleDependencies moduleName), typedModulePath
   {scope, type, pattern, emptyCall} = reference
   return [] unless scope?
   scoped =
@@ -6583,7 +6597,7 @@ findDocsFor = (moduleName, reference) ->
     {name: name, rawType: type, docs, arity, source}
 
 findDeclarationFor = (moduleName, reference) ->
-  {declared: {savedScopes}} = lookupCompiledModule moduleName
+  {declared: {savedScopes}, typedModulePath} = lookupCompiledModule moduleName
   {name, scope} = reference
   # Lookup in subscopes
   while scope > 0 and not found
@@ -6593,7 +6607,7 @@ findDeclarationFor = (moduleName, reference) ->
     scope = savedScope.parent
   # If not found, look in the top scope
   if not found
-    {ctx} = contextWithDependencies reverseModuleDependencies moduleName
+    {ctx} = contextWithDependencies (reverseModuleDependencies moduleName), typedModulePath
     found = lookupInMap ctx._scope(), name # Top scope
   if not found
     docs = (lookupInMap ctx._scope().macros, name)?.docs
