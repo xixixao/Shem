@@ -1556,7 +1556,7 @@ topLevelModule = (ctx, form) ->
       defs = jsStatementList [compiledDefinitions]
       strict = jsStatementList [toJsString 'use strict']
       switch type
-        when 'commonJs'
+        when 'commonJs', 'index'
           [strict
             defs
             (jsAssignStatement 'module.exports', exportDictionary)]
@@ -3854,7 +3854,8 @@ irImportTranslate = (ctx, {moduleName, naming, moduleNameAtom}) ->
       switch baseType
         when 'commonJs'
           [..., currentType] = ctx.typedModulePath.types
-          [jsCall 'require', [(toJsString (pathNames[0...numModules].join '/'))]]
+          start = if currentType isnt 'index' and pathNames[0] is '..' then '.' else pathNames[0]
+          [jsCall 'require', [(toJsString ((join [start], pathNames[1...numModules]).join '/'))]]
         when 'browser'
           [fold jsAccess, 'Shem', pathNames[0...numModules]]
   parts = join moduleHandle, map validIdentifier, pathNames[numModules...]
@@ -6121,7 +6122,6 @@ initCompilationServer = ->
   moduleGraph = newMap()
 
 # TODO: pass this info in through context instead of a direct call
-# TODO: this probably doesn't work if start compiling in some nested module
 moduleNameToRelativeTypedModulePath = (moduleName, currentTypedModulePath) ->
   module = (lookupInMap moduleGraph, moduleName)
   if module
@@ -6134,7 +6134,8 @@ relativePathTo = (toTypedModulePath, fromTypedModulePath) ->
   {names: toModulePath, types: toTypes} = toTypedModulePath
   {names: fromModulePath, types: fromTypes} = fromTypedModulePath
   for moduleName, i in toModulePath
-    if fromModulePath[i] isnt moduleName
+    last = i is toModulePath.length - 1
+    if fromModulePath[i] isnt moduleName or last
       return if i is 0
           # An absolute path
           toTypedModulePath
@@ -6145,6 +6146,9 @@ relativePathTo = (toTypedModulePath, fromTypedModulePath) ->
           names: join ('..' for _ in parentTypes), toModulePath[i...]
         else
           # From current
+          if last
+            # TODO: handle the case when module requires itself
+            throw new Error "Module cannot require itself"
           types: toTypes[i - 1...]
           names: join ['.'], toModulePath[i...]
 
@@ -6168,8 +6172,9 @@ moduleAccessViolation = ({names: toModulePath}, {names: fromModulePath}) ->
 lookupCompiledModule = (name) ->
   lookupInMap compiledModules, name
 
-compileModule = (source) ->
-  compileModuleTopLevel source, (names: ['index'], types: ['commonJs'])
+compileModule = (source, isIndex) ->
+  compileModuleTopLevel source,
+    (names: ['.'], types: [if isIndex then 'index' else 'commonJs'])
 
 defaultTypedModulePath = (names: ['@unnamed'], types: ['browser'])
 
