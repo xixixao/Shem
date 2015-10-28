@@ -5,13 +5,8 @@ compiler = require './compiler'
 
 nameToTypedPath = (moduleName, filename) ->
   modulePath = moduleName.split path.sep
-  type = if isIndex filename then 'index' else 'commonJs'
   names: modulePath
-  types: (for _, i in modulePath
-    if i < modulePath.lenght - 1
-      'commonJs'
-    else
-      type)
+  types: ('commonJs' for _ in modulePath)
   exported: isExported filename
 
 isIndex = (name) ->
@@ -25,7 +20,7 @@ exports.compileModule = compile = (source, options) ->
     if options.name
       compiler.compileModuleTopLevel source, nameToTypedPath options.name, options.filename
     else
-      compiler.compileModule source, isIndex options.filename
+      compiler.compileModule source
   if result.request
     request: result.request
   else if result.malformed
