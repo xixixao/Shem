@@ -3860,7 +3860,7 @@ irImportTranslate = (ctx, {moduleName, naming, moduleNameAtom}) ->
           [jsCall 'require', [(toJsString ((join [start], pathNames[1...numModules]).join '/'))]]
         when 'browser'
           # [fold jsAccess, 'Shem', pathNames[0...numModules]]
-          [jsAccess 'Shem', pathNames[0...numModules].join '/']
+          [jsAccess 'Shem', moduleName]
   parts = join moduleHandle, map validIdentifier, pathNames[numModules...]
   submoduleLookup = reduce jsAccess, parts
   temp = ctx.newJsVariable()
