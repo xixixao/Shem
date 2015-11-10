@@ -693,13 +693,13 @@ class Context
   setUsedNames: (usedNames) ->
     @_scope().usedNames = usedNames
 
-  registerAuxiliaryDefinition: (usedNames, definedNames, def) ->
+  registerAuxiliaryDefinition: (usedNames, definedNames, translatedDef) ->
     for defined in definedNames
       addToMap @auxiliaries(), defined,
         deps: unique usedNames # TODO: use a set??
         defines: definedNames
-        definition: def
-    def
+        definition: translatedDef
+    translatedDef
 
   auxiliaries: ->
     @_scope().auxiliaries
@@ -2547,7 +2547,8 @@ ms.req = ms_req = (ctx, call) ->
             module: moduleName
             name: oldName
           declareImported ctx, newName
-  irImport moduleName, naming, moduleNameAtom
+  ctx.registerAuxiliaryDefinition [], (mapToArray naming),
+    irImport moduleName, naming, moduleNameAtom
 
 resolveModuleName = (ctx, declaredModuleName) ->
   modulePathToName (resolveModulePathFrom ctx.typedModulePath.names,
