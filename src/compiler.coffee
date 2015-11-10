@@ -2723,7 +2723,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
     ctx.preDeclareMacro macroName
     macroCompiled = (termCompile ctx, macroSource)
 
-    usedNames = ctx.usedNames()
+    usedNames = unique ctx.usedNames()
     requiredNames = (findDeps ctx) usedNames
     # Or do this directly from name compile?
     notCompiled = subtractSets (concatSets (arrayToSet usedNames), requiredNames), ctx.auxiliaries()
@@ -2734,7 +2734,8 @@ ms.syntax = ms_syntax = (ctx, call) ->
       deferCurrentDefinition ctx, call
       return deferredExpression()
 
-    dependencies = concat findDefinitionsIncludingDeps ctx, usedNames
+    # TODO: execute compiled module required by this macro, if it is not yet loaded
+    dependencies = findDefinitions ctx, setToArray requiredNames
     compiledMacro = listOfLines translateToJs translateIr ctx, concat [
       [moduleObjectDeclaration()], dependencies, [macroCompiled]]
     retrieve call, macroSource
