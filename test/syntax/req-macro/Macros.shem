@@ -1,2 +1,2 @@
-macro-depending-on-expression (syntax [y]
+reqed-macro (syntax [y]
   3)
