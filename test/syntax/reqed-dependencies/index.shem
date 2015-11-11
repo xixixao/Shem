@@ -1,0 +1,6 @@
+[expression] (req ./Tools)
+
+macro-depending-on-expression (syntax [y]
+  expression)
+
+should-equal (test (macro-depending-on-expression 7) 3)

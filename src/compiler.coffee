@@ -693,10 +693,11 @@ class Context
   setUsedNames: (usedNames) ->
     @_scope().usedNames = usedNames
 
-  registerAuxiliaryDefinition: (usedNames, definedNames, translatedDef) ->
+  registerAuxiliaryDefinition: (usedNames, modules, definedNames, translatedDef) ->
     for defined in definedNames
       addToMap @auxiliaries(), defined,
         deps: unique usedNames # TODO: use a set??
+        modules: modules
         defines: definedNames
         definition: translatedDef
     translatedDef
@@ -1336,7 +1337,7 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
     translation = map (compileDefinitionAssignment ctx), (join translationCache, assigns)
     # directly add to dep graph
     definedNames = (name for {name} in ctx.definedNames())
-    ctx.registerAuxiliaryDefinition ctx.usedNames(), definedNames, translation
+    ctx.registerAuxiliaryDefinition ctx.usedNames(), [], definedNames, translation
     ctx.setUsedNames []
     translation
   else
@@ -1549,30 +1550,29 @@ topLevelModule = (ctx, form) ->
     (filterMap isExported, ctx.submodules) # TODO: separate exporting namespaces according to the separation of namespaces
   exportList = map validIdentifier, (setToArray exported)
   exportDictionary = (jsDictionary exportList, exportList)
-  {typedModulePath} = ctx
+  {definitions, exportDictionary}
+
+topLevelModuleWrapper = (typedModulePath, compiledDefinitions, exportDictionary) ->
   [..., type] = typedModulePath.types
-  definitions: definitions
-  moduleWrapper:
-    (compiledDefinitions) ->
-      defs = jsStatementList [compiledDefinitions]
-      strict = jsStatementList [toJsString 'use strict']
-      switch type
-        when 'commonJs', 'index'
-          [strict
-            defs
-            (jsAssignStatement 'module.exports', exportDictionary)]
-        when 'browser'
-          [(jsAssignStatement (jsAccess "Shem", (modulePathToName typedModulePath.names)),
-            (iife [
-              strict
-              defs
-              (jsReturn exportDictionary)]))]
-        when 'submodule'
-          [..., name] = typedModulePath.names
-          [(jsVarDeclaration (validIdentifier name),
-            (iife [defs, (jsReturn exportDictionary)]))]
-        else
-          throw new Error "Unspecified ctx.moduleCompilationType #{type}"
+  defs = jsStatementList [compiledDefinitions]
+  strict = jsStatementList [toJsString 'use strict']
+  switch type
+    when 'commonJs', 'index'
+      [strict
+        defs
+        (jsAssignStatement 'module.exports', exportDictionary)]
+    when 'browser'
+      [(jsAssignStatement (jsAccess "Shem", (modulePathToName typedModulePath.names)),
+        (iife [
+          strict
+          defs
+          (jsReturn exportDictionary)]))]
+    when 'submodule'
+      [..., name] = typedModulePath.names
+      [(jsVarDeclaration (validIdentifier name),
+        (iife [defs, (jsReturn exportDictionary)]))]
+    else
+      throw new Error "Unspecified ctx.moduleCompilationType #{type}"
 
 topLevelExpressionInModule = (compiledDefinitions) -> (ctx, expression) ->
   (iife (concat [
@@ -2194,7 +2194,7 @@ ms.class = ms_class = (ctx, call) ->
           ctx.declare name, isClass: yes
           methodNames = (keysOfMap freshedDeclarations)
 
-          ctx.registerAuxiliaryDefinition [], methodNames,
+          ctx.registerAuxiliaryDefinition [], [], methodNames,
             dictConstructorFunction name,
               methodNames, superClassNames
         else
@@ -2333,7 +2333,7 @@ ms.instance = ms_instance = (ctx, call) ->
       ctx.setUsedNames oldUsed
 
       # """var #{instanceName} = new #{className}(#{listOf methods});"""
-      ctx.registerAuxiliaryDefinition usedNames, [instanceName],
+      ctx.registerAuxiliaryDefinition usedNames, [], [instanceName],
         ((compileDefinitionAssignment ctx) [(validIdentifier instanceName),
           (irDefinition (new Constrained freshConstraints, (tupleOfTypes methodTypes).type),
             (jsNew (validIdentifier className), (join superClassInstances, methods)))])
@@ -2547,7 +2547,7 @@ ms.req = ms_req = (ctx, call) ->
             module: moduleName
             name: oldName
           declareImported ctx, newName
-  ctx.registerAuxiliaryDefinition [], (mapToArray naming),
+  ctx.registerAuxiliaryDefinition [], [moduleName], (mapToArray naming),
     irImport moduleName, naming, moduleNameAtom
 
 resolveModuleName = (ctx, declaredModuleName) ->
@@ -2672,15 +2672,21 @@ findDefinitionsIncludingDeps = (ctx, names) ->
   findDefinitions ctx, setToArray (findDeps ctx) unique names
 
 findDefinitions = (ctx, names) ->
+  {definitions} = findDefinitionsAndNeededModules ctx, names
+  definitions
+
+findDefinitionsAndNeededModules = (ctx, names) ->
   auxiliaries = ctx.auxiliaries()
   alreadyDefined = newSet()
-  concat (for name in names
+  modules = []
+  definitions = []
+  for name in names
     aux = (lookupInMap auxiliaries, name)
     if aux and not inSet alreadyDefined, name
       addAllToSet alreadyDefined, aux.defines
-      aux.definition
-    else
-      [])
+      modules.push aux.modules...
+      definitions.push aux.definition
+  {modules, definitions}
 
 addSiblingDefines = (ctx, nameSet) ->
   auxiliaries = ctx.auxiliaries()
@@ -2734,10 +2740,20 @@ ms.syntax = ms_syntax = (ctx, call) ->
       deferCurrentDefinition ctx, call
       return deferredExpression()
 
-    # TODO: execute compiled module required by this macro, if it is not yet loaded
-    dependencies = findDefinitions ctx, setToArray requiredNames
+    {definitions: dependencies, modules} =
+      findDefinitionsAndNeededModules ctx, setToArray requiredNames
+
+    # Think of a way to not call the compilation server from here
+    loadModules modules
+
+    # TODO: hack: override module type to force browser compilation for evaling macro
+    oldPath = ctx.typedModulePath
+    ctx.typedModulePath = (browserify ctx.typedModulePath)
+    console.log ctx.typedModulePath
     compiledMacro = listOfLines translateToJs translateIr ctx, concat [
       [moduleObjectDeclaration()], dependencies, [macroCompiled]]
+    ctx.typedModulePath = oldPath
+    console.log compiledMacro
     retrieve call, macroSource
     # TODO: try and catch errors during macro execution
     macroFn = eval compiledMacro
@@ -3851,13 +3867,13 @@ irImportTranslate = (ctx, {moduleName, naming, moduleNameAtom}) ->
     #   1
     # else
     #   (filter ((type) -> type is baseType), types).length
+  [..., currentType] = ctx.typedModulePath.types
   moduleHandle =
     if numModules is 1 and pathNames[0] is '.'
       []
     else
-      switch baseType
-        when 'commonJs'
-          [..., currentType] = ctx.typedModulePath.types
+      switch currentType
+        when 'commonJs', 'index'
           start = if currentType isnt 'index' and pathNames[0] is '..' then '.' else pathNames[0]
           [jsCall 'require', [(toJsString ((join [start], pathNames[1...numModules]).join '/'))]]
         when 'browser'
@@ -6184,6 +6200,14 @@ isParentAccess = ({names: toModulePath}, {names: fromModulePath}) ->
 lookupCompiledModule = (name) ->
   lookupInMap compiledModules, name
 
+# Used to run modules at compile time to be used by macros
+loadModules = (moduleNames) ->
+  for moduleName in moduleNames
+    console.log "Loading module #{moduleName} at compile time"
+    {typedModulePath, compiledDefinitions, exportDictionary} = lookupCompiledModule moduleName
+    js = compileModuleWrapper (browserify typedModulePath), compiledDefinitions, exportDictionary
+    eval js
+
 compileModule = (source, isIndex) ->
   compileModuleTopLevel source,
     (names: ['.'], types: [if isIndex then 'index' else 'commonJs'])
@@ -6203,14 +6227,14 @@ compileModuleTopLevelAst = (ast, typedModulePath = defaultTypedModulePath, requi
   replaceOrAddToMap moduleGraph, moduleName, requires: requiredMap, typedModulePath: typedModulePath
   toInject = requiresFor moduleName
   ctx = injectedContext toInject, typedModulePath
-  {definitions, moduleWrapper} = topLevelModule ctx, ast
+  {definitions, exportDictionary} = topLevelModule ctx, ast
   {request, ir, js: compiledDefinitions} = compileCtxAstIrToJs ctx, ast, definitions
   if request
     if not allInjected request, requiredMap
       return compileModuleTopLevelAst ast, typedModulePath, request
     else
       {js: compiledDefinitions} = compileCtxWithoutRequestIrToJs ctx, ir
-  {js} = compileCtxWithoutRequestIrToJs ctx, moduleWrapper compiledDefinitions
+  js = compileModuleWrapper typedModulePath, compiledDefinitions, exportDictionary
   errors = checkTypes ctx
   # (finalizeTypes ctx, ast) # TODO: this doesn't work when the AST includes multiple modules with different contexts than the current one
   replaceOrAddToMap compiledModules, moduleName,
@@ -6218,12 +6242,17 @@ compileModuleTopLevelAst = (ast, typedModulePath = defaultTypedModulePath, requi
     declared: (subtractContexts ctx, (injectedContext toInject, typedModulePath)) # must recompute because ctx is mutated
     js: js
     compiledDefinitions: compiledDefinitions
+    exportDictionary: exportDictionary
     typedModulePath: typedModulePath
   js: js
   ast: ast
   # types: typeEnumaration ctx
   errors: errors
   malformed: ctx.isMalformed
+
+compileModuleWrapper = (typedModulePath, compiledDefinitions, exportDictionary) ->
+  translateStatementsToJs (topLevelModuleWrapper typedModulePath,
+    compiledDefinitions, exportDictionary)
 
 compileModuleWithDependencies = (typedModulePath = defaultTypedModulePath) ->
   js: library + immutable + (listOfLines map lookupJs,
@@ -6300,6 +6329,9 @@ moduleNameToPath = (name) ->
 
 modulePathsEqual = (path1, path2) ->
   (modulePathToName path1) is (modulePathToName path2)
+
+browserify = ({names, types, exported}) ->
+  {names, types: ('browser' for _ in types), exported}
 
 # Primitive type checking for now
 checkTypes = (ctx) ->
