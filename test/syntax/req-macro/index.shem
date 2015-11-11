@@ -1,0 +1,3 @@
+[macro-depending-on-expression] (req ./Macros)
+
+should-equal (test (macro-depending-on-expression 7) 3)

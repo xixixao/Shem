@@ -2533,20 +2533,22 @@ ms.req = ms_req = (ctx, call) ->
         newName = _symbol reqAtom
         oldName = (_labelName reqLabel if reqLabel) or newName
         oldNameAtom = reqLabel or reqAtom
+        # TODO: figure out shadowing with macros
         if ctx.isFinallyTyped newName, ctx.currentScopeIndex()
           malformed ctx, reqAtom, "#{newName} already declared"
           # TODO: for the following branches, we need to be able to declare multiple definitions of the same name for this logic to work:
-        else if not ctx.isCurrentlyDeclared newName
+        else if not ctx.isDeclaredInTopScopeOrMacro newName
           # TODO: this will not trigger if we define in current/other module
           malformed ctx, oldNameAtom, "#{oldName} was not declared in #{moduleName}"
-        else if not ctx.importable newName
+        else if not ((ctx.importable newName) or ctx.isMacroDeclared newName) # TODO: check access on macros, see injectContext
           malformed ctx, oldNameAtom, "#{oldName} was not exported from #{moduleName}"
         else
-          reqAtom.id = ctx.currentDeclarationId newName
+          reqAtom.id = ctx.currentDeclarationId newName # TODO: ids for macros, or deprecate ids
           reqAtom.imported =
             module: moduleName
             name: oldName
-          declareImported ctx, newName
+          if not ctx.isMacroDeclared newName # TODO: unify macros and defs
+            declareImported ctx, newName
   ctx.registerAuxiliaryDefinition [], [moduleName], (mapToArray naming),
     irImport moduleName, naming, moduleNameAtom
 
@@ -2749,11 +2751,9 @@ ms.syntax = ms_syntax = (ctx, call) ->
     # TODO: hack: override module type to force browser compilation for evaling macro
     oldPath = ctx.typedModulePath
     ctx.typedModulePath = (browserify ctx.typedModulePath)
-    console.log ctx.typedModulePath
     compiledMacro = listOfLines translateToJs translateIr ctx, concat [
       [moduleObjectDeclaration()], dependencies, [macroCompiled]]
     ctx.typedModulePath = oldPath
-    console.log compiledMacro
     retrieve call, macroSource
     # TODO: try and catch errors during macro execution
     macroFn = eval compiledMacro
@@ -6203,7 +6203,6 @@ lookupCompiledModule = (name) ->
 # Used to run modules at compile time to be used by macros
 loadModules = (moduleNames) ->
   for moduleName in moduleNames
-    console.log "Loading module #{moduleName} at compile time"
     {typedModulePath, compiledDefinitions, exportDictionary} = lookupCompiledModule moduleName
     js = compileModuleWrapper (browserify typedModulePath), compiledDefinitions, exportDictionary
     eval js
@@ -6420,6 +6419,8 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importA
     {newName} = imported
     # TODO: figure out how shadowing works
     if not ctx.isMacroFinallyDeclared newName
+      # TODO: I need to add importable, but I cannot do it on the macro function itself which is not copied
+      #       so I need to stop handling the function directly and added as field instead
       addToMap topScope.macros, newName, macro
   implicitImports = newMap()
   for name, definition of values definitions when imported = shouldImport name
