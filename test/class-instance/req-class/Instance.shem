@@ -1,0 +1,7 @@
+[..] (req ../Class)
+
+string-a (instance (A String)
+  f (fn [x]
+    x))
+
+should-compile (test (f "hello") "hello")
