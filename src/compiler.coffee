@@ -6853,1351 +6853,1351 @@ merge = (objects) ->
 extend = (a, b) ->
   merge [a, b]
 
-# Unit tests
-test = (testName, teaSource, result) ->
-  try
-    compiled = (topLevelAndExpression teaSource)
-  catch e
-    logError "Failed to compile test |#{testName}|\n#{teaSource}\n", e
-    return
-  try
-    log (collapse toHtml compiled.ast)
-    if _notEmpty compiled.subs
-      log map formatFail, compiled.subs
-      failure = yes
-    if result isnt (got = eval compiled.compiled)
-      log "'#{testName}' expected", result, "got", got
-      success = no
-    else
-      success = not failure
-  catch e
-    logError "Error in test |#{testName}|\n#{teaSource}\n", e
-  success
-
-tests = [
-  'simple defs'
-  """a 2"""
-  "a", 2
-
-  'more defs'
-  """a 2
-    b 3"""
-  "a", 2
-
-  'constant data'
-  """Color (data Red Blue)
-    r Red
-    b Blue
-    r2 Red"""
-  "(== r r2)", true
-
-  'match numbers'
-  """positive (fn [n]
-      (match n
-        0 False
-        m True))"""
-  "(positive 3)", yes
-
-  'composite data'
-  """Person (data
-      Baby
-      Adult [name: String])
-
-    a (Adult "Adam")
-
-    b Baby
-
-    name (fn [person]
-      (match person
-        (Adult name) name))"""
-  "(name a)", "Adam"
-
-  'records'
-  """Person (record name: String id: Num)
-
-    name (fn [person]
-      (match person
-        (Person name id) name))"""
-  """(name ((Person id: 3) "Mike"))""", "Mike"
-
-  'polymorphic records'
-  """Person (record [a] name: a id: Num)
-
-    name (fn [person]
-      (match person
-        (Person name id) name))"""
-  """(name ((Person id: 3) "Mike"))""", "Mike"
-
-  'recursive data'
-  """
-  Tree (data [a]
-    Val [value: a]
-    Node [child: (Tree a)])
-  """
-  '(Val-value (Node-child (Node (Val 42))))', 42
-
-  'late bound function'
-  """f (fn [x] (g x))
-    g (fn [x] 2)"""
-  "(f 4)", 2
-
-  'late bound def'
-  """[x y] z
-    z [1 2]"""
-  "y", 2
-
-  'tuples'
-  """snd (fn [pair]
-      (match pair
-        [x y] y))"""
-  "(snd [1 2])", 2
-
-  'match data'
-  """Person (record name: String id: Num)
-    name (fn [person]
-      (match person
-        (Person "Joe" id) 0
-        (Person name id) id))"""
-  """(name (Person "Mike" 3))""", 3
-
-  'seqs'
-  """{x y z} list
-     list {1 2 3}"""
-  "z", 3
-
-  'match seq'
-  """tail? (fn [list]
-      (match list
-        {} False
-        xx True))
-    {x ..xs} {1}"""
-  "(tail? xs)", no
-
-  'seq splice in match'
-  """
-    & (macro [what to]
-      (: (Fn a (Array a) (Array a)))
-      (Js.call (Js.access to "unshift") {what}))
-
-    map (fn [what to]
-      (match to
-        {} {}
-        {x ..xs} (& (what x) (map what xs))))
-
-    {{x} ..xs} (map (& 42) {{}})"""
-  "x", 42
-
-  'typed function'
-  """f (fn [x y]
-    (: (Fn Bool String Bool))
-    x)"""
-  """(f True "a")""", yes
-
-  'classes'
-  """Show (class [a]
-      show (fn [x] (: (Fn a String))))
-
-    show-string (instance (Show String)
-      show (fn [x] x))
-
-    aliased-show (fn [something]
-      (show something))
-
-    showed-simply (show "Hello")
-    showed-via-alias (aliased-show "Hello")"""
-  "(== showed-simply showed-via-alias)", yes
-
-  'multiple methods'
-  """Util (class [a]
-      show (fn [x] (: (Fn a String)))
-      read (fn [x] (: (Fn String a))))
-
-    util-string (instance (Util String)
-       show (fn [x] x)
-       read (fn [x] x))
-
-    test (fn [string]
-      (: (Fn String String))
-      (read (show string)))"""
-  """(test "Hello")""", "Hello"
-
-  'multiple instances'
-  """
-    Show (class [a]
-      show (fn [x] (: (Fn a String))))
-
-    show-string (instance (Show String)
-      show (fn [x] x))
-
-    show-bool (instance (Show Bool)
-      show (fn [x]
-        (match x
-          True "True"
-          False "False")))"""
-  "(show False)", "False"
-
-  'instance constraints'
-  """
-    Show (class [a]
-      show (fn [x] (: (Fn a String))))
-
-    show-string (instance (Show String)
-      show (fn [x] x))
-
-    show-snd (instance (Show [a b])
-      {(Show a) (Show b)}
-      show (fn [x]
-        (match x
-          [fst snd] (show snd))))"""
-  """(show ["Adam" "Michal"])""", "Michal"
-
-  'instance constraints on array' # Tests where clause typing
-  """
-    Show (class [a]
-      show (fn [x] (: (Fn a String))))
-
-    show-string (instance (Show String)
-      show (fn [x] x))
-
-    head (fn [array]
-      x
-      {x ..xs} array)
-
-    show-snd (instance (Show (Array a))
-      {(Show a)}
-      show (fn [array]
-        (show (head array))))"""
-  """(show {"Michal" "Adam"})""", "Michal"
-
-  'multiple constraints'
-  """
-    Show (class [a]
-      show (fn [x] (: (Fn a String))))
-
-    Hide (class [a]
-      hide (fn [x] (: (Fn a String))))
-
-    show-string (instance (Show String)
-      show (fn [x] x))
-
-    hide-string (instance (Hide String)
-      hide (fn [x] x))
-
-    f (fn [x]
-      (== (show x) (hide x)))
-  """
-  """(f "Hello")""", yes
-
-  'superclasses'
-  """
-    Eq (class [a]
-      = (fn [x y] (: (Fn a a Bool))))
-
-    Ord (class [a]
-      {(Eq a)}
-      <= (fn [x y] (: (Fn a a Bool))))
-
-    eq-bool (instance (Eq Bool)
-      = (fn [x y]
-        (match [x y]
-          [True True] True
-          [False False] True
-          [w z] False)))
-
-    ord-bool (instance (Ord Bool)
-      <= (fn [x y]
-        (match [x y]
-          [True any] True
-          [w z] (= w z))))
-
-    test (fn [x]
-      (== (<= x x) (= x x)))
-    """
-  """(test False)""", yes
-
-  'function with constrained result'
-  """
-    Eq (class [a]
-      = (fn [x y] (: (Fn a a Bool))))
-
-    != (fn [x y]
-      (not (= x y)))
-
-    not (fn [x]
-      (match x
-        False True
-        True False))
-
-    eq-bool (instance (Eq Bool)
-      = (fn [x y]
-        (match [x y]
-          [True True] True
-          [False False] True
-          [w z] False)))
-  """
-  "(!= False True)", yes
-
-  'polymorphic data'
-  """
-    Maybe (data [a]
-      None
-      Just [value: a])
-
-    from-just (fn [maybe]
-      (match maybe
-        (Just x) x))
-  """
-  "(from-just (Just 42))", 42
-
-  'js unary op'
-  """
-    ~ (macro [x]
-      (: (Fn Num Num))
-      (Js.unary "-" x))
-    x -42
-  """
-  "(~ x)", 42
-
-  'js binary op'
-  """
-    + (macro [x y]
-      (: (Fn Num Num Num))
-      (Js.binary "+" x y))
-  """
-  "(+ 1 2)", 3
-
-  'js cond'
-  """
-    if (macro [what then else]
-      (: (Fn Bool a a a))
-      (Js.ternary what then else))
-  """
-  "(if False 1 2)", 2
-
-  'currying functional macros'
-  """
-    * (macro [x y]
-      (: (Fn Num Num Num))
-      (Js.binary "*" x y))
-
-    f (* 2)
-  """
-  "(f 3)", 6
-
-  'getters'
-  """
-    Person (record
-      first: String last: String)
-
-    jack (Person "Jack" "Jack")
-  """
-  "(== (Person-first jack) (Person-last jack))", yes
-
-  'macros in instances'
-  """
-    Show (class [a]
-      show (fn [x] (: (Fn a String))))
-
-    num-to-string (macro [n]
-      (: (Fn Num String))
-      (Js.binary "+" n "\\"\\""))
-
-    show-num (instance (Show Num)
-      show (fn [x]
-        (num-to-string x)))
-  """
-  "(show 3)", '3'
-
-  'fib'
-  """fibonacci (fn [month] (adults month))
-
-    adults (fn [month]
-      (match month
-        1 0
-        n (+ (adults previous-month) (babies previous-month)))
-      previous-month (- 1 month))
-
-    babies (fn [month]
-      (match month
-        1 1
-        n (adults (- 1 month))))
-
-    + (macro [x y]
-      (: (Fn Num Num Num))
-      (Js.binary "+" x y))
-
-    - (macro [x y]
-      (: (Fn Num Num Num))
-      (Js.binary "-" y x))"""
-    "(fibonacci 7)", 8
-
-  'Map literal'
-  """
-    data {a: True b: False}
-
-    key? (macro [what in]
-      (: (Fn k (Map k i) Bool))
-      (Js.call (Js.access in "has") {what}))
-
-    at (macro [key in]
-      (: (Fn k (Map k i) i))
-      (Js.call (Js.access in "get") {key}))
-  """
-  """(== (key? "c" data) (at "b" data))""", yes
-
-  'create Set'
-  """
-    data (Set "Adam" "Vojta" "Michal")
-
-    elem? (macro [what in]
-      (: (Fn i (Set i) Bool))
-      (Js.call (Js.access in "has") {what}))
-  """
-  """(elem? "Michal" data)""", yes
-
-  'create Map'
-  """
-    data (Map 3 "a" 5 "b")
-
-    at (macro [key in]
-      (: (Fn k (Map k i) i))
-      (Js.call (Js.access in "get") {key}))
-  """
-  """(at 5 data)""", 'b'
-
-  'type alias'
-  """
-    Point (type [Num Num])
-
-    x (fn [p]
-      (: (Fn Point Num))
-      first
-      [first second] p)
-  """
-  "(x [3 4])", 3
-
-  'collections'
-  """
-    Collection (class [collection]
-      elem? (fn [what in]
-        (: (Fn item (collection item) Bool))
-        (# Whether in contains what .)))
-
-    Bag (class [bag]
-      {(Collection bag)}
-
-      fold (fn [with initial over]
-        (: (Fn (Fn item b b) b (bag item)))
-        (# Fold over with using initial .))
-
-      length (fn [bag]
-        (: (Fn (bag item) Num))
-        (# The number of items in the bag .))
-
-      empty? (fn [bag]
-        (: (Fn (bag item) Bool))
-        (# Whether the bag contains no elements.)))
-
-    list-elem? (macro [what in]
-      (: (Fn item (Array item) Bool))
-      (Js.call (Js.access in "contains") {what}))
-
-    collection-list (instance (Collection Array)
-      elem? (fn [what in]
-        (list-elem? what in)))
-  """
-  "(elem? 3 {1 2 3})", yes
-
-  'multiparam classes'
-  """
-    Collection (class [ce e]
-      first (fn [in]
-        (: (Fn (ce e) e))))
-
-    list-first (macro [in]
-      (: (Fn (Array item) item))
-      (Js.call (Js.access in "first") {}))
-
-    list-collection (instance (Collection Array a)
-      first (fn [in]
-        (list-first in)))
-  """
-  "(first {42 43 44})", 42
-
-  'functional deps'
-  """
-    Collection (class [ce e]
-      first (fn [in]
-        (: (Fn ce e))))
-
-    list-first (macro [in]
-      (: (Fn (Array item) item))
-      (Js.call (Js.access in "first") {}))
-
-    list-collection (instance (Collection (Array a) a)
-      first (fn [in]
-        (list-first in)))
-  """
-  "(first {42 43 44})", 42
-
-  'functional deps on function'
-  """
-    Map (class [m k v]
-      put (fn [key value map]
-        (: (Fn k v m m))))
-
-    map-map (instance (Map (Map k v) k v)
-      put (macro [key value map]
-        (: (Fn k v (Map k v) (Map k v)))
-        (Js.call (Js.access map "set") {key value})))
-
-    count (macro [map]
-      (: (Fn (Map k v) Num))
-      (Js.access map "size"))
-
-    magic (fn [key map]
-      (put key 42 map))
-  """
-  "(count (magic \\C (Map)))", 1
-
-  'super classes with less params'
-  """
-    Bag (class [b i]
-      length (fn [bag]
-        (: (Fn b Num)))
-      id (fn [item]
-        (: (Fn i i))))
-
-    Map (class [m k v]
-      {(Bag m v)}
-      put (fn [key value map]
-        (: (Fn k v m m))))
-
-    map-bag (instance (Bag (Map k v) v)
-      length (macro [map]
-        (: (Fn (Map k v) Num))
-        (Js.access map "size"))
-      id (fn [x] x))
-
-    map-map (instance (Map (Map k v) k v)
-      put (macro [key value map]
-        (: (Fn k v (Map k v) (Map k v)))
-        (Js.call (Js.access map "set") {key value})))
-
-    magic (fn [key map]
-      (put key 42 map))
-  """
-  "(length (magic \\C (Map)))", 1
-
-  'functional deps with instance constraints'
-  """
-    Stack (data [a]
-      Nil
-      Node [value: a tail: (Stack a)])
-
-    Eq (class [a]
-      = (fn [x y] (: (Fn a a Bool))))
-
-    num-eq (instance (Eq Num)
-      = (macro [x y]
-        (: (Fn Num Num Bool))
-        (Js.binary "===" x y)))
-
-    Collection (class [collection item]
-      elem? (fn [what in]
-        (: (Fn item collection Bool))))
-
-    Bag (class [bag item]
-      fold (fn [with initial over]
-        (: (Fn (Fn a item a) a bag a))))
-
-    stack-collection (instance (Collection (Stack a) a)
-      {(Eq a)}
-      elem? (fn [what in]
-        (= what what)))
-
-    stack-bag (instance (Bag (Stack a) a)
-      fold (fn [with initial over]
-        (match over
-          Nil initial
-          (Node x xs) (fold with (with initial x) xs))))
-  """
-  "(elem? 2 (Node 2 Nil))", yes
-  # Dependency on subclass not supported now:
-  #     (fold found-or-equals False in)
-  #     found-or-equals (fn [found item]
-  #       (= what item))
-
-  'deferring constraints on explicitly typed Js-inferred values'
-  """
-  Eq (class [a]
-    = (fn [x y] (: (Fn a a Bool))))
-
-  num-eq (instance (Eq Num)
-    = (macro [x y]
-      (: (Fn Num Num Bool))
-      (Js.binary "===" x y)))
-
-  Set (class [set item]
-    remove (fn [what from]
-      (: (Fn item set item))))
-
-  array-set (instance (Set (Array a) a)
-    {(Eq a)}
-    remove (fn [what from]
-      (:: a (.indexOf from what))))
-  """
-  "(remove 2 {1 2 3})", 1
-
-  'nested pattern matching'
-  """
-    f (fn [x]
-      y
-      [[z y] g] x)
-  """
-  "(f [[2 42] 3])", 42
-
-  'deferring in tuples'
-  """
-    g [f {} 3]
-    f 4
-    [o t r] g
-  """
-  "o", 4
-
-  'multiple generic constraints'
-  """
-    Show (class [a]
-      show (fn [x] (: (Fn a String))))
-
-    show-string (instance (Show String)
-      show (fn [x] x))
-
-    f (fn [pair]
-      [(show a) (show b)]
-      [a b] pair)
-
-    [x y] (f ["A" "B"])
-  """
-  """x""", "A"
-
-  'higher-order use of constrained function'
-  """
-    Show (class [a]
-      show (fn [x] (: (Fn a String))))
-
-    show-string (instance (Show String)
-      show (fn [x] x))
-
-    f (fn [pair]
-      [(show a) (show b)]
-      [a b] pair)
-
-    apply (fn [m to]
-      (m to))
-
-    [x y] (apply f ["A" "B"])
-  """
-  """x""", "A"
-
-  'deeply deferred'
-  """
-    c b
-    b a
-    a 3
-  """
-  "c", 3
-
-  'compile before typing due to multiple deferred'
-  """
-    a (f 3)
-    f (fn [x] (h g x))
-    g (fn [x] b)
-    h (fn [y z] (y z))
-    b 4
-    c (f 2)
-  """
-  "a", 4
-
-  'more deferred'
-  """
-    a (e 3)
-
-    map (fn [l] (l 2))
-
-    e (fn [x]
-      (map f)
-      k (g 2))
-
-    f (fn [x]
-      (h 2))
-
-    g (fn [x]
-      2)
-
-    h (fn [x]
-      (j 1))
-
-    j (fn [x]
-      2)
-  """
-  "a", 2
-
-  'constants in classes'
-  """
-  A (class [c e]
-    empty (: c)
-
-    first (fn [x] (: (Fn c e))))
-
-  list-a (instance (A (Array a) a)
-    empty {}
-
-    first (macro [list]
-      (: (Fn (Array a) a))
-      (Js.call (Js.access list "first") {})))
-
-  unshift (macro [what to]
-    (: (Fn a (Array a) (Array a)))
-    (Js.call (Js.access to "unshift") {what}))
-  """
-  "(first (unshift 3 empty))", 3
-
-  # TODO: this works, but show that we honor the monorphism restriction
-  #       in the sense that some is inferred a concrete type
-  #       although it should have a polymorphic type or it should error
-  #       this is because we compile as if x and some where in the same
-  #       implicitly typed group
-  'values with constraints'
-  """
-  A (class [c]
-    empty (: c))
-
-  B (class [c e]
-    add (fn [what to] (: (Fn e c c))))
-
-  list-a (instance (A (Array a))
-    empty {})
-
-  list-b (instance (B (Array a) a)
-    add (macro [what to]
-      (: (Fn a (Array a) (Array a)))
-      (Js.call (Js.access to "unshift") {what})))
-
-  first (macro [list]
-    (: (Fn (Array a) a))
-    (Js.call (Js.access list "first") {}))
-
-  some (add 2 empty)
-
-  x (first some)
-  """
-  "x", 2
-
-  'curried type constructor'
-  """
-  + (macro [x y]
-    (: (Fn Num Num Num))
-    (Js.binary "+" x y))
-
-  get (macro [key from]
-    (: (Fn k (Map k v) v))
-    (Js.method from "get" {key}))
-
-  put (macro [key value into]
-    (: (Fn k v (Map k v) (Map k v)))
-    (Js.method into "set" {key value}))
-
-  Mappable (class [wrapper]
-    map (fn [what onto]
-      (: (Fn (Fn a b) (wrapper a) (wrapper b)))
-      (# Apply what to every value inside onto .)))
-
-  reduce-map (macro [with initial over]
-    (: (Fn (Fn a v k a) a (Map k v) a))
-    (Js.method over "reduce" {with initial}))
-
-  map-mappable (instance (Mappable (Map k))
-    map (fn [what onto]
-      (reduce-map helper (Map) onto)
-      helper (fn [acc value key]
-        (put key (what value) acc))))
-  """
-  """(get "c" (map (+ 1) {a: 3 b: 2 c: 4}))""", 5
-
-  'reduced call context'
-  """
-  Bag (class [bag item]
-    empty (: bag)
-
-    fold (fn [with initial over]
-      (: (Fn (Fn item a a) a bag a)))
-
-    append (fn [what to]
-      (: (Fn bag bag bag)))
-
-    first (fn [of]
-      (: (Fn bag item))))
-
-  array-bag (instance (Bag (Array a) a)
-    empty {}
-
-    fold (macro [with initial list]
-      (: (Fn (Fn a b b) b (Array a) b))
-      (Js.method list "reduce"
-        {(fn [acc x] (with x acc)) initial}))
-
-    append (macro [what to]
-      (: (Fn (Array a) (Array a) (Array a)))
-      (Js.method to "concat" {what}))
-
-    first (macro [list]
-      (: (Fn (Array a) a))
-      (Js.method list "first" {})))
-
-  concat (fn [bag-of-bags]
-    (fold append empty bag-of-bags))
-  """
-  "(first (concat {{1} {2} {3}}))", 1
-
-  'mixing constructor classes with fundeps'
-  concatTest = """
-  Mappable (class [wrapper]
-    map (fn [what onto]
-      (: (Fn (Fn a b) (wrapper a) (wrapper b)))))
-
-  Bag (class [bag item]
-    size (fn [bag]
-      (: (Fn bag Num)))
-
-    empty (: bag)
-
-    fold (fn [with initial over]
-      (: (Fn (Fn item a a) a bag a)))
-
-    join (fn [what with]
-      (: (Fn bag bag bag))))
-
-  array-mappable (instance (Mappable Array)
-    map (macro [what over]
-      (: (Fn (Fn a b) (Array a) (Array b)))
-      (Js.method over "map" {what})))
-
-  array-bag (instance (Bag (Array a) a)
-    size (macro [list]
-      (: (Fn (List a) Num))
-      (Js.access list "size"))
-
-    empty {}
-
-    fold (macro [with initial list]
-      (: (Fn (Fn a b b) b (Array a) b))
-      (Js.method list "reduce"
-        {(fn [acc x] (with x acc)) initial}))
-
-    join (macro [what with]
-      (: (Fn (Array a) (Array a) (Array a)))
-      (Js.method what "concat" {with})))
-
-  concat (fn [bag-of-bags]
-    (fold join empty bag-of-bags))
-
-  concat-map (fn [what over]
-    (concat (map what over)))
-  """
-  """(size (concat-map (fn [x] {1}) {1 2 3}))""", 3
-
-  'overloaded subfunctions'
-  """
-  #{concatTest}
-
-  concat-suffix (fn [suffix what]
-    (fold join-suffix empty what)
-    join-suffix (fn [x joined]
-      (concat {joined suffix x})))
-  """
-  "(size (concat-suffix {1} (concat-map (fn [x] {{1}}) {1 2 3})))", 6
-
-  'overloaded subfunctions 2'
-  """
-  id (fn [x] x)
-
-  Bag (class [bag item]
-    fold (fn [with initial over]
-      (: (Fn (Fn item a a) a bag a))))
-
-  fold-right (fn [with initial over]
-    ((fold helper id over) initial)
-    helper (fn [x r acc]
-      (r (with x acc))))
-  """
-  "6", 6
-
-  'overloaded subfunctions 3'
-  """
-  Deq (class [seq item]
-    && (fn [what to]
-      (: (Fn item seq seq))))
-
-  array-deq (instance (Deq (Array a) a)
-    && (macro [what to]
-      (: (Fn a (Array a) (Array a)))
-      (Js.method to "push" {what})))
-
-  Appendable (class [collection item]
-    & (fn [what to]
-      (: (Fn item collection collection))))
-
-  Bag (class [bag item]
-    empty (: bag)
-
-    fold (fn [with initial over]
-      (: (Fn (Fn item a a) a bag a))))
-
-  split (fn [bag]
-    (: (Fn ba (Array ba)) (Appendable ba a) (Bag ba a))
-    (fold wrap {} bag)
-    wrap (fn [x all]
-      (&& (& x empty) all)))
-  """
-  "6", 6
-
-  'overloaded subfunctions 4'
-  """
-  id (fn [x] x)
-
-  if (macro [what then else]
-    (: (Fn Bool a a a))
-    (Js.ternary what then else))
-
-  Bag (class [bag item]
-    fold (fn [with initial over]
-      (: (Fn (Fn item a a) a bag a))
-      (# Fold over using with and initial folded value .)))
-
-  Appendable (class [collection item]
-    & (fn [what to]
-      (: (Fn item collection collection))))
-
-  fold-right (fn [with initial over]
-    ((fold wrap id over) initial)
-    wrap (fn [x r acc]
-      (r (with x acc))))
-
-  array-bag (instance (Bag (Array a) a)
-    fold (macro [with initial list]
-      (: (Fn (Fn a b b) b (Array a) b))
-      (Js.method list "reduce"
-        {(fn [acc x] (with x acc)) initial})))
-
-  array-appendable (instance (Appendable (Array a) a)
-    & (macro [what to]
-      (: (Fn a (Array a) (Array a)))
-      (Js.method to "unshift" {what})))
-
-  chars (macro [string]
-    (: (Fn String (Array Char)))
-    (Js.call "Immutable.List"
-      {(Js.method string "split" {"''"})}))
-
-  string-bag (instance (Bag String Char)
-    fold (fn [with initial string]
-      (fold with initial (chars string))))
-
-  string-appendable (instance (Appendable String Char)
-    & (macro [what to]
-      (: (Fn Char String String))
-      (Js.binary "+" what to)))
-
-  Set (class [set item]
-    elem? (fn [what in]
-      (: (Fn item set Bool))
-      (# Whether in contains what .)))
-
-  set-set (instance (Set (Set a) a)
-    elem? (macro [what in]
-      (: (Fn (Set a) a Bool))
-      (Js.method in "contains" {what})))
-
-  my-split (fn [separators text]
-    (fold-right distinguish ["" {""}] text)
-    distinguish (fn [letter done]
-      (if (elem? letter separators)
-        [(& letter seps-in-order) (& "" words)]
-        [seps-in-order (& (& letter first-word) rest-words)])
-      {first-word ..rest-words} words
-      [seps-in-order words] done))
-
-  separators (Set \\space \\, \\!)
-
-  [seps words] (my-split separators "Hello, world!")
-  """
-  "seps", ", !"
-
-  'recursive overloaded functions'
-  """
-  Show (class [a]
-    show (fn [x] (: (Fn a String))))
-
-  show-string (instance (Show String)
-    show (fn [x] x))
-
-  show-bool (instance (Show Bool)
-    show (fn [x] "Bool"))
-
-  aliased-show (fn [something b]
-    (match b
-      True (aliased-show something False)
-      False (show something)))
-
-  x (aliased-show "Bool" True)
-  y (fn [x] (aliased-show x True))
-  """
-  "(== x (y True))", yes
-
-  'ffi function'
-  """
-    upper-case (fn [x]
-      (: (Fn String String))
-      (.toUpperCase x))
-  """
-  """(upper-case "Hello")""", "HELLO"
-
-  'ffi expression'
-  """"""
-  """(.toUpperCase "x")""", "X"
-
-  'ffi access'
-  """"""
-  "Math.PI", Math.PI
-
-  'ffi access on global'
-  """"""
-  "global.Math.PI", Math.PI
-
-  'sets'
-  """
-  first (macro [set]
-    (: (Fn (Set a) a))
-    (Js.method set "first" {}))
-  x 2
-  y (Set x 1 3)
-  """
-  '(first y)', 2
-
-  'recursion in subfunction'
-  """
-  f (fn [x]
-    (match x
-      True False
-      False g)
-    g (f True))
-  """
-  'False', no
-
-  'lifting into conditionals'
-  """
-  f (fn [x]
-    (cond
-      x False
-      True g)
-    g (f True))
-  """
-  '(f False)', no
-
-  'lifting with nested functions'
-  """
-  f (fn [x]
-    ((fn [y]
-        g) 2)
-    g 3)
-  """
-  '(f False)', 3
-
-  'lifting into match conditional'
-  """
-  f (fn [x]
-    (match x
-      True False
-      False g)
-    g (f h)
-    h True)
-  """
-  '(f False)', no
-
-  'lifting into match'
-  """
-  Maybe (data [a]
-    None
-    Just [value: a])
-
-  f (fn [x]
-    (match x
-      None 0
-      (Just y) g)
-    g y)
-  """
-  '(f (Just 4))', 4
-
-  'lifting into match from a call'
-  """
-  Maybe (data [a]
-    None
-    Just [value: a])
-
-  f (fn [x]
-    (match x
-      None 0
-      (Just [y z]) g)
-    g (y z))
-  """
-  '(f (Just [(fn [w] w) 2]))', 2
-
-  'shadowing'
-  """
-  f (macro [n]
-    (: (Fn Num Num))
-    (Js.binary "+" n 2))
-
-  g (fn [x]
-    y
-    y (f x)
-    f (fn [y] y))
-  """
-  '(g 3)', 3
-
-  'zero arity'
-  """
-  f (fn [] 4)
-
-  g (f)
-  """
-  'g', 4
-
-  'syntax macro'
-  """
-  id (syntax [x]
-    x)
-
-  some (syntax [y]
-    (` (id (, y))))
-  """
-  '(some 42)', 42
-
-  'pattern match syntax'
-  """
-  + (macro [x y]
-    (: (Fn Num Num Num))
-    (Js.binary "+" x y))
-
-  infix (syntax [exp]
-    (match exp
-      (` ((, x) (, op) (, z))) (` ((, op) (, x) (, z)))
-      _ (` "Failed to match syntax")))
-
-  f (infix (3 + 4))
-  """
-  'f', 7
-
-  'shortened syntax quote'
-  """
-  + (macro [x y]
-    (: (Fn Num Num Num))
-    (Js.binary "+" x y))
-
-  infix (syntax [exp]
-    (match exp
-      (` ,x ,op ,z) (` ,op ,x ,z)
-      _ (` "Failed to match syntax")))
-
-  f (infix (3 + 4))
-  """
-  'f', 7
-
-  'constraints and deferring'
-  """
-  Show (class [a]
-    show (fn [x] (: (Fn a String))))
-
-  show-string (instance (Show String)
-    show (fn [x] x))
-
-  s (fn [y]
-    (show y))
-
-  f (fn [x]
-    g)
-
-  g "2"
-
-  r (fn [y]
-    (f (s y)))
-
-  j (fn [x]
-    (r "src"))
-  """
-  '(j 2)', "2"
-
-  'deferred in where'
-  """
-  f (fn [x] g)
-
-  g 3
-
-  h (fn [x]
-    2
-    gg (fn [x]
-      ff)
-    ff (f ""))
-  """
-  '(h 3)', 2
-
-  'overloaded reference'
-  """
-  Mappable (class [wrapper]
-    map (fn [what onto]
-      (: (Fn (Fn a b) (wrapper a) (wrapper b)))))
-
-  array-mappable (instance (Mappable Array)
-    map (macro [what over]
-      (: (Fn (Fn a b) (Array a) (Array b)))
-      (Js.method over "map" {what})))
-
-  g (fn [lines]
-    (map f lines))
-
-  f (fn [x]
-    x)
-
-  expand (fn [x]
-    gg
-    gg (g {""}))
-  """
-  '3', 3
-
-  'defer in subdefinition'
-  """
-  f (fn [x]
-    ""
-    g (fn [y]
-      ((fn [x] x) h))
-    h ((fn [x] x) x))
-  """
-  '3', 3
-
-  'dont lift when used in function'
-  """
-  Maybe (data [a]
-    None
-    Some [value: a])
-
-  f (fn [x]
-    (match x
-      None (g 4)
-      (Some v) h)
-    h 45
-    hh h
-    g (fn [x]
-      h)
-    p (fn [x] (p x)))
-  """
-  '(f None)', 45
-
-  'ambiguity on deferred non polymorphic'
-  """
-  Show (class [a]
-    show (fn [x] (: (Fn a String))))
-
-  show-string (instance (Show String)
-    show (fn [x] x))
-
-  f (fn [x]
-    (g x))
-
-  g (fn [y]
-    "")
-
-  expand (fn [z w]
-    ""
-    d (f (show w)))
-  """
-  '(expand 3 "2")', ""
-
-  'shadowing in resolve deferred types'
-  """
-  f (fn [x]
-    (g x))
-
-  g (fn [y]
-    "")
-
-  d 4
-
-  expand (fn [z w]
-    ""
-    d (f 3))
-  """
-  '(expand 3 "2")', ""
-
-  'using constructor in deferred definition'
-  """
-  Maybe (data [a]
-    None
-    Just [value: a])
-
-  test (fn []
-    (Just x)
-    x (test2))
-
-  test2 (fn []
-    42)
-  """
-  "(Just-value (test))", 42
-
-  # TODO: support matching with the same name
-  #       to implement this we need the iife to take as arguments all variables
-  #       with the same names, since JavaScript shadows it too strongly and
-  #       replaces the value with undefined
-  # test "test", "f (fn [x] (match x x x)) (f 2)", 2
-  # so:
-  #function f(x) {
-  # return (function (x){
-  #   var x = x;
-  #   return x;
-  # })(x);
-  #}
-  # This is necessary because we might be reusing the name for something else
-  # Or we can just mangle the name like PureScript does it
-]
-
-testNamed = (givenName) ->
-  for [name, source, expression, result] in tuplize 4, tests when name is givenName
-    return source + "\n" + "_ " + expression
-  throw new Error "Test #{givenName} not found!"
-
-logError = (message, error) ->
-  log message, error.message, (error.stack
-    .replace(/\n?((\w+)[^>\n]+>[^>\n]+>[^>\n]+:(\d+:\d+)|.*)(?=\n)/g, '\n$2 $3')
-    .replace(/\n (?=\n)/g, ''))
-
-debug = (fun) ->
-  try
-    fun()
-  catch e
-    logError "debug", e
-
-runTest = (givenName) ->
-  for [name, source, expression, result] in tuplize 4, tests when name is givenName
-    test name, source + "\n" + expression, result
-  "Done"
-
-runTests = (tests) ->
-  results = for [name, source, expression, result] in tuplize 4, tests
-    test name, source + "\n" + expression, result
-  if all results
-    "All correct"
-  else
-    (filter _not, results).length + " failed"
+# # Unit tests
+# test = (testName, teaSource, result) ->
+#   try
+#     compiled = (topLevelAndExpression teaSource)
+#   catch e
+#     logError "Failed to compile test |#{testName}|\n#{teaSource}\n", e
+#     return
+#   try
+#     log (collapse toHtml compiled.ast)
+#     if _notEmpty compiled.subs
+#       log map formatFail, compiled.subs
+#       failure = yes
+#     if result isnt (got = eval compiled.compiled)
+#       log "'#{testName}' expected", result, "got", got
+#       success = no
+#     else
+#       success = not failure
+#   catch e
+#     logError "Error in test |#{testName}|\n#{teaSource}\n", e
+#   success
+
+# tests = [
+#   'simple defs'
+#   """a 2"""
+#   "a", 2
+
+#   'more defs'
+#   """a 2
+#     b 3"""
+#   "a", 2
+
+#   'constant data'
+#   """Color (data Red Blue)
+#     r Red
+#     b Blue
+#     r2 Red"""
+#   "(== r r2)", true
+
+#   'match numbers'
+#   """positive (fn [n]
+#       (match n
+#         0 False
+#         m True))"""
+#   "(positive 3)", yes
+
+#   'composite data'
+#   """Person (data
+#       Baby
+#       Adult [name: String])
+
+#     a (Adult "Adam")
+
+#     b Baby
+
+#     name (fn [person]
+#       (match person
+#         (Adult name) name))"""
+#   "(name a)", "Adam"
+
+#   'records'
+#   """Person (record name: String id: Num)
+
+#     name (fn [person]
+#       (match person
+#         (Person name id) name))"""
+#   """(name ((Person id: 3) "Mike"))""", "Mike"
+
+#   'polymorphic records'
+#   """Person (record [a] name: a id: Num)
+
+#     name (fn [person]
+#       (match person
+#         (Person name id) name))"""
+#   """(name ((Person id: 3) "Mike"))""", "Mike"
+
+#   'recursive data'
+#   """
+#   Tree (data [a]
+#     Val [value: a]
+#     Node [child: (Tree a)])
+#   """
+#   '(Val-value (Node-child (Node (Val 42))))', 42
+
+#   'late bound function'
+#   """f (fn [x] (g x))
+#     g (fn [x] 2)"""
+#   "(f 4)", 2
+
+#   'late bound def'
+#   """[x y] z
+#     z [1 2]"""
+#   "y", 2
+
+#   'tuples'
+#   """snd (fn [pair]
+#       (match pair
+#         [x y] y))"""
+#   "(snd [1 2])", 2
+
+#   'match data'
+#   """Person (record name: String id: Num)
+#     name (fn [person]
+#       (match person
+#         (Person "Joe" id) 0
+#         (Person name id) id))"""
+#   """(name (Person "Mike" 3))""", 3
+
+#   'seqs'
+#   """{x y z} list
+#      list {1 2 3}"""
+#   "z", 3
+
+#   'match seq'
+#   """tail? (fn [list]
+#       (match list
+#         {} False
+#         xx True))
+#     {x ..xs} {1}"""
+#   "(tail? xs)", no
+
+#   'seq splice in match'
+#   """
+#     & (macro [what to]
+#       (: (Fn a (Array a) (Array a)))
+#       (Js.call (Js.access to "unshift") {what}))
+
+#     map (fn [what to]
+#       (match to
+#         {} {}
+#         {x ..xs} (& (what x) (map what xs))))
+
+#     {{x} ..xs} (map (& 42) {{}})"""
+#   "x", 42
+
+#   'typed function'
+#   """f (fn [x y]
+#     (: (Fn Bool String Bool))
+#     x)"""
+#   """(f True "a")""", yes
+
+#   'classes'
+#   """Show (class [a]
+#       show (fn [x] (: (Fn a String))))
+
+#     show-string (instance (Show String)
+#       show (fn [x] x))
+
+#     aliased-show (fn [something]
+#       (show something))
+
+#     showed-simply (show "Hello")
+#     showed-via-alias (aliased-show "Hello")"""
+#   "(== showed-simply showed-via-alias)", yes
+
+#   'multiple methods'
+#   """Util (class [a]
+#       show (fn [x] (: (Fn a String)))
+#       read (fn [x] (: (Fn String a))))
+
+#     util-string (instance (Util String)
+#        show (fn [x] x)
+#        read (fn [x] x))
+
+#     test (fn [string]
+#       (: (Fn String String))
+#       (read (show string)))"""
+#   """(test "Hello")""", "Hello"
+
+#   'multiple instances'
+#   """
+#     Show (class [a]
+#       show (fn [x] (: (Fn a String))))
+
+#     show-string (instance (Show String)
+#       show (fn [x] x))
+
+#     show-bool (instance (Show Bool)
+#       show (fn [x]
+#         (match x
+#           True "True"
+#           False "False")))"""
+#   "(show False)", "False"
+
+#   'instance constraints'
+#   """
+#     Show (class [a]
+#       show (fn [x] (: (Fn a String))))
+
+#     show-string (instance (Show String)
+#       show (fn [x] x))
+
+#     show-snd (instance (Show [a b])
+#       {(Show a) (Show b)}
+#       show (fn [x]
+#         (match x
+#           [fst snd] (show snd))))"""
+#   """(show ["Adam" "Michal"])""", "Michal"
+
+#   'instance constraints on array' # Tests where clause typing
+#   """
+#     Show (class [a]
+#       show (fn [x] (: (Fn a String))))
+
+#     show-string (instance (Show String)
+#       show (fn [x] x))
+
+#     head (fn [array]
+#       x
+#       {x ..xs} array)
+
+#     show-snd (instance (Show (Array a))
+#       {(Show a)}
+#       show (fn [array]
+#         (show (head array))))"""
+#   """(show {"Michal" "Adam"})""", "Michal"
+
+#   'multiple constraints'
+#   """
+#     Show (class [a]
+#       show (fn [x] (: (Fn a String))))
+
+#     Hide (class [a]
+#       hide (fn [x] (: (Fn a String))))
+
+#     show-string (instance (Show String)
+#       show (fn [x] x))
+
+#     hide-string (instance (Hide String)
+#       hide (fn [x] x))
+
+#     f (fn [x]
+#       (== (show x) (hide x)))
+#   """
+#   """(f "Hello")""", yes
+
+#   'superclasses'
+#   """
+#     Eq (class [a]
+#       = (fn [x y] (: (Fn a a Bool))))
+
+#     Ord (class [a]
+#       {(Eq a)}
+#       <= (fn [x y] (: (Fn a a Bool))))
+
+#     eq-bool (instance (Eq Bool)
+#       = (fn [x y]
+#         (match [x y]
+#           [True True] True
+#           [False False] True
+#           [w z] False)))
+
+#     ord-bool (instance (Ord Bool)
+#       <= (fn [x y]
+#         (match [x y]
+#           [True any] True
+#           [w z] (= w z))))
+
+#     test (fn [x]
+#       (== (<= x x) (= x x)))
+#     """
+#   """(test False)""", yes
+
+#   'function with constrained result'
+#   """
+#     Eq (class [a]
+#       = (fn [x y] (: (Fn a a Bool))))
+
+#     != (fn [x y]
+#       (not (= x y)))
+
+#     not (fn [x]
+#       (match x
+#         False True
+#         True False))
+
+#     eq-bool (instance (Eq Bool)
+#       = (fn [x y]
+#         (match [x y]
+#           [True True] True
+#           [False False] True
+#           [w z] False)))
+#   """
+#   "(!= False True)", yes
+
+#   'polymorphic data'
+#   """
+#     Maybe (data [a]
+#       None
+#       Just [value: a])
+
+#     from-just (fn [maybe]
+#       (match maybe
+#         (Just x) x))
+#   """
+#   "(from-just (Just 42))", 42
+
+#   'js unary op'
+#   """
+#     ~ (macro [x]
+#       (: (Fn Num Num))
+#       (Js.unary "-" x))
+#     x -42
+#   """
+#   "(~ x)", 42
+
+#   'js binary op'
+#   """
+#     + (macro [x y]
+#       (: (Fn Num Num Num))
+#       (Js.binary "+" x y))
+#   """
+#   "(+ 1 2)", 3
+
+#   'js cond'
+#   """
+#     if (macro [what then else]
+#       (: (Fn Bool a a a))
+#       (Js.ternary what then else))
+#   """
+#   "(if False 1 2)", 2
+
+#   'currying functional macros'
+#   """
+#     * (macro [x y]
+#       (: (Fn Num Num Num))
+#       (Js.binary "*" x y))
+
+#     f (* 2)
+#   """
+#   "(f 3)", 6
+
+#   'getters'
+#   """
+#     Person (record
+#       first: String last: String)
+
+#     jack (Person "Jack" "Jack")
+#   """
+#   "(== (Person-first jack) (Person-last jack))", yes
+
+#   'macros in instances'
+#   """
+#     Show (class [a]
+#       show (fn [x] (: (Fn a String))))
+
+#     num-to-string (macro [n]
+#       (: (Fn Num String))
+#       (Js.binary "+" n "\\"\\""))
+
+#     show-num (instance (Show Num)
+#       show (fn [x]
+#         (num-to-string x)))
+#   """
+#   "(show 3)", '3'
+
+#   'fib'
+#   """fibonacci (fn [month] (adults month))
+
+#     adults (fn [month]
+#       (match month
+#         1 0
+#         n (+ (adults previous-month) (babies previous-month)))
+#       previous-month (- 1 month))
+
+#     babies (fn [month]
+#       (match month
+#         1 1
+#         n (adults (- 1 month))))
+
+#     + (macro [x y]
+#       (: (Fn Num Num Num))
+#       (Js.binary "+" x y))
+
+#     - (macro [x y]
+#       (: (Fn Num Num Num))
+#       (Js.binary "-" y x))"""
+#     "(fibonacci 7)", 8
+
+#   'Map literal'
+#   """
+#     data {a: True b: False}
+
+#     key? (macro [what in]
+#       (: (Fn k (Map k i) Bool))
+#       (Js.call (Js.access in "has") {what}))
+
+#     at (macro [key in]
+#       (: (Fn k (Map k i) i))
+#       (Js.call (Js.access in "get") {key}))
+#   """
+#   """(== (key? "c" data) (at "b" data))""", yes
+
+#   'create Set'
+#   """
+#     data (Set "Adam" "Vojta" "Michal")
+
+#     elem? (macro [what in]
+#       (: (Fn i (Set i) Bool))
+#       (Js.call (Js.access in "has") {what}))
+#   """
+#   """(elem? "Michal" data)""", yes
+
+#   'create Map'
+#   """
+#     data (Map 3 "a" 5 "b")
+
+#     at (macro [key in]
+#       (: (Fn k (Map k i) i))
+#       (Js.call (Js.access in "get") {key}))
+#   """
+#   """(at 5 data)""", 'b'
+
+#   'type alias'
+#   """
+#     Point (type [Num Num])
+
+#     x (fn [p]
+#       (: (Fn Point Num))
+#       first
+#       [first second] p)
+#   """
+#   "(x [3 4])", 3
+
+#   'collections'
+#   """
+#     Collection (class [collection]
+#       elem? (fn [what in]
+#         (: (Fn item (collection item) Bool))
+#         (# Whether in contains what .)))
+
+#     Bag (class [bag]
+#       {(Collection bag)}
+
+#       fold (fn [with initial over]
+#         (: (Fn (Fn item b b) b (bag item)))
+#         (# Fold over with using initial .))
+
+#       length (fn [bag]
+#         (: (Fn (bag item) Num))
+#         (# The number of items in the bag .))
+
+#       empty? (fn [bag]
+#         (: (Fn (bag item) Bool))
+#         (# Whether the bag contains no elements.)))
+
+#     list-elem? (macro [what in]
+#       (: (Fn item (Array item) Bool))
+#       (Js.call (Js.access in "contains") {what}))
+
+#     collection-list (instance (Collection Array)
+#       elem? (fn [what in]
+#         (list-elem? what in)))
+#   """
+#   "(elem? 3 {1 2 3})", yes
+
+#   'multiparam classes'
+#   """
+#     Collection (class [ce e]
+#       first (fn [in]
+#         (: (Fn (ce e) e))))
+
+#     list-first (macro [in]
+#       (: (Fn (Array item) item))
+#       (Js.call (Js.access in "first") {}))
+
+#     list-collection (instance (Collection Array a)
+#       first (fn [in]
+#         (list-first in)))
+#   """
+#   "(first {42 43 44})", 42
+
+#   'functional deps'
+#   """
+#     Collection (class [ce e]
+#       first (fn [in]
+#         (: (Fn ce e))))
+
+#     list-first (macro [in]
+#       (: (Fn (Array item) item))
+#       (Js.call (Js.access in "first") {}))
+
+#     list-collection (instance (Collection (Array a) a)
+#       first (fn [in]
+#         (list-first in)))
+#   """
+#   "(first {42 43 44})", 42
+
+#   'functional deps on function'
+#   """
+#     Map (class [m k v]
+#       put (fn [key value map]
+#         (: (Fn k v m m))))
+
+#     map-map (instance (Map (Map k v) k v)
+#       put (macro [key value map]
+#         (: (Fn k v (Map k v) (Map k v)))
+#         (Js.call (Js.access map "set") {key value})))
+
+#     count (macro [map]
+#       (: (Fn (Map k v) Num))
+#       (Js.access map "size"))
+
+#     magic (fn [key map]
+#       (put key 42 map))
+#   """
+#   "(count (magic \\C (Map)))", 1
+
+#   'super classes with less params'
+#   """
+#     Bag (class [b i]
+#       length (fn [bag]
+#         (: (Fn b Num)))
+#       id (fn [item]
+#         (: (Fn i i))))
+
+#     Map (class [m k v]
+#       {(Bag m v)}
+#       put (fn [key value map]
+#         (: (Fn k v m m))))
+
+#     map-bag (instance (Bag (Map k v) v)
+#       length (macro [map]
+#         (: (Fn (Map k v) Num))
+#         (Js.access map "size"))
+#       id (fn [x] x))
+
+#     map-map (instance (Map (Map k v) k v)
+#       put (macro [key value map]
+#         (: (Fn k v (Map k v) (Map k v)))
+#         (Js.call (Js.access map "set") {key value})))
+
+#     magic (fn [key map]
+#       (put key 42 map))
+#   """
+#   "(length (magic \\C (Map)))", 1
+
+#   'functional deps with instance constraints'
+#   """
+#     Stack (data [a]
+#       Nil
+#       Node [value: a tail: (Stack a)])
+
+#     Eq (class [a]
+#       = (fn [x y] (: (Fn a a Bool))))
+
+#     num-eq (instance (Eq Num)
+#       = (macro [x y]
+#         (: (Fn Num Num Bool))
+#         (Js.binary "===" x y)))
+
+#     Collection (class [collection item]
+#       elem? (fn [what in]
+#         (: (Fn item collection Bool))))
+
+#     Bag (class [bag item]
+#       fold (fn [with initial over]
+#         (: (Fn (Fn a item a) a bag a))))
+
+#     stack-collection (instance (Collection (Stack a) a)
+#       {(Eq a)}
+#       elem? (fn [what in]
+#         (= what what)))
+
+#     stack-bag (instance (Bag (Stack a) a)
+#       fold (fn [with initial over]
+#         (match over
+#           Nil initial
+#           (Node x xs) (fold with (with initial x) xs))))
+#   """
+#   "(elem? 2 (Node 2 Nil))", yes
+#   # Dependency on subclass not supported now:
+#   #     (fold found-or-equals False in)
+#   #     found-or-equals (fn [found item]
+#   #       (= what item))
+
+#   'deferring constraints on explicitly typed Js-inferred values'
+#   """
+#   Eq (class [a]
+#     = (fn [x y] (: (Fn a a Bool))))
+
+#   num-eq (instance (Eq Num)
+#     = (macro [x y]
+#       (: (Fn Num Num Bool))
+#       (Js.binary "===" x y)))
+
+#   Set (class [set item]
+#     remove (fn [what from]
+#       (: (Fn item set item))))
+
+#   array-set (instance (Set (Array a) a)
+#     {(Eq a)}
+#     remove (fn [what from]
+#       (:: a (.indexOf from what))))
+#   """
+#   "(remove 2 {1 2 3})", 1
+
+#   'nested pattern matching'
+#   """
+#     f (fn [x]
+#       y
+#       [[z y] g] x)
+#   """
+#   "(f [[2 42] 3])", 42
+
+#   'deferring in tuples'
+#   """
+#     g [f {} 3]
+#     f 4
+#     [o t r] g
+#   """
+#   "o", 4
+
+#   'multiple generic constraints'
+#   """
+#     Show (class [a]
+#       show (fn [x] (: (Fn a String))))
+
+#     show-string (instance (Show String)
+#       show (fn [x] x))
+
+#     f (fn [pair]
+#       [(show a) (show b)]
+#       [a b] pair)
+
+#     [x y] (f ["A" "B"])
+#   """
+#   """x""", "A"
+
+#   'higher-order use of constrained function'
+#   """
+#     Show (class [a]
+#       show (fn [x] (: (Fn a String))))
+
+#     show-string (instance (Show String)
+#       show (fn [x] x))
+
+#     f (fn [pair]
+#       [(show a) (show b)]
+#       [a b] pair)
+
+#     apply (fn [m to]
+#       (m to))
+
+#     [x y] (apply f ["A" "B"])
+#   """
+#   """x""", "A"
+
+#   'deeply deferred'
+#   """
+#     c b
+#     b a
+#     a 3
+#   """
+#   "c", 3
+
+#   'compile before typing due to multiple deferred'
+#   """
+#     a (f 3)
+#     f (fn [x] (h g x))
+#     g (fn [x] b)
+#     h (fn [y z] (y z))
+#     b 4
+#     c (f 2)
+#   """
+#   "a", 4
+
+#   'more deferred'
+#   """
+#     a (e 3)
+
+#     map (fn [l] (l 2))
+
+#     e (fn [x]
+#       (map f)
+#       k (g 2))
+
+#     f (fn [x]
+#       (h 2))
+
+#     g (fn [x]
+#       2)
+
+#     h (fn [x]
+#       (j 1))
+
+#     j (fn [x]
+#       2)
+#   """
+#   "a", 2
+
+#   'constants in classes'
+#   """
+#   A (class [c e]
+#     empty (: c)
+
+#     first (fn [x] (: (Fn c e))))
+
+#   list-a (instance (A (Array a) a)
+#     empty {}
+
+#     first (macro [list]
+#       (: (Fn (Array a) a))
+#       (Js.call (Js.access list "first") {})))
+
+#   unshift (macro [what to]
+#     (: (Fn a (Array a) (Array a)))
+#     (Js.call (Js.access to "unshift") {what}))
+#   """
+#   "(first (unshift 3 empty))", 3
+
+#   # TODO: this works, but show that we honor the monorphism restriction
+#   #       in the sense that some is inferred a concrete type
+#   #       although it should have a polymorphic type or it should error
+#   #       this is because we compile as if x and some where in the same
+#   #       implicitly typed group
+#   'values with constraints'
+#   """
+#   A (class [c]
+#     empty (: c))
+
+#   B (class [c e]
+#     add (fn [what to] (: (Fn e c c))))
+
+#   list-a (instance (A (Array a))
+#     empty {})
+
+#   list-b (instance (B (Array a) a)
+#     add (macro [what to]
+#       (: (Fn a (Array a) (Array a)))
+#       (Js.call (Js.access to "unshift") {what})))
+
+#   first (macro [list]
+#     (: (Fn (Array a) a))
+#     (Js.call (Js.access list "first") {}))
+
+#   some (add 2 empty)
+
+#   x (first some)
+#   """
+#   "x", 2
+
+#   'curried type constructor'
+#   """
+#   + (macro [x y]
+#     (: (Fn Num Num Num))
+#     (Js.binary "+" x y))
+
+#   get (macro [key from]
+#     (: (Fn k (Map k v) v))
+#     (Js.method from "get" {key}))
+
+#   put (macro [key value into]
+#     (: (Fn k v (Map k v) (Map k v)))
+#     (Js.method into "set" {key value}))
+
+#   Mappable (class [wrapper]
+#     map (fn [what onto]
+#       (: (Fn (Fn a b) (wrapper a) (wrapper b)))
+#       (# Apply what to every value inside onto .)))
+
+#   reduce-map (macro [with initial over]
+#     (: (Fn (Fn a v k a) a (Map k v) a))
+#     (Js.method over "reduce" {with initial}))
+
+#   map-mappable (instance (Mappable (Map k))
+#     map (fn [what onto]
+#       (reduce-map helper (Map) onto)
+#       helper (fn [acc value key]
+#         (put key (what value) acc))))
+#   """
+#   """(get "c" (map (+ 1) {a: 3 b: 2 c: 4}))""", 5
+
+#   'reduced call context'
+#   """
+#   Bag (class [bag item]
+#     empty (: bag)
+
+#     fold (fn [with initial over]
+#       (: (Fn (Fn item a a) a bag a)))
+
+#     append (fn [what to]
+#       (: (Fn bag bag bag)))
+
+#     first (fn [of]
+#       (: (Fn bag item))))
+
+#   array-bag (instance (Bag (Array a) a)
+#     empty {}
+
+#     fold (macro [with initial list]
+#       (: (Fn (Fn a b b) b (Array a) b))
+#       (Js.method list "reduce"
+#         {(fn [acc x] (with x acc)) initial}))
+
+#     append (macro [what to]
+#       (: (Fn (Array a) (Array a) (Array a)))
+#       (Js.method to "concat" {what}))
+
+#     first (macro [list]
+#       (: (Fn (Array a) a))
+#       (Js.method list "first" {})))
+
+#   concat (fn [bag-of-bags]
+#     (fold append empty bag-of-bags))
+#   """
+#   "(first (concat {{1} {2} {3}}))", 1
+
+#   'mixing constructor classes with fundeps'
+#   concatTest = """
+#   Mappable (class [wrapper]
+#     map (fn [what onto]
+#       (: (Fn (Fn a b) (wrapper a) (wrapper b)))))
+
+#   Bag (class [bag item]
+#     size (fn [bag]
+#       (: (Fn bag Num)))
+
+#     empty (: bag)
+
+#     fold (fn [with initial over]
+#       (: (Fn (Fn item a a) a bag a)))
+
+#     join (fn [what with]
+#       (: (Fn bag bag bag))))
+
+#   array-mappable (instance (Mappable Array)
+#     map (macro [what over]
+#       (: (Fn (Fn a b) (Array a) (Array b)))
+#       (Js.method over "map" {what})))
+
+#   array-bag (instance (Bag (Array a) a)
+#     size (macro [list]
+#       (: (Fn (List a) Num))
+#       (Js.access list "size"))
+
+#     empty {}
+
+#     fold (macro [with initial list]
+#       (: (Fn (Fn a b b) b (Array a) b))
+#       (Js.method list "reduce"
+#         {(fn [acc x] (with x acc)) initial}))
+
+#     join (macro [what with]
+#       (: (Fn (Array a) (Array a) (Array a)))
+#       (Js.method what "concat" {with})))
+
+#   concat (fn [bag-of-bags]
+#     (fold join empty bag-of-bags))
+
+#   concat-map (fn [what over]
+#     (concat (map what over)))
+#   """
+#   """(size (concat-map (fn [x] {1}) {1 2 3}))""", 3
+
+#   'overloaded subfunctions'
+#   """
+#   #{concatTest}
+
+#   concat-suffix (fn [suffix what]
+#     (fold join-suffix empty what)
+#     join-suffix (fn [x joined]
+#       (concat {joined suffix x})))
+#   """
+#   "(size (concat-suffix {1} (concat-map (fn [x] {{1}}) {1 2 3})))", 6
+
+#   'overloaded subfunctions 2'
+#   """
+#   id (fn [x] x)
+
+#   Bag (class [bag item]
+#     fold (fn [with initial over]
+#       (: (Fn (Fn item a a) a bag a))))
+
+#   fold-right (fn [with initial over]
+#     ((fold helper id over) initial)
+#     helper (fn [x r acc]
+#       (r (with x acc))))
+#   """
+#   "6", 6
+
+#   'overloaded subfunctions 3'
+#   """
+#   Deq (class [seq item]
+#     && (fn [what to]
+#       (: (Fn item seq seq))))
+
+#   array-deq (instance (Deq (Array a) a)
+#     && (macro [what to]
+#       (: (Fn a (Array a) (Array a)))
+#       (Js.method to "push" {what})))
+
+#   Appendable (class [collection item]
+#     & (fn [what to]
+#       (: (Fn item collection collection))))
+
+#   Bag (class [bag item]
+#     empty (: bag)
+
+#     fold (fn [with initial over]
+#       (: (Fn (Fn item a a) a bag a))))
+
+#   split (fn [bag]
+#     (: (Fn ba (Array ba)) (Appendable ba a) (Bag ba a))
+#     (fold wrap {} bag)
+#     wrap (fn [x all]
+#       (&& (& x empty) all)))
+#   """
+#   "6", 6
+
+#   'overloaded subfunctions 4'
+#   """
+#   id (fn [x] x)
+
+#   if (macro [what then else]
+#     (: (Fn Bool a a a))
+#     (Js.ternary what then else))
+
+#   Bag (class [bag item]
+#     fold (fn [with initial over]
+#       (: (Fn (Fn item a a) a bag a))
+#       (# Fold over using with and initial folded value .)))
+
+#   Appendable (class [collection item]
+#     & (fn [what to]
+#       (: (Fn item collection collection))))
+
+#   fold-right (fn [with initial over]
+#     ((fold wrap id over) initial)
+#     wrap (fn [x r acc]
+#       (r (with x acc))))
+
+#   array-bag (instance (Bag (Array a) a)
+#     fold (macro [with initial list]
+#       (: (Fn (Fn a b b) b (Array a) b))
+#       (Js.method list "reduce"
+#         {(fn [acc x] (with x acc)) initial})))
+
+#   array-appendable (instance (Appendable (Array a) a)
+#     & (macro [what to]
+#       (: (Fn a (Array a) (Array a)))
+#       (Js.method to "unshift" {what})))
+
+#   chars (macro [string]
+#     (: (Fn String (Array Char)))
+#     (Js.call "Immutable.List"
+#       {(Js.method string "split" {"''"})}))
+
+#   string-bag (instance (Bag String Char)
+#     fold (fn [with initial string]
+#       (fold with initial (chars string))))
+
+#   string-appendable (instance (Appendable String Char)
+#     & (macro [what to]
+#       (: (Fn Char String String))
+#       (Js.binary "+" what to)))
+
+#   Set (class [set item]
+#     elem? (fn [what in]
+#       (: (Fn item set Bool))
+#       (# Whether in contains what .)))
+
+#   set-set (instance (Set (Set a) a)
+#     elem? (macro [what in]
+#       (: (Fn (Set a) a Bool))
+#       (Js.method in "contains" {what})))
+
+#   my-split (fn [separators text]
+#     (fold-right distinguish ["" {""}] text)
+#     distinguish (fn [letter done]
+#       (if (elem? letter separators)
+#         [(& letter seps-in-order) (& "" words)]
+#         [seps-in-order (& (& letter first-word) rest-words)])
+#       {first-word ..rest-words} words
+#       [seps-in-order words] done))
+
+#   separators (Set \\space \\, \\!)
+
+#   [seps words] (my-split separators "Hello, world!")
+#   """
+#   "seps", ", !"
+
+#   'recursive overloaded functions'
+#   """
+#   Show (class [a]
+#     show (fn [x] (: (Fn a String))))
+
+#   show-string (instance (Show String)
+#     show (fn [x] x))
+
+#   show-bool (instance (Show Bool)
+#     show (fn [x] "Bool"))
+
+#   aliased-show (fn [something b]
+#     (match b
+#       True (aliased-show something False)
+#       False (show something)))
+
+#   x (aliased-show "Bool" True)
+#   y (fn [x] (aliased-show x True))
+#   """
+#   "(== x (y True))", yes
+
+#   'ffi function'
+#   """
+#     upper-case (fn [x]
+#       (: (Fn String String))
+#       (.toUpperCase x))
+#   """
+#   """(upper-case "Hello")""", "HELLO"
+
+#   'ffi expression'
+#   """"""
+#   """(.toUpperCase "x")""", "X"
+
+#   'ffi access'
+#   """"""
+#   "Math.PI", Math.PI
+
+#   'ffi access on global'
+#   """"""
+#   "global.Math.PI", Math.PI
+
+#   'sets'
+#   """
+#   first (macro [set]
+#     (: (Fn (Set a) a))
+#     (Js.method set "first" {}))
+#   x 2
+#   y (Set x 1 3)
+#   """
+#   '(first y)', 2
+
+#   'recursion in subfunction'
+#   """
+#   f (fn [x]
+#     (match x
+#       True False
+#       False g)
+#     g (f True))
+#   """
+#   'False', no
+
+#   'lifting into conditionals'
+#   """
+#   f (fn [x]
+#     (cond
+#       x False
+#       True g)
+#     g (f True))
+#   """
+#   '(f False)', no
+
+#   'lifting with nested functions'
+#   """
+#   f (fn [x]
+#     ((fn [y]
+#         g) 2)
+#     g 3)
+#   """
+#   '(f False)', 3
+
+#   'lifting into match conditional'
+#   """
+#   f (fn [x]
+#     (match x
+#       True False
+#       False g)
+#     g (f h)
+#     h True)
+#   """
+#   '(f False)', no
+
+#   'lifting into match'
+#   """
+#   Maybe (data [a]
+#     None
+#     Just [value: a])
+
+#   f (fn [x]
+#     (match x
+#       None 0
+#       (Just y) g)
+#     g y)
+#   """
+#   '(f (Just 4))', 4
+
+#   'lifting into match from a call'
+#   """
+#   Maybe (data [a]
+#     None
+#     Just [value: a])
+
+#   f (fn [x]
+#     (match x
+#       None 0
+#       (Just [y z]) g)
+#     g (y z))
+#   """
+#   '(f (Just [(fn [w] w) 2]))', 2
+
+#   'shadowing'
+#   """
+#   f (macro [n]
+#     (: (Fn Num Num))
+#     (Js.binary "+" n 2))
+
+#   g (fn [x]
+#     y
+#     y (f x)
+#     f (fn [y] y))
+#   """
+#   '(g 3)', 3
+
+#   'zero arity'
+#   """
+#   f (fn [] 4)
+
+#   g (f)
+#   """
+#   'g', 4
+
+#   'syntax macro'
+#   """
+#   id (syntax [x]
+#     x)
+
+#   some (syntax [y]
+#     (` (id (, y))))
+#   """
+#   '(some 42)', 42
+
+#   'pattern match syntax'
+#   """
+#   + (macro [x y]
+#     (: (Fn Num Num Num))
+#     (Js.binary "+" x y))
+
+#   infix (syntax [exp]
+#     (match exp
+#       (` ((, x) (, op) (, z))) (` ((, op) (, x) (, z)))
+#       _ (` "Failed to match syntax")))
+
+#   f (infix (3 + 4))
+#   """
+#   'f', 7
+
+#   'shortened syntax quote'
+#   """
+#   + (macro [x y]
+#     (: (Fn Num Num Num))
+#     (Js.binary "+" x y))
+
+#   infix (syntax [exp]
+#     (match exp
+#       (` ,x ,op ,z) (` ,op ,x ,z)
+#       _ (` "Failed to match syntax")))
+
+#   f (infix (3 + 4))
+#   """
+#   'f', 7
+
+#   'constraints and deferring'
+#   """
+#   Show (class [a]
+#     show (fn [x] (: (Fn a String))))
+
+#   show-string (instance (Show String)
+#     show (fn [x] x))
+
+#   s (fn [y]
+#     (show y))
+
+#   f (fn [x]
+#     g)
+
+#   g "2"
+
+#   r (fn [y]
+#     (f (s y)))
+
+#   j (fn [x]
+#     (r "src"))
+#   """
+#   '(j 2)', "2"
+
+#   'deferred in where'
+#   """
+#   f (fn [x] g)
+
+#   g 3
+
+#   h (fn [x]
+#     2
+#     gg (fn [x]
+#       ff)
+#     ff (f ""))
+#   """
+#   '(h 3)', 2
+
+#   'overloaded reference'
+#   """
+#   Mappable (class [wrapper]
+#     map (fn [what onto]
+#       (: (Fn (Fn a b) (wrapper a) (wrapper b)))))
+
+#   array-mappable (instance (Mappable Array)
+#     map (macro [what over]
+#       (: (Fn (Fn a b) (Array a) (Array b)))
+#       (Js.method over "map" {what})))
+
+#   g (fn [lines]
+#     (map f lines))
+
+#   f (fn [x]
+#     x)
+
+#   expand (fn [x]
+#     gg
+#     gg (g {""}))
+#   """
+#   '3', 3
+
+#   'defer in subdefinition'
+#   """
+#   f (fn [x]
+#     ""
+#     g (fn [y]
+#       ((fn [x] x) h))
+#     h ((fn [x] x) x))
+#   """
+#   '3', 3
+
+#   'dont lift when used in function'
+#   """
+#   Maybe (data [a]
+#     None
+#     Some [value: a])
+
+#   f (fn [x]
+#     (match x
+#       None (g 4)
+#       (Some v) h)
+#     h 45
+#     hh h
+#     g (fn [x]
+#       h)
+#     p (fn [x] (p x)))
+#   """
+#   '(f None)', 45
+
+#   'ambiguity on deferred non polymorphic'
+#   """
+#   Show (class [a]
+#     show (fn [x] (: (Fn a String))))
+
+#   show-string (instance (Show String)
+#     show (fn [x] x))
+
+#   f (fn [x]
+#     (g x))
+
+#   g (fn [y]
+#     "")
+
+#   expand (fn [z w]
+#     ""
+#     d (f (show w)))
+#   """
+#   '(expand 3 "2")', ""
+
+#   'shadowing in resolve deferred types'
+#   """
+#   f (fn [x]
+#     (g x))
+
+#   g (fn [y]
+#     "")
+
+#   d 4
+
+#   expand (fn [z w]
+#     ""
+#     d (f 3))
+#   """
+#   '(expand 3 "2")', ""
+
+#   'using constructor in deferred definition'
+#   """
+#   Maybe (data [a]
+#     None
+#     Just [value: a])
+
+#   test (fn []
+#     (Just x)
+#     x (test2))
+
+#   test2 (fn []
+#     42)
+#   """
+#   "(Just-value (test))", 42
+
+#   # TODO: support matching with the same name
+#   #       to implement this we need the iife to take as arguments all variables
+#   #       with the same names, since JavaScript shadows it too strongly and
+#   #       replaces the value with undefined
+#   # test "test", "f (fn [x] (match x x x)) (f 2)", 2
+#   # so:
+#   #function f(x) {
+#   # return (function (x){
+#   #   var x = x;
+#   #   return x;
+#   # })(x);
+#   #}
+#   # This is necessary because we might be reusing the name for something else
+#   # Or we can just mangle the name like PureScript does it
+# ]
+
+# testNamed = (givenName) ->
+#   for [name, source, expression, result] in tuplize 4, tests when name is givenName
+#     return source + "\n" + "_ " + expression
+#   throw new Error "Test #{givenName} not found!"
+
+# logError = (message, error) ->
+#   log message, error.message, (error.stack
+#     .replace(/\n?((\w+)[^>\n]+>[^>\n]+>[^>\n]+:(\d+:\d+)|.*)(?=\n)/g, '\n$2 $3')
+#     .replace(/\n (?=\n)/g, ''))
+
+# debug = (fun) ->
+#   try
+#     fun()
+#   catch e
+#     logError "debug", e
+
+# runTest = (givenName) ->
+#   for [name, source, expression, result] in tuplize 4, tests when name is givenName
+#     test name, source + "\n" + expression, result
+#   "Done"
+
+# runTests = (tests) ->
+#   results = for [name, source, expression, result] in tuplize 4, tests
+#     test name, source + "\n" + expression, result
+#   if all results
+#     "All correct"
+#   else
+#     (filter _not, results).length + " failed"
 
 # Cache
 
