@@ -482,8 +482,11 @@ class Context
       instances: []
       declarations: declarations
 
+  maybeClassNamed: (name) ->
+    @_classNamed name
+
   classNamed: (name) ->
-    (@_classNamed name) or throw new Error "Class #{name} is not defined"
+    (@maybeClassNamed name) or throw new Error "Class #{name} is not defined"
 
   _classNamed: (name) ->
     for scope in (reverse @scopes)
@@ -707,7 +710,8 @@ class Context
 
   addAuxiliaryDependency: (dependent, dependency) ->
     aux = (lookupInMap @auxiliaries(), dependent)
-    aux.deps = unique join aux.deps, [dependency]
+    if aux # TODO: aux is missing if class is imported
+      aux.deps = unique join aux.deps, [dependency]
 
   deferredNames: ->
     @_definition().deferredBindings
@@ -2261,20 +2265,25 @@ ms.instance = ms_instance = (ctx, call) ->
     [instanceConstraint, defs...] = _validArguments call
     if not instanceConstraint or not isValidTypeConstraint ctx, instanceConstraint
       return malformed ctx, call, 'Requiring the instance type'
+
+    className = _symbol _operator instanceConstraint # TODO: do this check in typeConstraintCompile
+    classDefinition = ctx.maybeClassNamed className
+    # TODO: defer if class does not exist
+    if not classDefinition
+      return malformed ctx, (_operator instanceConstraint), 'Class doesn\'t exist'
     else
-      instanceType = typeConstraintCompile ctx, instanceConstraint
+      # TODO: remove when deferring, this is pretty dangerous, we usually don't remove malformed once marked
+      delete (_operator instanceConstraint).malformed
+
+    instanceType = typeConstraintCompile ctx, instanceConstraint
+    # className = instanceType.className
+
     [constraintSeq, wheres...] = defs
     if not isSeq constraintSeq
       wheres = defs
       constraints = []
     else
       constraints = typeConstraintsCompile ctx, _terms constraintSeq
-
-    # TODO: defer if class does not exist
-    className = instanceType.className
-    classDefinition = ctx.classNamed className
-    if not classDefinition
-      return malformed ctx, (_operator instanceConstraint), 'Class doesn\'t exist'
 
     # TODO: defer if super class instances don't exist yet
     superClassInstances = findSuperClassInstances ctx, instanceType.types, classDefinition
@@ -3438,7 +3447,7 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
         translation: (jsAccess '_', validSymbol)
     else
       # TODO: access from other module
-      throw "NOT SUPPORTED YET"
+      throw new Error "NOT SUPPORTED YET"
 
 isQuotedReference = (atom) ->
   atom.builtin or atom.builtInDefinition or atom.modulePath
