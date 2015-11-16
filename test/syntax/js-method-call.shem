@@ -1,0 +1,4 @@
+lower (syntax [string]
+  (` (.toLowerCase ,string)))
+
+should-expand (test (:: String (lower "HELLO")) "hello")

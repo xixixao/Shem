@@ -2816,7 +2816,8 @@ serializeAst = (ctx) -> (ast) ->
   else
     commedAtom ctx, ast, ->
       real = (isExpression ast)
-      serialized = (jsValue (JSON.stringify (if real and isName ast
+      serialized = (jsValue (JSON.stringify (if real and (isName ast) and
+                                                not (isDotAccess ast)
         (quotedReference ctx, ast)
       else
         ast)))
