@@ -2826,17 +2826,37 @@ serializeAst = (ctx) -> (ast) ->
       (jsArray [serialized])
 
 quotedReference = (ctx, atom) ->
-  symbol = _symbol atom
+  [ns, symbol] = namespace atom
   compiled = token_ symbol
+
+  # These don't allow builtins to be overriden, for now
   if ctx.isBuiltIn symbol
     compiled.builtin = yes
   else if ctx.isBuiltInDefinition symbol
     compiled.builtInDefinition = yes
-  else if ctx.isDeclaredInTopScopeOrMacro symbol
+  else if (ctx.isDeclaredInTopScopeOrMacro symbol) or (isNotValNS ns)
     compiled.modulePath = ctx.typedModulePath.names
+    compiled.ns = ns
   else
     ctx.doDefer atom, symbol
   compiled
+
+# TODO: figure out combination of namespace and module access
+namespace = (atom) ->
+  symbol = _symbol atom
+  match = symbol.match /(\w+)\/(.+)/
+  if match and ([_, ns, name] = match) and (ns in NAMESPACES)
+    [ns, name]
+  else
+    ['none', symbol]
+
+isTypeNS = (ns) ->
+  ns is 'type'
+
+isNotValNS = (ns) ->
+  ns isnt 'val'
+
+NAMESPACES = ['type', 'class', 'val']
 
 matchAst = (ctx, ast) ->
   matched = ctx.assignTo()
@@ -3429,6 +3449,7 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
     translation: malformed ctx, atom, 'Macros cannot be referenced'
   else
     validSymbol = validIdentifier symbol
+    ns = atom.ns
     # TODO: we probably need to defer anyway, because the top level might not be
     #       typed yet when we expand a macro referencing it
     #    more generally we should probably just combine this with nameCompile
@@ -3448,7 +3469,7 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
         translation: (jsAccess '_', validSymbol)
     else
       # TODO: access from other module
-      throw new Error "NOT SUPPORTED YET"
+      throw new Error "References in macros from other modules not supported yet"
 
 isQuotedReference = (atom) ->
   atom.builtin or atom.builtInDefinition or atom.modulePath
