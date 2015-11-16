@@ -2854,9 +2854,9 @@ isTypeNS = (ns) ->
   ns is 'type'
 
 isNotValNS = (ns) ->
-  ns isnt 'val'
+  ns in ['type', 'class']
 
-NAMESPACES = ['type', 'class', 'val']
+NAMESPACES = ['type', 'class', 'val'] # 'none'
 
 matchAst = (ctx, ast) ->
   matched = ctx.assignTo()
@@ -3453,20 +3453,23 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
     # TODO: we probably need to defer anyway, because the top level might not be
     #       typed yet when we expand a macro referencing it
     #    more generally we should probably just combine this with nameCompile
-    type = mapOrigin (freshInstance ctx, (ctx.typeInTopScope symbol)), atom
+    type = -> mapOrigin (freshInstance ctx, (ctx.typeInTopScope symbol)), atom
     fromCurrentModule = atom.builtInDefinition or
       (modulePathsEqual atom.modulePath, ctx.typedModulePath.names)
     if fromCurrentModule
       if ctx.assignTo()
         if isConst atom
-          type: type
+          type: type()
           pattern: constPattern ctx, symbol, (jsAccess '_', validSymbol)
         else
-          malformed atom, 'Cannot use a quoted reference as a new name'
+          malformed ctx, atom, 'Cannot use a quoted reference as a new name'
           pattern: []
       else
-        type: type
-        translation: (jsAccess '_', validSymbol)
+        if isNotValNS ns
+          translation: malformed ctx, atom, 'Type name #{symbol} cannot be used as a value'
+        else
+          type: type()
+          translation: (jsAccess '_', validSymbol)
     else
       # TODO: access from other module
       throw new Error "References in macros from other modules not supported yet"
