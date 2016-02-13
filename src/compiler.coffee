@@ -4702,7 +4702,7 @@ compileDefinitionAssignment = (ctx) -> ([to, from]) ->
       from)
 
 compileAssignmentToModuleObject = (to, from) ->
-  (jsAssignStatement (jsAccess '_', to), from)
+  (jsAssignStatement (jsAccess '_', to), (validIdentifier from))
 
 # Takes a tuple!
 compileAssignment = ([to, from]) ->
