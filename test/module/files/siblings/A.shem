@@ -1,4 +1,4 @@
-[g] (req ../B)
+[g-g] (req ../B)
 
 f (fn+ [x]
-  (g x))
+  (g-g x))

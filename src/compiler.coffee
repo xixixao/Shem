@@ -1561,8 +1561,8 @@ topLevelModule = (ctx, form) ->
   # deprecated submodules:
   #    concatSets exported, (filterMap isExported, ctx.submodules)
   # isExported = (name, exported) -> exported
-  exportList = map validIdentifier, (setToArray exported)
-  exportDictionary = (jsDictionary exportList, exportList)
+  exportList = (setToArray exported)
+  exportDictionary = (jsDictionary exportList, (map validIdentifier, exportList))
   {definitions, exportDictionary}
 
 topLevelModuleWrapper = (typedModulePath, compiledDefinitions, exportDictionary) ->
