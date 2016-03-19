@@ -1,0 +1,3 @@
+should-represent-global (test
+  (:: Bool (.test /other-global/ (global "__filename")))
+  True)

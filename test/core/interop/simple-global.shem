@@ -1,0 +1,1 @@
+should-represent-global (test (:: String (.String (global) 3)) "3")

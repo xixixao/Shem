@@ -2115,7 +2115,13 @@ ms['::'] = ms_typed_expression = (ctx, call) ->
 
 ms.global = ms_global = (ctx, call) ->
   call.tea = toConstrained markOrigin jsType, call
-  assignCompile ctx, call, (jsValue "global")
+  [otherGlobal] = _validArguments call
+  globalName =
+    if otherGlobal
+      _stringValue otherGlobal
+    else
+      "global"
+  assignCompile ctx, call, (jsValue globalName)
 
 callJsMethodCompile = (ctx, call) ->
   [dotMethod, object, args...] = _validTerms call
@@ -2975,7 +2981,7 @@ simpleMacro = (macroFn) ->
     callTyping ctx, call
     assignCompile ctx, call, macroFn args...
 
-for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method', 'assign', 'new']
+for jsMethod in ['binary', 'ternary', 'unary', 'access', 'call', 'method', 'assign', 'new', 'value']
   do (jsMethod) ->
     ms["Js.#{jsMethod}"] = (ctx, call) ->
       call.tea = toConstrained jsType
