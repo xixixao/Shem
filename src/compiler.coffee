@@ -1552,12 +1552,15 @@ topLevelModule = (ctx, form) ->
   definitions = (join (importImplicit ctx), (topLevel ctx, form))
   shouldBeExported = (name, declaration) ->
     # Exporting all to allow for private members to be imported by submodules
-    not declaration.virtual and declaration.final# and declaration.exported
-  isExported = (name, exported) ->
-    exported
-  nonVirtual = filterMap shouldBeExported, ctx._scope()
-  exported = concatSets (subtractSets nonVirtual, builtInDefinitions()),
-    (filterMap isExported, ctx.submodules) # TODO: separate exporting namespaces according to the separation of namespaces
+    #        and declaration.exported
+    not declaration.virtual and
+      (not declaration.injected or declaration.exported) and
+      declaration.final
+  # TODO: separate exporting namespaces according to the separation of namespaces
+  exported = filterMap shouldBeExported, ctx._scope()
+  # deprecated submodules:
+  #    concatSets exported, (filterMap isExported, ctx.submodules)
+  # isExported = (name, exported) -> exported
   exportList = map validIdentifier, (setToArray exported)
   exportDictionary = (jsDictionary exportList, exportList)
   {definitions, exportDictionary}
@@ -3109,6 +3112,7 @@ builtInMacros = ->
   macros = objectToMap ms
   for name, macro of values macros
     macro.final = yes
+    macro.injected = yes
   macros
 
 
@@ -4807,7 +4811,7 @@ builtInTypeNames = ->
   ]
 
 builtInDefinitions = ->
-  newMapWith 'True', (type: (quantifyAll toConstrained boolType), arity: []),
+  definitions = newMapWith 'True', (type: (quantifyAll toConstrained boolType), arity: []),
       'False', (type: (quantifyAll toConstrained boolType), arity: [])
       '==', (
         type: (quantifyAll toConstrained (typeFn (atomicType 'a', star), (atomicType 'a', star), boolType)),
@@ -4815,6 +4819,10 @@ builtInDefinitions = ->
       'is-null-or-undefined', (
         type: (quantifyAll toConstrained (typeFn (atomicType 'a', star), boolType)),
         arity: ['x'])
+  for name, definition of values definitions
+    definition.final = yes
+    definition.injected = yes
+  definitions
 
 # Set/Map implementation
 
@@ -6498,6 +6506,7 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importA
       type: (type if shouldDeclare)
       tempType: type
       importable: isParent or exported
+      injected: true
       id: ctx.freshId()}
     if implicit
       if exported
