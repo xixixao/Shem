@@ -6474,7 +6474,10 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importA
       id: ctx.freshId()}
     if implicit
       addToMap implicitImports, name, newName
-      declareImported ctx, newName if not shouldDeclare
+      # TODO: We declare all for autocompletion etc., but there can be clashes
+      #       so remove the ctx.type check and make sure we can declare
+      #       multiple definitions with the same name
+      declareImported ctx, newName if not shouldDeclare and not ctx.type newName
   topScope.typeNames = concatMaps topScope.typeNames, typeNames
   topScope.classes = concatMaps topScope.classes, classes
   ctx.scopeIndex += compiledModule.savedScopes.length

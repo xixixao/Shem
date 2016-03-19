@@ -1,0 +1,3 @@
+[h] (req ./C)
+
+should-req (test (h 3) 3)
