@@ -414,6 +414,9 @@ class Context
   stopExporting: ->
     @_exporting = no
 
+  isExporting: ->
+    @_exporting
+
   addTypeName: (dataType) ->
     if dataType instanceof TypeApp
       {name, kind} = dataType.op
@@ -759,8 +762,8 @@ class Context
   _deferReasonOf: (definition) ->
     definition?._defers[0]
 
-  addDeferredDefinition: ([expression, dependencyName, useScopeIndex, lhs, rhs]) ->
-    @_scope().deferred.push [expression, dependencyName, useScopeIndex, lhs, rhs]
+  addDeferredDefinition: ([expression, dependencyName, useScopeIndex, lhs, rhs, exporting]) ->
+    @_scope().deferred.push [expression, dependencyName, useScopeIndex, lhs, rhs, exporting]
 
   deferred: ->
     @_scope().deferred
@@ -1356,7 +1359,10 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
 
 # Pushes the deferring to the parent scope
 deferCurrentDefinition = (ctx, expression) ->
-  ctx.addDeferredDefinition ctx.deferReason().concat [ctx.definitionPattern(), expression]
+  ctx.addDeferredDefinition ctx.deferReason().concat [
+    ctx.definitionPattern(), expression
+    ctx.isExporting()
+  ]
   deferredExpression()
 
 polymorphicAssignCompile = (ctx, expression, translatedExpression) ->
@@ -1713,11 +1719,13 @@ compileDeferred = (ctx) ->
     deferredCount = 0
     while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
       prevSize = ctx.deferred().length
-      [expression, dependencyName, useScope, lhs, rhs] = deferred = ctx.deferred().shift()
+      [expression, dependencyName, useScope
+        lhs, rhs
+        exporting] = deferred = ctx.deferred().shift()
       if useScope isnt ctx.currentScopeIndex() and (ctx.isDeclared dependencyName) or
           (ctx.isFinallyDeclaredCurrentlyTyped dependencyName) or
           (ctx.isMacroFinallyDeclared dependencyName) # TODO: but this should be finally declared for not macros
-        compiledPairs.push definitionPairCompile ctx, lhs, rhs
+        compiledPairs.push definitionPairCompile ctx, lhs, (exportIf rhs, exporting)
         deferredCount = 0
       else
         # If can't compile, defer further
@@ -1746,6 +1754,12 @@ definitionPairCompile = (ctx, pattern, value) ->
     undefined
   else
     compiled
+
+exportIf = (expression, exporting) ->
+  if exporting
+    (export_ expression)
+  else
+    expression
 
 ms = {}
 
@@ -1787,7 +1801,7 @@ ms.export = ms_export = (ctx, call) ->
 # fn+ (syntax [..args]
 #   (` export (fn ,..args)))
 ms['fn+'] = ms_fn_export = (ctx, call) ->
-  (call_ (token_ 'export'), [(call_ (token_ 'fn'), (_arguments call))])
+  (export_ (call_ (token_ 'fn'), (_arguments call)))
 
 ms.fn = ms_fn = (ctx, call) ->
     # For now expect the curried constructor call
@@ -1935,6 +1949,9 @@ extractDocs = (docs) ->
     else
       content)
 
+ms['type+'] = ms_type_export = (ctx, call) ->
+  (export_ (call_ (token_ 'type'), (_arguments call)))
+
 ms.type = ms_type = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare new type alias'
   alias = ctx.definitionName()
@@ -1944,6 +1961,7 @@ ms.type = ms_type = (ctx, call) ->
   ctx.addTypeAlias alias, typeCompile ctx, type
   jsNoop()
 
+
   # data
   #   listing or
   #     pair
@@ -1951,6 +1969,9 @@ ms.type = ms_type = (ctx, call) ->
   #       record
   #         type
   #     constant-name
+ms['data+'] = ms_data_export = (ctx, call) ->
+  (export_ (call_ (token_ 'data'), (_arguments call)))
+
 ms.data = ms_data = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare new algebraic data'
     args = _validArguments call
@@ -2058,7 +2079,7 @@ findDataType = (ctx, typeArgLists, typeParams, dataName) ->
 
 
 ms['record+'] = ms_record_export = (ctx, call) ->
-  (call_ (token_ 'export'), [(call_ (token_ 'record'), (_arguments call))])
+  (export_ (call_ (token_ 'record'), (_arguments call)))
 
 ms.record = ms_record = (ctx, call) ->
     args = _validArguments call
@@ -2159,7 +2180,7 @@ ms['set!'] = ms_doset = (ctx, call) ->
 
 
 ms['class+'] = ms_class_export = (ctx, call) ->
-  (call_ (token_ 'export'), [(call_ (token_ 'class'), (_arguments call))])
+  (export_ (call_ (token_ 'class'), (_arguments call)))
 
 # Adds a class to the scope or defers if superclass doesn't exist
 ms.class = ms_class = (ctx, call) ->
@@ -2263,7 +2284,7 @@ declareMethods = (ctx, classConstraint, methodDeclarations) ->
 
 
 ms['instance+'] = ms_instance_export = (ctx, call) ->
-  (call_ (token_ 'export'), [(call_ (token_ 'instance'), (_arguments call))])
+  (export_ (call_ (token_ 'instance'), (_arguments call)))
 
 ms.instance = ms_instance = (ctx, call) ->
     hasName = requireName ctx, 'Name required to declare a new instance'
@@ -2513,7 +2534,7 @@ conditional = (condCasePairs, elseCase) ->
   (jsConditional condCasePairs, elseCase)
 
 ms['req+'] = ms_req_export = (ctx, call) ->
-  (call_ (token_ 'export'), [(call_ (token_ 'req'), (_arguments call))])
+  (export_ (call_ (token_ 'req'), (_arguments call)))
 
 ms.req = ms_req = (ctx, call) ->
   reqTuple = ctx.definitionPattern()
@@ -2724,6 +2745,9 @@ auxiliaryDependencies = (graph, names) ->
       nodes.push name: name, deps: map ((name) -> {name}), node.deps
       nameStack.push node.deps...
   concat map setToArray, topologicallySortedGroups nodes
+
+ms['syntax+'] = ms_syntax_export = (ctx, call) ->
+  (export_ (call_ (token_ 'syntax'), (_arguments call)))
 
 ms.syntax = ms_syntax = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare a new syntax macro'
@@ -2938,7 +2962,7 @@ constantToSource = (value) ->
             value
 
 ms['macro+'] = ms_macro_export = (ctx, call) ->
-  (call_ (token_ 'export'), [(call_ (token_ 'macro'), (_arguments call))])
+  (export_ (call_ (token_ 'macro'), (_arguments call)))
 
 ms.macro = ms_macro = (ctx, call) ->
   hasName = requireName ctx, 'Name required to declare a new macro'
@@ -3570,6 +3594,9 @@ syntaxNameAs = (ctx, message, label, atom) ->
     else
       malformed ctx, atom, message
   if atom then curried atom else curried
+
+export_ = (expression) ->
+  (call_ (token_ 'export'), [expression])
 
 call_ = (op, args) ->
   form_ join [op], args
@@ -6473,7 +6500,8 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importA
       importable: isParent or exported
       id: ctx.freshId()}
     if implicit
-      addToMap implicitImports, name, newName
+      if exported
+        addToMap implicitImports, name, newName
       # TODO: We declare all for autocompletion etc., but there can be clashes
       #       so remove the ctx.type check and make sure we can declare
       #       multiple definitions with the same name
