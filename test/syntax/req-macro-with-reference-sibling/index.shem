@@ -1,0 +1,3 @@
+[reqed-macro] (req ./Macros)
+
+should-equal (test (reqed-macro 7) 3)

@@ -3506,8 +3506,13 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
           type: type()
           translation: (jsAccess '_', validSymbol)
     else
-      # TODO: access from other module
-      throw new Error "References in macros from other modules not supported yet"
+      moduleName = (modulePathToName atom.modulePath)
+      # TODO: pretty big hack as we are referencing lookupCompiledModule from
+      #       compilation!!!
+      referencedModule = (lookupCompiledModule moduleName).declared.definitions
+      forallType = (lookupInMap referencedModule, symbol).type
+      type: mapOrigin (freshInstance ctx, forallType), atom
+      translation: (irImportInline symbol, moduleName)
 
 isQuotedReference = (atom) ->
   atom.builtin or atom.builtInDefinition or atom.modulePath
@@ -3923,7 +3928,8 @@ irImport = (moduleName, naming, moduleNameAtom) ->
 
 irImportTranslate = (ctx, {moduleName, naming, moduleNameAtom}) ->
   # TODO: pass this info in through context instead of a direct call
-  importedTypedModulePath = moduleNameToRelativeTypedModulePath moduleName, ctx.typedModulePath
+  importedTypedModulePath = moduleNameToRelativeTypedModulePath moduleName,
+    ctx.typedModulePath
   moduleNameAtom or= fake_()
   if not importedTypedModulePath
     return malformed ctx, moduleNameAtom, "Module #{moduleName} could not be found."
@@ -3931,32 +3937,52 @@ irImportTranslate = (ctx, {moduleName, naming, moduleNameAtom}) ->
     return malformed ctx, moduleNameAtom, "Module #{importedTypedModulePath.nonExportedLink} must be exported."
   if isMapEmpty naming # important to process empty reqs for error checking
     return jsNoop()
-  {names: pathNames, types} = importedTypedModulePath
-  baseType = types[0]
-  numModules = types.length
+  moduleHandle = typedModulePathToModuleHandle ctx, importedTypedModulePath, moduleName
+  temp = ctx.newJsVariable()
+  jsStatementList (join [jsVarDeclaration temp, moduleHandle],
+      for oldName, newName of values naming
+        jsVarDeclaration (validIdentifier newName), (jsAccess temp, oldName))
+
+irImportInline = (name, moduleName) ->
+  {ir: irImportInlineTranslate, name, moduleName}
+
+irImportInlineTranslate = (ctx, {name, moduleName}) ->
+  # TODO: pass this info in through context instead of a direct call
+  importedTypedModulePath = moduleNameToRelativeTypedModulePath moduleName,
+    ctx.typedModulePath
+  if not importedTypedModulePath
+    throw new Error "Unexpected error when compiling reference in a macro"
+  # Must not be the current module
+  moduleHandle = typedModulePathToModuleHandle ctx, importedTypedModulePath, moduleName
+  (jsAccess moduleHandle, name)
+
+typedModulePathToModuleHandle = (ctx, typedModulePath, moduleName) ->
+  {names: pathNames, types} = typedModulePath
   # Submodules not supported now
+  # baseType = types[0]
     # if baseType is 'submodule'
     #   1
     # else
     #   (filter ((type) -> type is baseType), types).length
+  # Submodules deprecated for now (goes after moduleHadle is computed):
+  # parts = join moduleHandle, map validIdentifier, pathNames[numModules...]
+  # submoduleLookup = reduce jsAccess, parts
+  numModules = types.length
   [..., currentType] = ctx.typedModulePath.types
-  moduleHandle =
-    if numModules is 1 and pathNames[0] is '.'
-      []
-    else
-      switch currentType
-        when 'commonJs', 'index'
-          start = if currentType isnt 'index' and pathNames[0] is '..' then '.' else pathNames[0]
-          [jsCall 'require', [(toJsString ((join [start], pathNames[1...numModules]).join '/'))]]
-        when 'browser'
-          # [fold jsAccess, 'Shem', pathNames[0...numModules]]
-          [jsAccess 'Shem', moduleName]
-  parts = join moduleHandle, map validIdentifier, pathNames[numModules...]
-  submoduleLookup = reduce jsAccess, parts
-  temp = ctx.newJsVariable()
-  jsStatementList (join [jsVarDeclaration temp, submoduleLookup],
-      for oldName, newName of values naming
-        jsVarDeclaration (validIdentifier newName), (jsAccess temp, oldName))
+  if numModules is 1 and pathNames[0] is '.'
+    []
+  else
+    switch currentType
+      when 'commonJs', 'index'
+        base =
+          if currentType isnt 'index' and pathNames[0] is '..'
+            '.'
+          else
+            pathNames[0]
+        path = (join [base], pathNames[1...numModules]).join '/'
+        [jsCall 'require', [(toJsString path)]]
+      when 'browser'
+        [jsAccess 'Shem', moduleName]
 
 isTypeAnnotation = (expression) ->
   (isCall expression) and (':' is _symbol _operator expression)
@@ -6726,9 +6752,9 @@ findDeclarationFor = (moduleName, reference) ->
   if not found
     {ctx} = contextWithDependencies (reverseModuleDependencies moduleName), typedModulePath
     found = lookupInMap ctx._scope(), name # Top scope
-  if not found
-    docs = (lookupInMap ctx._scope().macros, name)?.docs
-    found = {docs} if docs
+    if not found
+      docs = (lookupInMap ctx._scope().macros, name)?.docs
+      found = {docs} if docs
   found
 
 # API
