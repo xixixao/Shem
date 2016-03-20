@@ -111,7 +111,7 @@ if (syntax+ [what then else]
   (# If what is True returns then otherwise returns else .)
   (` cond
     ,what ,then
-    else ,else))
+    True ,else))
 
 Eq (class+ [a]
   = (fn [x y] (: (Fn a a Bool))
@@ -373,18 +373,18 @@ Bag (class+ [bag item]
   size (fn [bag]
     (: (Fn bag Num))
     (# The number of items in the bag .))
-  
+
   empty (: bag
     (# A bag with no items))
-  
+
   fold (fn [with initial over]
     (: (Fn (Fn item a a) a bag a))
     (# Fold over using with and initial folded value .))
-  
+
   join (fn [what with]
     (: (Fn bag bag bag))
     (# Join what with .))
-  
+
   filter (fn [with what]
     (: (Fn (Fn item Bool) bag bag))
     (# The what bag without items that don't satisfy with .)))
@@ -394,19 +394,19 @@ Map (class+ [collection key item]
   at (fn [key in]
     (: (Fn key collection (? item)))
     (# Element at given key inside in .))
-  
+
   key? (fn [key in]
     (: (Fn key collection Bool))
     (# Whether key has a value inside in .))
-  
+
   put (fn [at what in]
     (: (Fn key item collection collection))
     (# Puts what at in .))
-  
+
   delete (fn [key from]
     (: (Fn key collection collection))
     (# The map from without key and its value .))
-  
+
   fold-keys (fn [with initial over]
     (: (Fn (Fn key a a) a collection a))
     (# Fold the keys of over using with and initial folded value.)))
@@ -427,11 +427,11 @@ Appendable (class+ [collection item]
 
 Set (class+ [set item]
   {(Bag set item) (Appendable set item)}
-  
+
   elem? (fn [what in]
     (: (Fn item set Bool))
     (# Whether in contains what .))
-  
+
   remove (fn [what from]
     (: (Fn item set set))
     (# The Set from without what .)))
@@ -441,15 +441,15 @@ Seq (class+ [seq item]
   first (fn [in]
     (: (Fn seq (? item)))
     (# Some first item of in if in is not empty.))
-  
+
   rest (fn [in]
     (: (Fn seq seq))
     (# All items of in without the first one.))
-  
+
   take (fn [n from]
     (: (Fn Num seq seq))
     (# First n items in from .))
-  
+
   drop (fn [n from]
     (: (Fn Num seq seq))
     (# All items of from without first n items.)))
@@ -459,11 +459,11 @@ Deq (class+ [seq item]
   && (fn [what to]
     (: (Fn item seq seq))
     (# Adds item what to the end of the deque.))
-  
+
   but-last (fn [in]
     (: (Fn seq seq))
     (# All items of in without the last item.))
-  
+
   last (fn [in]
     (: (Fn seq (? item)))
     (# Some last item of in if in is not empty.)))
@@ -493,18 +493,18 @@ set-bag (instance+ (Bag (Set a) a)
   size (macro [set]
     (: (Fn (Set a) Num))
     (Js.access set "size"))
-  
+
   empty (Set)
-  
+
   fold (macro [with initial set]
     (: (Fn (Fn a b a) a (Set b) a))
     (Js.method set "reduce"
       {(fn [acc x] (with x acc)) initial}))
-  
+
   join (macro [what with]
     (: (Fn (Set a) (Set a) (Set a)))
     (Js.method what "concat" {with}))
-  
+
   filter (macro [with what]
     (: (Fn (Fn a Bool) (Set a) (Set a)))
     (Js.method what "filter" {with})))
@@ -513,7 +513,7 @@ set-set (instance+ (Set (Set a) a)
   {(Eq a)}
   elem? (macro [what in]
     (Js.method in "contains" {what}))
-  
+
   remove (macro [what from]
     (Js.method from "remove" {what})))
 
@@ -530,18 +530,18 @@ map-bag (instance+ (Bag (Map k v) v)
   size (macro [map]
     (: (Fn (Map k v) Num))
     (Js.access map "size"))
-  
+
   empty (Map)
-  
+
   fold (fn [with initial over]
     (reduce-map pass-key initial over)
     pass-key (fn [folded value key]
       (with value folded)))
-  
+
   join (macro [what with]
     (: (Fn (Map k v) (Map k v) (Map k v)))
     (Js.method what "concat" {with}))
-  
+
   filter (macro [with what]
     (: (Fn (Fn v Bool) (Map k v) (Map k v)))
     (Js.method what "filter" {with})))
@@ -557,19 +557,19 @@ from-nullable (syntax+ [nullable]
 map-map (instance+ (Map (Map k v) k v)
   at (fn [index in]
     (from-nullable (.get in index)))
-  
+
   key? (macro [what in]
     (: (Fn a (Map k v) Bool))
     (Js.method in "has" {what}))
-  
+
   put (macro [at what in]
     (: (Fn k v (Map k v) (Map k v)))
     (Js.method in "set" {at what}))
-  
+
   delete (macro [key from]
     (: (Fn k (Map k v) (Map k v)))
     (Js.method from "remove" {key}))
-  
+
   fold-keys (fn [with initial over]
     (reduce-map pass-key initial over)
     pass-key (fn [folded value key]
@@ -589,18 +589,18 @@ array-bag (instance+ (Bag (Array a) a)
   size (macro [list]
     (: (Fn (List a) Num))
     (Js.access list "size"))
-  
+
   empty {}
-  
+
   fold (macro [with initial list]
     (: (Fn (Fn a b b) b (Array a) b))
     (Js.method list "reduce"
       {(fn [acc x] (with x acc)) initial}))
-  
+
   join (macro [what with]
     (: (Fn (Array a) (Array a) (Array a)))
     (Js.method what "concat" {with}))
-  
+
   filter (macro [with what]
     (: (Fn (Fn a Bool) (Array a) (Array a)))
     (Js.method what "filter" {with})))
@@ -623,40 +623,40 @@ array-zippable (instance+ (Zippable Array)
 array-map (instance+ (Map (Array a) Num a)
   at (fn [index in]
     (from-nullable (.get in index)))
-  
+
   key? (macro [what in]
     (: (Fn Num (Array a) Bool))
     (Js.method in "has" {what}))
-  
+
   put (macro [at what in]
     (Js.method in "set" {at what}))
-  
+
   delete (macro [key from]
     (Js.method from "remove" {key}))
-  
+
   fold-keys (fn [with initial over]
     (fold with initial (range 0 (size over)))))
 
 array-seq (instance+ (Seq (Array a) a)
   first (fn [list]
     (from-nullable (.first list)))
-  
+
   rest (macro [list]
     (Js.method list "rest" {}))
-  
+
   take (macro [n from]
     (Js.method from "take" {n}))
-  
+
   drop (macro [n from]
     (Js.method from "skip" {n})))
 
 array-deq (instance+ (Deq (Array a) a)
   && (macro [what to]
     (Js.method to "push" {what}))
-  
+
   but-last (macro [list]
     (Js.method list "butLast" {}))
-  
+
   last (fn [list]
     (:: (? a) (from-nullable (.last list)))))
 
@@ -664,7 +664,7 @@ array-set (instance+ (Set (Array a) a)
   {(Eq a)}
   elem? (macro [what in]
     (Js.method in "contains" {what}))
-  
+
   remove (fn [what from]
     (if (>= 0 to-remove)
       (:: a (.splice from to-remove 1))
@@ -679,16 +679,16 @@ array-eq (instance+ (Eq (Array a))
 list-bag (instance+ (Bag (List a) a)
   size (macro [list]
     (Js.access list "size"))
-  
+
   empty (List)
-  
+
   fold (macro [with initial set]
     (Js.method set "reduce"
       {(fn [acc x] (with x acc)) initial}))
-  
+
   join (macro [what with]
     (Js.method what "concat" {with}))
-  
+
   filter (macro [with what]
     (Js.method what "filter" {with})))
 
@@ -707,37 +707,37 @@ list-zippable (instance+ (Zippable List)
 list-map (instance+ (Map (List a) Num a)
   at (fn [index in]
     (from-nullable (.get in index)))
-  
+
   key? (macro [what in]
     (Js.method in "has" {what}))
-  
+
   put (macro [at what in]
     (Js.method
       (Js.method
         (Js.method in "toList" {})
         "set" {at what})
       "toStack" {}))
-  
+
   delete (macro [key from]
     (Js.method
       (Js.method
         (Js.method from "toList" {})
         "remove" {key})
       "toStack" {}))
-  
+
   fold-keys (fn [with initial over]
     (fold with initial (range 0 (size over)))))
 
 list-seq (instance+ (Seq (List a) a)
   first (fn [list]
     (from-nullable (.first list)))
-  
+
   rest (macro [list]
     (Js.method list "rest" {}))
-  
+
   take (macro [n from]
     (Js.method from "take" {n}))
-  
+
   drop (macro [n from]
     (Js.method from "skip" {n})))
 
@@ -748,10 +748,10 @@ list-deq (instance+ (Deq (List a) a)
         (Js.method to "toList" {})
         "push" {what})
       "toStack" {}))
-  
+
   but-last (macro [list]
     (Js.method list "butLast" {}))
-  
+
   last (fn [list]
     (:: (? a) (from-nullable (.last list)))))
 
@@ -781,45 +781,45 @@ string-bag (instance+ (Bag String Char)
   size (macro [string]
     (: (Fn String Num))
     (Js.access string "length"))
-  
+
   empty ""
-  
+
   fold (fn [with initial string]
     (fold with initial (chars string)))
-  
+
   join (macro [what with]
     (: (Fn String String String))
     (Js.binary "+" what with))
-  
+
   filter (fn [with what]
     (unchars (filter with (chars what)))))
 
 string-map (instance+ (Map String Num Char)
   at (fn [index in]
     (:: (? Char) (from-nullable (.charAt in index))))
-  
+
   key? (fn [what in]
     (between? 0 (size in) what))
-  
+
   put (fn [at what in]
     (concat {(take at in) (singleton what) (drop (+ 1 at) in)}))
-  
+
   delete (fn [key from]
     (concat {(take key from) (drop (+ 1 key) from)}))
-  
+
   fold-keys (fn [with initial over]
     (fold with initial (range 0 (size over)))))
 
 string-seq (instance+ (Seq String Char)
   first (fn [string]
     (at 0 string))
-  
+
   rest (fn [list]
     (drop 1 list))
-  
+
   take (fn [n from]
     (:: String (.slice from 0 (max 0 n))))
-  
+
   drop (fn [n from]
     (:: String (.slice from (max 0 n)))))
 
@@ -827,10 +827,10 @@ string-deq (instance+ (Deq String Char)
   && (macro [what to]
     (: (Fn Num Char String String))
     (Js.binary "+" to what))
-  
+
   but-last (fn [string]
     (take (- 1 (size string)) string))
-  
+
   last (fn [string]
     (at (- 1 (size string)) string)))
 
