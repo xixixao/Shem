@@ -812,7 +812,7 @@ callCompile = (ctx, call) ->
   operatorName = _symbol operator
   if isAtom operator
     (if isDotAccess operator
-      callJsMethodCompile
+      callJsDotAccessCompile
     else if (ctx.isMacroDeclared operatorName) and not ctx.isDeclared operatorName
       callMacroCompile
     else if (isFake operator) or (ctx.isFinallyDeclared operatorName) and not ctx.arity operatorName
@@ -2147,24 +2147,25 @@ ms.global = ms_global = (ctx, call) ->
       "global"
   assignCompile ctx, call, (jsValue globalName)
 
-callJsMethodCompile = (ctx, call) ->
+callJsDotAccessCompile = (ctx, call) ->
   [dotMethod, object, args...] = _validTerms call
   labelOperator dotMethod
   compiled =
     if object
-      if /^.-/.test dotMethod.symbol
+      if /^\.-/.test dotMethod.symbol
         (jsAccess (termCompile ctx, object), dotMethod.symbol[2...])
       else
         (jsMethod (termCompile ctx, object), dotMethod.symbol[1...], (termsCompile ctx, args))
     else
       malformed ctx, call, 'Missing an object'
       jsNoop()
-  constraints =
-    if object
-      (concatMap (__ _constraints, _tea), (join [object], args))
-    else
-      []
-  call.tea = new Constrained constraints, markOrigin jsType, call
+  if !ctx.shouldDefer()
+    constraints =
+      if object
+        (concatMap (__ _constraints, _tea), (join [object], args))
+      else
+        []
+    call.tea = new Constrained constraints, markOrigin jsType, call
   assignCompile ctx, call, compiled
 
 ms['set!'] = ms_doset = (ctx, call) ->

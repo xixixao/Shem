@@ -1,0 +1,1 @@
+should-access (test (:: Num global.Math.PI) 3.141592653589793)
