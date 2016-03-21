@@ -3506,6 +3506,8 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
       else
         if isNotValNS ns
           translation: malformed ctx, atom, 'Type name #{symbol} cannot be used as a value'
+        else if atom.builtinDefinition
+          nameCompile ctx, atom, symbol
         else
           type: type()
           translation: (jsAccess '_', validSymbol)
