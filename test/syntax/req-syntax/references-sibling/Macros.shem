@@ -1,4 +1,4 @@
 referenced 3
 
-reqed-macro (syntax [y]
+reqed-macro (syntax+ [y]
   (` referenced))

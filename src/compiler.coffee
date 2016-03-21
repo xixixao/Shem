@@ -3464,12 +3464,17 @@ nameTranslate = (ctx, atom, symbol, type) ->
         when 'False' then (jsValue 'false')
         else
           use = yes
-          (jsAccess (validIdentifier symbol), "_value")
+          # TODO: This special casing compilation will most likely
+          #       not work properly if data has constraints
+          (constTranslate (validIdentifier symbol))
     else
       use = yes
       (irReference symbol, type, ctx.currentScopeIndex())
   ctx.addToUsedNames symbol if use and not (ctx.isMacroDeclared symbol)
   {id, type, translation}
+
+constTranslate = (referenceToConst) ->
+  (jsAccess referenceToConst, "_value")
 
 namespacedNameCompile = (ctx, atom, symbol) ->
   # For now only used in FFI
@@ -3518,7 +3523,11 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
       referencedModule = (lookupCompiledModule moduleName).declared.definitions
       forallType = (lookupInMap referencedModule, symbol).type
       type: mapOrigin (freshInstance ctx, forallType), atom
-      translation: (irImportInline symbol, moduleName)
+      translation:
+        ((if isConst atom
+            constTranslate
+          else
+            id) (irImportInline symbol, moduleName))
 
 isQuotedReference = (atom) ->
   atom.builtinMacro or atom.builtinDefinition or atom.modulePath

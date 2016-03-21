@@ -1,0 +1,3 @@
+[..] (req ./Macros)
+
+should-equal (test (Child-node (reqed-macro "Hello")) "Hello")

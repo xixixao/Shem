@@ -1,0 +1,6 @@
+Referenced (data+
+  Const
+  Child [node: String ref: Referenced])
+
+reqed-macro (syntax [y]
+  (` (Child ,y Const)))
