@@ -1,0 +1,4 @@
+truthy (syntax []
+  (` ,True))
+
+should-compile (test (truthy) True)

@@ -3460,8 +3460,8 @@ nameTranslate = (ctx, atom, symbol, type) ->
     if isConst atom
       atom.label = 'const'
       switch symbol
-        when 'True' then 'true'
-        when 'False' then 'false'
+        when 'True' then (jsValue 'true')
+        when 'False' then (jsValue 'false')
         else
           use = yes
           (jsAccess (validIdentifier symbol), "_value")
@@ -3524,7 +3524,7 @@ isQuotedReference = (atom) ->
   atom.builtinMacro or atom.builtinDefinition or atom.modulePath
 
 numericalCompile = (ctx, atom, symbol) ->
-  translation = symbol#if symbol[0] is '-' then (jsUnary "-", symbol[1...]) else symbol
+  translation = (jsValue symbol)#if symbol[0] is '-' then (jsUnary "-", symbol[1...]) else symbol
   type: toConstrained markOrigin numType, atom
   translation: translation
   pattern: literalPattern ctx, translation
