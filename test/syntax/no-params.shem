@@ -1,0 +1,4 @@
+magic (syntax []
+  42)
+
+should-compile (test (magic) 42)

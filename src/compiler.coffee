@@ -2769,7 +2769,7 @@ ms.syntax = ms_syntax = (ctx, call) ->
   if hasName
     macroName = ctx.definitionName()
     [param] = _terms paramTuple
-    if isSplat param
+    if param and isSplat param
       splatted = yes
       param.label = 'name'
       paramTuple = tuple_ splatToName param
