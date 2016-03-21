@@ -1,0 +1,5 @@
+[f] (req ./A/AB)
+
+should-req (test (f 3) 42)
+
+x (f 3)

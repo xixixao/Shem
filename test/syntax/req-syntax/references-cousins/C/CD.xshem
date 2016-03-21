@@ -1,0 +1,4 @@
+referenced 42
+
+g (syntax+ [x]
+  (` referenced))

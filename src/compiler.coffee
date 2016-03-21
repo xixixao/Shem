@@ -1577,7 +1577,11 @@ topLevelModuleWrapper = (typedModulePath, compiledDefinitions, exportDictionary)
     when 'browser'
       [(jsAssignStatement (jsAccess "Shem", (modulePathToName typedModulePath.names)),
         (iife [
-          strict
+          # This somehow prevents Shem object to be preserved in closures that
+          #   use references from other modules - node doesn't have this problem
+          #   it is caused by eval, although I cannot find how exactly
+          #   Try running references-cousins test in Golem
+          #strict
           defs
           (jsReturn exportDictionary)]))]
     when 'submodule'
