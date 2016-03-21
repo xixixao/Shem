@@ -127,7 +127,7 @@ teas = (fn, string) ->
   ast = astize tokenize string
   compiled = fn (ctx = new Context), ast
   syntax: collapse toHtml ast
-  types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInDefinitions()
+  types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtinDefinitions()
   translation: '\n' + compiled
 
 mapCompile = (fn, string) ->
@@ -139,7 +139,7 @@ mapTyping = (fn, string) ->
   expressions = []
   visitExpressions ast, (expression) ->
     expressions.push "#{collapse toHtml expression} :: #{highlightType expression.tea}" if expression.tea
-  types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtInDefinitions()
+  types: values mapMap (__ highlightType, _type), subtractMaps ctx._scope(), builtinDefinitions()
   #subs: printSubstitution ctx.substitution
   fails: map formatFail, ctx.substitution.fails
   ast: expressions
@@ -160,7 +160,7 @@ mapTypingBare = (fn, string) ->
   expressions = []
   visitExpressions ast, (expression) ->
     expressions.push [(collapse toHtml expression), expression.tea] if expression.tea
-  types: values mapMap _type, subtractMaps ctx._scope(), builtInDefinitions()
+  types: values mapMap _type, subtractMaps ctx._scope(), builtinDefinitions()
   subs: ctx.substitution
   ast: expressions
   deferred: ctx.deferredBindings()
@@ -199,8 +199,8 @@ class Context
     @statement = []
     @cacheScopes = [[]]
     @_assignTos = []
-    topScope = @_augmentScope builtInDefinitions(), builtInMacros(), @scopeIndex = 0
-    topScope.typeNames = builtInTypeNames()
+    topScope = @_augmentScope builtinDefinitions(), builtinMacros(), @scopeIndex = 0
+    topScope.typeNames = builtinTypeNames()
     topScope.topLevel = yes
     @scopes = [topScope]
     @savedScopes = []
@@ -555,11 +555,11 @@ class Context
   isDeclaredInTopScopeOrMacro: (name) ->
     (!!@_declarationInScope 0, name) or (@isMacroDeclared name)
 
-  isBuiltIn: (name) ->
-    (inSet cachedBuiltInMacros, name)
+  isBuiltinMacro: (name) ->
+    (inSet cachedBuiltinMacros, name)
 
-  isBuiltInDefinition: (name) ->
-    (inSet cachedBuiltInDefinitions, name)
+  isBuiltinDefinition: (name) ->
+    (inSet cachedBuiltinDefinitions, name)
 
   isTyped: (name) ->
     !!@type name
@@ -2854,11 +2854,11 @@ serializeAst = (ctx) -> (ast) ->
   else
     commedAtom ctx, ast, ->
       real = (isExpression ast)
-      serialized = (jsValue (JSON.stringify (if real and (isName ast) and
-                                                not (isDotAccess ast)
-        (quotedReference ctx, ast)
-      else
-        ast)))
+      serialized = (jsValue JSON.stringify(
+        if real and (isName ast) and not (isDotAccess ast)
+          (quotedReference ctx, ast)
+        else
+          ast))
       if real
         ast.label = 'const'
       (jsArray [serialized])
@@ -2868,10 +2868,10 @@ quotedReference = (ctx, atom) ->
   compiled = token_ symbol
 
   # These don't allow builtins to be overriden, for now
-  if ctx.isBuiltIn symbol
-    compiled.builtin = yes
-  else if ctx.isBuiltInDefinition symbol
-    compiled.builtInDefinition = yes
+  if ctx.isBuiltinMacro symbol
+    compiled.builtinMacro = yes
+  else if ctx.isBuiltinDefinition symbol
+    compiled.builtinDefinition = yes
   else if (ctx.isDeclaredInTopScopeOrMacro symbol) or (isNotValNS ns)
     compiled.modulePath = ctx.typedModulePath.names
     compiled.ns = ns
@@ -3113,7 +3113,7 @@ ms.Map = ms_Map = (ctx, call) ->
 #     callTyping ctx, call
 #     assignCompile ctx, call, (jsBinary "+", compiled_x, compiled_b)
 
-builtInMacros = ->
+builtinMacros = ->
   macros = objectToMap ms
   for name, macro of values macros
     macro.final = yes
@@ -3484,7 +3484,7 @@ namespacedNameCompile = (ctx, atom, symbol) ->
   pattern: precs: []
 
 quotedReferenceCompile = (ctx, atom, symbol) ->
-  if atom.builtin
+  if atom.builtinMacro
     translation: malformed ctx, atom, 'Macros cannot be referenced'
   else
     validSymbol = validIdentifier symbol
@@ -3493,7 +3493,7 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
     #       typed yet when we expand a macro referencing it
     #    more generally we should probably just combine this with nameCompile
     type = -> mapOrigin (freshInstance ctx, (ctx.typeInTopScope symbol)), atom
-    fromCurrentModule = atom.builtInDefinition or
+    fromCurrentModule = atom.builtinDefinition or
       (modulePathsEqual atom.modulePath, ctx.typedModulePath.names)
     if fromCurrentModule
       if ctx.assignTo()
@@ -3519,7 +3519,7 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
       translation: (irImportInline symbol, moduleName)
 
 isQuotedReference = (atom) ->
-  atom.builtin or atom.builtInDefinition or atom.modulePath
+  atom.builtinMacro or atom.builtinDefinition or atom.modulePath
 
 numericalCompile = (ctx, atom, symbol) ->
   translation = symbol#if symbol[0] is '-' then (jsUnary "-", symbol[1...]) else symbol
@@ -4825,7 +4825,7 @@ constructCond = (precs) ->
 
 # Default type context with builtins
 
-builtInTypeNames = ->
+builtinTypeNames = ->
   arrayToMap map (({name, kind}) -> [name, kind]), [
     arrowType
     arrayType
@@ -4841,7 +4841,7 @@ builtInTypeNames = ->
     expressionType
   ]
 
-builtInDefinitions = ->
+builtinDefinitions = ->
   definitions = newMapWith 'True', (type: (quantifyAll toConstrained boolType), arity: []),
       'False', (type: (quantifyAll toConstrained boolType), arity: [])
       '==', (
@@ -8312,8 +8312,8 @@ extend = (a, b) ->
 
 # Cache
 
-cachedBuiltInMacros = builtInMacros()
-cachedBuiltInDefinitions = builtInDefinitions()
+cachedBuiltinMacros = builtinMacros()
+cachedBuiltinDefinitions = builtinDefinitions()
 
 # end of tests
 
@@ -8336,7 +8336,7 @@ exports.syntaxedType = syntaxedType
 exports.prettyPrint = prettyPrint
 exports.plainPrettyPrint = plainPrettyPrint
 exports.labelDocs = labelDocs
-exports.builtInLibraryNumLines = library.split('\n').length + immutable.split('\n').length
+exports.builtinLibraryNumLines = library.split('\n').length + immutable.split('\n').length
 
 exports.library = library
 exports.immutable = immutable
