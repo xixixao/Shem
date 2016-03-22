@@ -1131,10 +1131,10 @@ seqCompile = (ctx, form) ->
       withCache ctx.resetAssignTo(), lhsCompiled)
     elemType = ctx.freshTypeVariable star
     # TODO use (Seq c e) instead of (Array e)
-    form.tea = new Constrained (concatMap _constraints, (map _tea, elems)),
+    form.tea = new Constrained (concatMap _constraints, (filter _is, (map _tea, elems))),
       (mapOrigin (new TypeApp (cloneType arrayType), elemType), form)
 
-    for elem in elems
+    for elem in elems when elem.tea
       unify ctx, elem.tea.type,
         if isSplat elem
           form.tea.type
