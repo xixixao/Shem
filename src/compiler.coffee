@@ -3500,9 +3500,10 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
     type = -> mapOrigin (freshInstance ctx, (ctx.typeInTopScope symbol)), atom
     fromCurrentModule = atom.builtinDefinition or
       (modulePathsEqual atom.modulePath, ctx.typedModulePath.names)
+    atomIsConst = isConst atom
     if fromCurrentModule
       if ctx.assignTo()
-        if isConst atom
+        if atomIsConst
           type: type()
           pattern: constPattern ctx, symbol, (jsAccess '_', validSymbol)
         else
@@ -3515,7 +3516,12 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
           nameCompile ctx, atom, symbol
         else
           type: type()
-          translation: (jsAccess '_', validSymbol)
+          translation:
+            # TODO: really need to clean this up using nameCompile
+            ((if atomIsConst
+                constTranslate
+              else
+                id) (jsAccess '_', validSymbol))
     else
       moduleName = (modulePathToName atom.modulePath)
       # TODO: pretty big hack as we are referencing lookupCompiledModule from
@@ -3524,7 +3530,7 @@ quotedReferenceCompile = (ctx, atom, symbol) ->
       forallType = (lookupInMap referencedModule, symbol).type
       type: mapOrigin (freshInstance ctx, forallType), atom
       translation:
-        ((if isConst atom
+        ((if atomIsConst
             constTranslate
           else
             id) (irImportInline symbol, moduleName))
