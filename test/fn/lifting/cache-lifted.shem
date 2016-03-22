@@ -1,0 +1,9 @@
+list {1 2 3}
+
+f (fn [z]
+  (cond
+    False 0
+    True x)
+  {x ..xs} list)
+
+should-run (test (f True) 1)

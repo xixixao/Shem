@@ -1865,7 +1865,7 @@ ms.fn = ms_fn = (ctx, call) ->
 
       # Data for a dependency graph is automatically registered when compiling
       # assignments (we use this to get a graph for the current where clause)
-      nonLiftedWheres = concat findDefinitionsIncludingDeps ctx, ctx.usedNames()
+      nonLiftedWheres = findDefinitionsIncludingDeps ctx, ctx.usedNames()
       ctx.setUsedNames []
 
       deferredConstraints = ctx.currentScopeConstraints()
@@ -2719,7 +2719,7 @@ findDefinitionsIncludingDeps = (ctx, names) ->
 
 findDefinitions = (ctx, names) ->
   {definitions} = findDefinitionsAndNeededModules ctx, names
-  definitions
+  concat definitions
 
 findDefinitionsAndNeededModules = (ctx, names) ->
   auxiliaries = ctx.auxiliaries()
