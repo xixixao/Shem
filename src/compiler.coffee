@@ -621,6 +621,13 @@ class Context
     declaration.final = yes
     @_declare name, declaration
 
+  declareOrFinalize: (name, declaration) ->
+    declared = @_declarationInCurrentScope name
+    if declared
+      declared.final = yes
+    else
+      @declare name, declaration
+
   preDeclare: (name, declaration) ->
     declaration.final = no
     @_declare name, declaration
@@ -751,6 +758,7 @@ class Context
 
   doDefer: (expression, dependencyName) ->
     definition = @_deferrableDefinition()
+    # console.log "\x1b[34;mDEFER\x1B[0;m", (print definition.pattern), "for", dependencyName
     definition._defers.push [expression, dependencyName, @currentScopeIndex()]
 
   deferReason: ->
@@ -760,6 +768,8 @@ class Context
     !!(@_deferReasonOf @_deferrableDefinition())
 
   _deferReasonOf: (definition) ->
+    # TODO: This is impricise, there can be many defer reasons, we should use
+    # all of them which refer to deferrable definition's sibling scope
     definition?._defers[0]
 
   addDeferredDefinition: ([expression, dependencyName, useScopeIndex, lhs, rhs, exporting]) ->
@@ -1359,6 +1369,7 @@ assignCompileAs = (ctx, expression, translatedExpression, polymorphic) ->
 
 # Pushes the deferring to the parent scope
 deferCurrentDefinition = (ctx, expression) ->
+  # console.log "\x1B[33;mDEFER CURRENT DEF\x1B[0;m", (print ctx.definitionPattern()), ctx.deferReason()
   ctx.addDeferredDefinition ctx.deferReason().concat [
     ctx.definitionPattern(), expression
     ctx.isExporting()
@@ -1381,6 +1392,7 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
     shouldDeclareFinally = ctx.isDeclared ctx.deferReason()[1]
     for {name, id} in definedNames
       if shouldDeclareFinally and (not ctx.isFinallyCurrentlyDeclared name)
+        # console.log "DECLARE IN PATTER", name
         ctx.declare name, id: id
       else if not ctx.isCurrentlyDeclared name
         ctx.preDeclare name, id: id
@@ -1405,12 +1417,12 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
       malformed ctx, pattern, "#{name} is already declared"
       isMalformed = yes
     else
-      if not ctx.isCurrentlyDeclared name
-        # TODO: this is because functions might declare arity before being declared
-        ctx.declare name, id: id
+      # TODO: this is because functions might declare arity before being declared
+      ctx.declareOrFinalize name, id: id
       if deps.length > 0
         # log "adding top level lhs to deferred #{name}", deps
         currentType = type#substitute ctx.substitution, type
+        # console.log "\x1B[33;mDeferring typing of\x1B[0;m", name, "in", ctx.currentScopeIndex()
         ctx.addToDeferredBindings
           name: scopedName name, ctx.currentScopeIndex()
           id: name
@@ -1422,7 +1434,8 @@ patternCompile = (ctx, pattern, matched, polymorphic) ->
         # for dep in deps
         #   ctx.addToDeferredBindings {name: dep.name, type: dep.type, reversed: name}
         if not ctx.isTyped name
-          originatingScope = Math.max (originScopeIndex for {originScopeIndex} in deps)...
+          # console.log "| SCOPEs", ([n, originScopeIndex] for {name: n, originScopeIndex} in deps)
+          originatingScope = Math.min (originScopeIndex for {originScopeIndex} in deps)...
           ctx.assignType name, (new TempType type, originatingScope)
       else
         # Ready for typing since there are no missing dependencies
@@ -1441,6 +1454,8 @@ inferType = (ctx, name, type, constraints, polymorphic, scopeIndex) ->
   # For explicitly typed bindings, we need to check that the inferred type
   #   corresponds to the annotated
   currentType = type# substitute ctx.substitution, type
+
+  # console.log "\x1B[32;mINFERRING A TYPE\x1B[0;m", name, scopeIndex
 
   if ctx.isFinallyTyped name, scopeIndex
     # TODO: check class constraints
@@ -1632,6 +1647,7 @@ definitionListCompile = (ctx, pairs) ->
 
 # This function resolves the types of mutually recursive functions
 resolveDeferredTypes = (ctx) ->
+  # console.log "\x1B[31;mRESOLVE TYPES\x1B[0;m", ctx.deferredBindings()
   if _notEmpty ctx.deferredBindings()
     groups = topologicallySortedGroups ctx.deferredBindings()
     allDeferredConstraints = newMap()
@@ -1690,7 +1706,7 @@ resolveDeferredTypes = (ctx) ->
         # add it as a missing name to the current definition
         # (must be done explicitly because of constraints)
         # also push the current deferred binding with deps to outer scope
-
+        # console.log "LATENT TYPING", name, "deferred:", shouldBeDeferred
         if shouldBeDeferred
           # TODO: add origin to canonicalType
           ctx.addToParentDeferred
@@ -1707,6 +1723,7 @@ resolveDeferredTypes = (ctx) ->
             id: binding.id
             scopeIndex: binding.scopeIndex
             type: finalType
+            originScopeIndex: binding.scopeIndex
             defining: yes
           addToSet deferredToParent, name
         else
@@ -1726,16 +1743,22 @@ compileDeferred = (ctx) ->
     deferredCount = 0
     while (_notEmpty ctx.deferred()) and deferredCount < ctx.deferred().length
       prevSize = ctx.deferred().length
-      [expression, dependencyName, useScope
+      [expression, dependencyName, depScope
         lhs, rhs
         exporting] = deferred = ctx.deferred().shift()
-      if useScope isnt ctx.currentScopeIndex() and (ctx.isDeclared dependencyName) or
-          (ctx.isFinallyDeclaredCurrentlyTyped dependencyName) or
+      # console.log "SHOULD COMPILE", {depScope, current: ctx.currentScopeIndex(), dep: dependencyName, what: (print lhs), declar: ctx._declarationInCurrentScope dependencyName }
+      # In top scope we wait for typing so that expressions are not
+      # compiled before their dependencies
+      if depScope isnt ctx.currentScopeIndex() and (ctx.isDeclared dependencyName) or
+          (ctx.isFinallyDeclaredCurrentlyTyped dependencyName) and
+          (ctx.currentScopeIndex() > 0 or (ctx.type dependencyName) not instanceof TempType) or
           (ctx.isMacroFinallyDeclared dependencyName) # TODO: but this should be finally declared for not macros
+        # console.log "\x1B[31;mRECOMPILE\x1B[0;m", (print lhs), "unblocked by", dependencyName
         compiledPairs.push definitionPairCompile ctx, lhs, (exportIf rhs, exporting)
         deferredCount = 0
       else
         # If can't compile, defer further
+        # console.log "FURTHER DEFER FROM LOOPBACK", (print lhs), dependencyName
         ctx.addDeferredDefinition deferred
         deferredCount++
   compiledPairs
@@ -1743,12 +1766,16 @@ compileDeferred = (ctx) ->
 deferDeferred = (ctx) ->
   # defer completely current scope
   if _notEmpty ctx.deferred()
-    for [expression, dependencyName, lhs, rhs] in ctx.deferred()
-      if ctx.isInTopScope()
+    inTopLevel = ctx.isInTopScope()
+    for [expression, dependencyName, depScope, lhs, rhs] in ctx.deferred()
+      if inTopLevel
+        # console.log "FINAL DEFER FAIL", print lhs
         malformed ctx, expression, "#{dependencyName} is not defined"
-      else if not ctx.isCurrentlyDeclared dependencyName
-        # log "Deferring further for", dependencyName, "in", ctx.definitionName()
-        ctx.doDefer expression, dependencyName
+      else
+        # console.log "\x1B[35;mCHECK DEP IS IN SCOPE\x1B[0;m", (print lhs), dependencyName
+        if not ctx.isCurrentlyDeclared dependencyName
+          # console.log "\x1B[36;mDEFER DEFINITION FOR DEFERRED\x1B[0;m", (print lhs), "for", dependencyName
+          ctx.doDefer expression, dependencyName
 
 definitionPairCompile = (ctx, pattern, value) ->
   ctx.definePattern pattern
@@ -3428,15 +3455,20 @@ nameCompile = (ctx, atom, symbol) ->
         contextType instanceof TempType and contextType.originatingScope < ctx.currentScopeIndex()
       # Typing deferred, use an impricise type var
       type = toConstrained ctx.freshTypeVariable star
+      # console.log "ADD TO DEFERRED names:", symbol
       ctx.addToDeferredNames
         name: scopedName symbol, originScopeIndex = ctx.scopeIndexOfDeclaration symbol
         id: symbol
         type: (mapOrigin type, atom)
         scopeIndex: ctx.currentScopeIndex()
-        originScopeIndex: originScopeIndex
+        originScopeIndex:
+          if contextType instanceof TempType
+            contextType.originatingScope
+          else
+            originScopeIndex
       nameTranslate ctx, atom, symbol, type
     else
-      # log "deferring in rhs for #{symbol}", ctx._deferrableDefinition().name
+      # console.log "MISSING NAME", symbol, "for", ctx._deferrableDefinition().name, "origin", contextType and contextType.originatingScope, "scope", ctx.currentScopeIndex()
       # type = toConstrained ctx.freshTypeVariable star
       ctx.doDefer atom, symbol
       # type: type

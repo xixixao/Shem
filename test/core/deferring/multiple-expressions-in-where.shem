@@ -1,0 +1,11 @@
+f (fn [x]
+  1
+  c (g x))
+
+g (fn [x]
+  m
+  m n
+  n p
+  p (f x))
+
+should-compile (test (g 2) 1)
