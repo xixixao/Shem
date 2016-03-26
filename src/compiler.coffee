@@ -6277,6 +6277,8 @@ Xe(Q,l.prototype);var an={Iterable:_,Seq:O,Collection:N,Map:Lt,OrderedMap:Ie,Lis
 
 eval immutable
 
+completeLibrary = library + '\n' + immutable + '\n'
+
 # JS Reserved words
 
 reservedInJs = newSetWith ("abstract arguments boolean break byte case catch char class " +
@@ -6409,13 +6411,13 @@ compileModuleWrapper = (typedModulePath, compiledDefinitions, exportDictionary) 
     compiledDefinitions, exportDictionary)
 
 compileModuleWithDependencies = (typedModulePath = defaultTypedModulePath) ->
-  js: library + immutable + (listOfLines map lookupJs,
+  js: completeLibrary + (listOfLines map lookupJs,
     (setToArray runtimeDependencies (modulePathToName typedModulePath.names)))
 
 compileExpression = (source, typedModulePath = defaultTypedModulePath) ->
   {js} = parsed = parseExpression source, typedModulePath
   extend parsed,
-    (js:  library + immutable + (listOfLines map lookupJs,
+    (js:  completeLibrary + (listOfLines map lookupJs,
       (setToArray runtimeDependencies (modulePathToName typedModulePath.names))) + '\n;' + js)
 
 parseTopLevel = (source, typedModulePath = defaultTypedModulePath) ->
@@ -6836,7 +6838,7 @@ topLevelAndExpression = (source) ->
   types: ctx._scope()
   subs: ctx.substitution.fails
   ast: ast
-  compiled: library + immutable + compiledDefinitions.js + '\n;' + compiledExpression.js
+  compiled: completeLibrary + compiledDefinitions.js + '\n;' + compiledExpression.js
 
 typeEnumaration = (ctx) ->
   values mapMap _type, ctx._scope()
@@ -8385,7 +8387,7 @@ exports.syntaxedType = syntaxedType
 exports.prettyPrint = prettyPrint
 exports.plainPrettyPrint = plainPrettyPrint
 exports.labelDocs = labelDocs
-exports.builtinLibraryNumLines = library.split('\n').length + immutable.split('\n').length
+exports.builtinLibraryNumLines = completeLibrary.split('\n').length - 1
 
 exports.library = library
 exports.immutable = immutable
