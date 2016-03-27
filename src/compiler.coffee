@@ -2410,7 +2410,7 @@ ms.instance = ms_instance = (ctx, call) ->
         return jsNoop()
 
 
-      ctx.declare instanceName, virtual: no, final: yes, type: yes
+      ctx.declare instanceName, virtual: no, final: yes, type: yes, isInstance: yes
       usedNames = ctx.usedNames()
       ctx.setUsedNames oldUsed
 
@@ -6593,9 +6593,9 @@ injectContext = (ctx, shouldDeclare, compiledModule, moduleName, naming, importA
   implicitImports = newMap()
   for name, definition of values definitions when imported = shouldImport name
     {newName, implicit} = imported
-    {type, arity, docs, source, isClass, virtual, final, exported} = definition
+    {type, arity, docs, source, isClass, isInstance, virtual, final, exported} = definition
     addToMap topScope, newName, {
-      arity, docs, source, isClass, virtual, final,
+      arity, docs, source, isClass, isInstance, virtual, final,
       type: (type if shouldDeclare)
       tempType: type
       importable: isParent or exported
@@ -6694,8 +6694,13 @@ findMatchingDefinitionsOnType = (type, isPattern, emptyCall, definitionLists) ->
   ctx = new Context
   [typed, untyped] = unzip (for definitions, i in definitionLists
     isValid = (name, def) ->
-      def.type? and not def.type.TempType and (not isPattern or (isConst symbol: name) or def.isPattern) and
-        (not emptyCall or def.type.type.type and isFunctionType def.type.type.type) # and def.type.type?.constraints and _empty def.type.type.constraints
+      def.type? and
+        not def.isClass and
+        not def.isInstance and
+        not def.type.TempType and
+        (not isPattern or (isConst symbol: name) or def.isPattern) and
+        (not emptyCall or def.type.type.type and isFunctionType def.type.type.type)
+        # and def.type.type?.constraints and _empty def.type.type.constraints
     validDefinitions = filterMap isValid, definitions # TODO: filter before TempType
     if not emptyCall
       validDefinitions = concatMaps validDefinitions,
