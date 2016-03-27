@@ -45,15 +45,23 @@ closeSuite = ->
 
 addTest = (name, filepath) ->
   source = fs.readFileSync filepath, 'utf8'
-  currentSuite().addTest new Test name, ->
+  suite = currentSuite()
+  suite.addTest new Test name, ->
     values = ''
     console.error = (output) ->
       values += '\n' + (util.inspect output, colors: yes)
     try
       shem.run source, filename: filepath
     catch e
-      e.message = e.message + (if values then '\nGot:' else '') + values
-      throw e
+      switch suite.title
+        when 'malformed'
+          throw e if e.name isnt 'ShemError'
+          malformed = yes
+        else
+          e.message = e.message + (if values then '\nGot:' else '') + values
+          throw e
+    if suite.title is 'malformed' and not malformed
+      throw new Error "Expected a malformed Shem source"
 
 walk './test',
   (dir, filepath, fileNames, walkOn) ->

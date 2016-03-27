@@ -206,6 +206,7 @@ class Context
     @savedScopes = []
     @classParams = newMap()
     @types = []
+    @deferredTypeNames = []
     @gensymMaps = []
     @isMalformed = no
     @typedModulePath = null
@@ -778,6 +779,10 @@ class Context
   deferred: ->
     @_scope().deferred
 
+  deferTypeName: (name, expression) ->
+    # TODO: types should not be module-global
+    @deferredTypeNames.push [name, expression]
+
   addClassParams: (params) ->
     @classParams = concatMaps @classParams, params
 
@@ -1251,7 +1256,7 @@ typeNameCompile = (ctx, atom, expectedKind) ->
         kindOfType = expectedKind or star
       if not kindOfType
         # throw new Error "type name #{atom.symbol} was not defined" unless kind
-        malformed ctx, atom, "This type name has not been defined" if not isFake atom
+        ctx.deferTypeName atom.symbol, atom if not isFake atom
         kindOfType = star
       if isFake atom
         atom.inferredType = yes
@@ -1635,6 +1640,8 @@ definitionListCompile = (ctx, pairs) ->
   if ctx.isRequesting()
     return []
 
+  resolveDeferredTypeNames ctx
+
   shouldRecompile = yes
   while shouldRecompile
     compiledPairs = join compiledPairs, compileDeferred ctx
@@ -1644,6 +1651,10 @@ definitionListCompile = (ctx, pairs) ->
 
   filter _is, compiledPairs
 
+resolveDeferredTypeNames = (ctx) ->
+  for [typeName, expression] in ctx.deferredTypeNames
+    if not ctx.kindOfTypeName typeName
+      malformed ctx, expression, "This type name has not been defined"
 
 # This function resolves the types of mutually recursive functions
 resolveDeferredTypes = (ctx) ->
@@ -2062,9 +2073,9 @@ ms.data = ms_data = (ctx, call) ->
               body: [(jsReturn (jsNew identifier, paramNames))])])
         else
           (jsNew identifier, []))
-      constrFunction = dictConstructorFunction constrName, paramNames
+      constrFunction = dictConstructorFunction constrName, paramLabels
       assignToModuleObject = compileAssignmentToModuleObject constrName, constrName
-      accessors = dictAccessors constrName, identifier, paramNames, defs.length
+      accessors = dictAccessors constrName, identifier, paramLabels, defs.length
       (concat [constrFunction, assignToModuleObject, accessors, [constrValue]]))
 
 findDataType = (ctx, typeArgLists, typeParams, dataName) ->

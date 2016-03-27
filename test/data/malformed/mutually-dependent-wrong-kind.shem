@@ -1,0 +1,9 @@
+A (data
+  A-Const
+  B [value: B])
+
+B (data [a]
+  B-Const
+  A [value: Num with: a])
+
+should-fail (test True True)

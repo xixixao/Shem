@@ -20,6 +20,10 @@ isIndex = (name) ->
 isExported = (name) ->
   /.xshem$/.test name
 
+class ShemError extends Error
+  constructor: (@message) ->
+    @name = 'ShemError'
+
 exports.compileModule = compile = (source, options) ->
   result =
     if options.name
@@ -30,7 +34,7 @@ exports.compileModule = compile = (source, options) ->
     request: result.request
   else if result.malformed
     # TODO: add info
-    throw new Error "The input is not a complete valid Shem program: #{result.malformed}"
+    throw new ShemError "The input is not a complete valid Shem program: #{result.malformed}"
   else if result.errors
     throw new Error result.errors[0].message
   else
