@@ -1,0 +1,5 @@
+
+m (syntax+ [x y]
+  (` (fn [x, y,] x,) ,x ,y))
+
+should-equal (test (m 4 5) 4)

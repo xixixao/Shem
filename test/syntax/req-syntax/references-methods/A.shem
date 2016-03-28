@@ -1,0 +1,10 @@
+Addable (class [a]
+  add (fn [x y] (: (Fn a a a))))
+
+num-addable (instance (Addable Num)
+  add (fn [x y] 3))
+
+m (syntax+ [x y]
+  (` add ,x ,y))
+
+

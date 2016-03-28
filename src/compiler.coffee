@@ -3430,15 +3430,31 @@ atomCompile = (ctx, atom) ->
   else
     assignCompile ctx, atom, translation
 
+quotedReferenceCompile = (ctx, atom, symbol) ->
+  if atom.builtinMacro
+    translation: malformed ctx, atom, 'Macros cannot be referenced'
+  else
+    if ctx.assignTo()
+      if isConst atom
+        nameCompile ctx, atom, symbol
+      else
+        malformed ctx, atom, 'Cannot use a quoted reference as a new name'
+        pattern: []
+    else
+      if isNotValNS atom.ns
+        translation: malformed ctx, atom, 'Type name #{symbol} cannot be used as a value'
+      else
+        nameCompile ctx, atom, symbol
+
 nameCompile = (ctx, atom, symbol) ->
-  contextType = ctx.type symbol
+  contextType = declaredTypeOfAtom ctx, atom, symbol
   # log "nameCompile", symbol, ctx.isInsideLateScope(), (printType contextType), ctx.isDeclared symbol
   if exp = ctx.assignTo()
     if isConst atom
       atom.label = 'const'
       if contextType
-        type: mapOrigin (freshInstance ctx, ctx.type symbol), atom
-        pattern: constPattern ctx, symbol, validIdentifier symbol
+        type: mapOrigin (freshInstance ctx, contextType), atom
+        pattern: constPattern ctx, symbol, (atomReference ctx, atom, symbol)
       else
         # log "deferring in pattern for #{symbol}"
         ctx.doDefer atom, symbol
@@ -3485,6 +3501,19 @@ nameCompile = (ctx, atom, symbol) ->
       # type: type
       translation: deferredExpression()
 
+declaredTypeOfAtom = (ctx, atom, symbol) ->
+  if isQuotedReference atom
+    if atom.builtinDefinition or isReferenceToCurrentModule ctx, atom.modulePath
+      ctx.typeInTopScope symbol
+    else
+      moduleName = (modulePathToName atom.modulePath)
+      # TODO: pretty big hack as we are referencing lookupCompiledModule from
+      #       compilation!!!
+      referencedModule = (lookupCompiledModule moduleName).declared.definitions
+      (lookupInMap referencedModule, symbol).type
+  else
+    ctx.type symbol
+
 scopedName = (name, scopeIndex) ->
   "#{name}_#{scopeIndex}"
 
@@ -3509,12 +3538,30 @@ nameTranslate = (ctx, atom, symbol, type) ->
           use = yes
           # TODO: This special casing compilation will most likely
           #       not work properly if data has constraints
-          (constTranslate (validIdentifier symbol))
+          (constTranslate (atomReference ctx, atom, symbol))
     else
-      use = yes
-      (irReference symbol, type, ctx.currentScopeIndex())
+      use = not isQuotedReference atom
+      (irReference symbol, type, ctx.currentScopeIndex(), atom.modulePath)
   ctx.addToUsedNames symbol if use and not (ctx.isMacroDeclared symbol)
   {id, type, translation}
+
+atomReference = (ctx, atom, symbol) ->
+  atomReferenceTranslate ctx, symbol, atom.modulePath
+
+atomReferenceTranslate = (ctx, symbol, modulePath) ->
+  if modulePath
+    if isReferenceToCurrentModule ctx, modulePath
+      (jsAccess '_', (validIdentifier symbol))
+    else
+      (irImportInline symbol, (modulePathToName modulePath))
+  else
+    validIdentifier symbol
+
+isQuotedReference = (atom) ->
+  atom.builtinMacro or atom.builtinDefinition or atom.modulePath
+
+isReferenceToCurrentModule = (ctx, modulePath) ->
+  (modulePathsEqual modulePath, ctx.typedModulePath.names)
 
 constTranslate = (referenceToConst) ->
   (jsAccess referenceToConst, "_value")
@@ -3530,56 +3577,6 @@ namespacedNameCompile = (ctx, atom, symbol) ->
         symbol)
   type: toConstrained markOrigin jsType, atom
   pattern: precs: []
-
-quotedReferenceCompile = (ctx, atom, symbol) ->
-  if atom.builtinMacro
-    translation: malformed ctx, atom, 'Macros cannot be referenced'
-  else
-    validSymbol = validIdentifier symbol
-    ns = atom.ns
-    # TODO: we probably need to defer anyway, because the top level might not be
-    #       typed yet when we expand a macro referencing it
-    #    more generally we should probably just combine this with nameCompile
-    type = -> mapOrigin (freshInstance ctx, (ctx.typeInTopScope symbol)), atom
-    fromCurrentModule = atom.builtinDefinition or
-      (modulePathsEqual atom.modulePath, ctx.typedModulePath.names)
-    atomIsConst = isConst atom
-    if fromCurrentModule
-      if ctx.assignTo()
-        if atomIsConst
-          type: type()
-          pattern: constPattern ctx, symbol, (jsAccess '_', validSymbol)
-        else
-          malformed ctx, atom, 'Cannot use a quoted reference as a new name'
-          pattern: []
-      else
-        if isNotValNS ns
-          translation: malformed ctx, atom, 'Type name #{symbol} cannot be used as a value'
-        else if atom.builtinDefinition
-          nameCompile ctx, atom, symbol
-        else
-          type: type()
-          translation:
-            # TODO: really need to clean this up using nameCompile
-            ((if atomIsConst
-                constTranslate
-              else
-                id) (jsAccess '_', validSymbol))
-    else
-      moduleName = (modulePathToName atom.modulePath)
-      # TODO: pretty big hack as we are referencing lookupCompiledModule from
-      #       compilation!!!
-      referencedModule = (lookupCompiledModule moduleName).declared.definitions
-      forallType = (lookupInMap referencedModule, symbol).type
-      type: mapOrigin (freshInstance ctx, forallType), atom
-      translation:
-        ((if atomIsConst
-            constTranslate
-          else
-            id) (irImportInline symbol, moduleName))
-
-isQuotedReference = (atom) ->
-  atom.builtinMacro or atom.builtinDefinition or atom.modulePath
 
 numericalCompile = (ctx, atom, symbol) ->
   translation = (jsValue symbol)#if symbol[0] is '-' then (jsUnary "-", symbol[1...]) else symbol
@@ -3819,10 +3816,10 @@ constraintsFromCanonicalType = (ctx, canonicalType, type) ->
   #(substitute ctx.substitution, inferredType).constraints
   inferredType.constraints
 
-irReference = (name, type, scopeIndex) ->
-  {ir: irReferenceTranslate, name, type, scopeIndex}
+irReference = (name, type, scopeIndex, modulePath) ->
+  {ir: irReferenceTranslate, name, type, scopeIndex, modulePath}
 
-irReferenceTranslate = (ctx, {name, type, scopeIndex}) ->
+irReferenceTranslate = (ctx, {name, type, scopeIndex, modulePath}) ->
   if ctx.isMethod name, type
     translateIr ctx, (irMethod type, name)
   else
@@ -3833,10 +3830,33 @@ irReferenceTranslate = (ctx, {name, type, scopeIndex}) ->
       params = map validIdentifier, arity
       (irFunctionTranslate ctx,
         params: params
-        body: [(jsReturn (jsCall (validIdentifier name), (join classParams, params)))])
+        body: [(jsReturn (jsCall (nameReference ctx, name, modulePath),
+            (join classParams, params)))])
     else
-      validIdentifier name
+      nameReference ctx, name, modulePath
 
+nameReference = (ctx, name, modulePath) ->
+  translateIr ctx, atomReferenceTranslate ctx, name, modulePath
+
+# TODO: This won't work. So far, we relied on classes and instances being
+#       injected into current context automagically. Classes referenced from
+#       modules which are not required directly won't exist in context. We
+#       need to perform the complete constraint resolution in the context
+#       of the source module - with the classes and instance available there.
+#
+#       We probably want instances from current context to be included as well.
+#
+# isMethodName = (ctx, name, type, modulePath) ->
+#   moduleName = (modulePathToName modulePath) if modulePath
+#   lookupClass = (className) ->
+#     if moduleName
+#       # Massive Hack again!!! accessing foreign modules directly from compilation
+#       foundClass =
+#         lookupInMap (lookupCompiledModule moduleName).declared.classes, className
+#     else
+#       foundClass = (ctx.classNamed className)
+#   any (for {className} in type.constraints
+#     lookupInMap (lookupClass className).declarations, name)
 
 irMethod = (type, name) ->
   {ir: irMethodTranslate, type, name}
