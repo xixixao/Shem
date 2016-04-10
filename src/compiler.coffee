@@ -6507,8 +6507,7 @@ expandCall = (moduleName, call) ->
     if not isTranslated expanded
       expanded
   catch e
-    console.error "Error in expandCall"
-    console.error e
+    console.error "Error in expandCall", e.message
     null
 
 contextWithDependencies = (modules, typedModulePath) ->
