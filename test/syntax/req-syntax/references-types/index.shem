@@ -1,0 +1,3 @@
+[..] (req ./Middle)
+
+should-equal (test (reqed-macro "Hello") 3)

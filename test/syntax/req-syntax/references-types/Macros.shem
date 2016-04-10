@@ -1,0 +1,8 @@
+Referenced (data Red Blue)
+
+reqed-macro (syntax [y]
+  (`
+    (fn [x,]
+      (: (Fn type/Referenced Num))
+      3)
+    Red))
