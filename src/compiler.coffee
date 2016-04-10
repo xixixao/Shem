@@ -209,6 +209,7 @@ class Context
     @deferredTypeNames = []
     @gensymMaps = []
     @isMalformed = no
+    @delayedMalforms = []
     @typedModulePath = null
     @submodules = newMap()
     @importedModules = newMap()
@@ -783,6 +784,10 @@ class Context
     # TODO: types should not be module-global
     @deferredTypeNames.push [name, expression]
 
+  # Attaches malformed after required modules have been resolved
+  delayMalformed: (expression, message) ->
+    @delayedMalforms.push [expression, message]
+
   addClassParams: (params) ->
     @classParams = concatMaps @classParams, params
 
@@ -1308,7 +1313,11 @@ typeConstraintCompile = (ctx, expression) ->
     args = _arguments expression
     (labelOperator op)
     className = op.symbol
-    {constraint} = ctx.classNamed className
+    maybeClass = ctx.maybeClassNamed className
+    if not maybeClass
+      ctx.delayMalformed op, "Class has not been defined"
+      return null
+    {constraint} = maybeClass
     paramKinds = (map kind, constraint.types.types)
     withOrigin (new ClassConstraint op.symbol,
       new Types (typesCompile ctx, args, paramKinds)), expression
@@ -1641,6 +1650,7 @@ definitionListCompile = (ctx, pairs) ->
     return []
 
   resolveDeferredTypeNames ctx
+  attachDelayedMalformed ctx
 
   shouldRecompile = yes
   while shouldRecompile
@@ -1654,7 +1664,11 @@ definitionListCompile = (ctx, pairs) ->
 resolveDeferredTypeNames = (ctx) ->
   for [typeName, expression] in ctx.deferredTypeNames
     if not ctx.kindOfTypeName typeName
-      malformed ctx, expression, "This type name has not been defined"
+      malformed ctx, expression or "This type name has not been defined"
+
+attachDelayedMalformed = (ctx) ->
+  for [expression, message] in ctx.delayedMalforms
+    markMalformed ctx, expression, message
 
 # This function resolves the types of mutually recursive functions
 resolveDeferredTypes = (ctx) ->
@@ -2406,9 +2420,8 @@ ms.instance = ms_instance = (ctx, call) ->
       # log "methods", methods
       methodTypes = (rhs?.tea for [lhs, rhs] in definitions)
       if not all methodTypes
-        malformed ctx, call, "missing type of a method"
+        ctx.delayMalformed call, "missing type of a method"
         return jsNoop()
-
 
       ctx.declare instanceName, virtual: no, final: yes, type: yes, isInstance: yes
       usedNames = ctx.usedNames()
@@ -6584,7 +6597,8 @@ subtractContexts = (ctx, what) ->
   nameIndex = ctx.nameIndex
   {definitions, typeNames, classes, macros, savedScopes, nameIndex}
 
-# shouldDeclare means that the definitions will be finally declared, as opposed to just readied for import
+# shouldDeclare means that the definitions will be finally declared,
+# as opposed to just readied for import
 injectedContext = (modulesToInject, typedModulePath, shouldDeclare = no) ->
   ctx = new Context
   for moduleName, {naming, importAll} of values modulesToInject when compiled = lookupCompiledModule moduleName

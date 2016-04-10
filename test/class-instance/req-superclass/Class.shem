@@ -1,0 +1,16 @@
+[..] (req ../SuperClass)
+
+B (class [a]
+  {(A a)}
+  g (fn [x]
+    (: (Fn a a))))
+
+string-a (instance (A String)
+  f (fn [x]
+    x))
+
+string-b (instance (B String)
+  g (fn [x]
+    (f x)))
+
+should-compile (test (g "hello") "hello")
