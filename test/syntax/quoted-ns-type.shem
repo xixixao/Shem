@@ -1,0 +1,10 @@
+
+A (data Red Blue)
+
+m (syntax+ [x y]
+  (`
+    (fn [x, y,]
+      (: (Fn type/A type/A type/A))
+      x,) ,x ,y))
+
+should-equal (test (m Red Blue) Red)

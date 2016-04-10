@@ -2926,6 +2926,9 @@ quotedReference = (ctx, atom) ->
   else if (ctx.isDeclaredInTopScopeOrMacro symbol) or (isNotValNS ns)
     compiled.modulePath = ctx.typedModulePath.names
     compiled.ns = ns
+  else if !!ctx.kindOfTypeName symbol
+    compiled.modulePath = ctx.typedModulePath.names
+    compiled.ns = 'type'
   else
     ctx.doDefer atom, symbol
   compiled
