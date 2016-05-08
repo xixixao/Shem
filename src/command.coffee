@@ -93,8 +93,7 @@ makePrelude = (requires) ->
   .join ';'
 
 # Compile a path, which could be a script or a directory. If a directory
-# is passed, recursively compile all Shem extension source files in it and all
-# subdirectories.
+# is passed, try compiling index, otherwise compile all
 compilePath = (source, topLevel, base) ->
   return if source in sources   or
             watchedDirs[source] or
@@ -113,18 +112,24 @@ compilePath = (source, topLevel, base) ->
     if opts.run
       compilePath findDirectoryIndex(source), topLevel, base
       return
-    watchDir source, base if opts.watch
+    if opts.watch
+      watchDir source, base
     try
       files = fs.readdirSync source
     catch err
       if err.code is 'ENOENT' then return else throw err
-    for file in files
-      compilePath (path.join source, file), no, base
+    for file in ['index.shem', 'index.xshem'] when file in files
+      compilePath (path.join source, file), topLevel, base
+      index = yes
+    if not index
+      for file in files
+        compilePath (path.join source, file), no, base
   else if topLevel or helpers.isCoffee source
     sources.push source
     sourceCode.push null
     delete notSources[source]
-    watch source, base if opts.watch
+    if opts.watch
+      watch source, base
     try
       code = fs.readFileSync source
     catch err
@@ -148,29 +153,30 @@ findDirectoryIndex = (source) ->
 # `__dirname` and `module.filename` to be correct relative to the script's path.
 compileScript = (file, input, base = null) ->
   o = opts
-  options = compileOptions file, base
   try
-    t = task = {file, input, options}
-    if o.tokens
-      printTokens compiler.tokens t.input, t.options
-    else if o.nodes
-      printLine compiler.nodes(t.input, t.options).toString().trim()
-    else if o.run
+    # t = task = {file, input, options}
+    # if o.tokens
+    #   printTokens compiler.tokens t.input, t.options
+    # else if o.nodes
+    #   printLine compiler.nodes(t.input, t.options).toString().trim()
+    options = compileOptions file
+    if o.run
       # TODO:
       # compiler.register()
       # compiler.eval opts.prelude, t.options if opts.prelude
-      compiler.run t.input, t.options
+      compiler.run input, options
     else
-      compiled = compiler.compileModule t.input, t.options
-      t.output = compiled
-      if o.map
-        t.output = compiled.js
-        t.sourceMap = compiled.v3SourceMap
+      compiled = compiler.compile input, options, (compiled, file) ->
+        {jsPath} = compileOutputOptions file, base
+        output = compiled
+        if o.map
+          output = compiled.js
+          sourceMap = compiled.v3SourceMap
 
-      if o.print
-        printLine t.output.trim()
-      else if o.compile or o.map
-        writeJs base, t.file, t.output, options.jsPath, t.sourceMap
+        if o.print
+          printLine output.trim()
+        else if o.compile or o.map
+          writeJs base, file, output, jsPath, sourceMap
   catch err
     message = err.stack or "#{err}"
     if o.watch
@@ -370,7 +376,7 @@ parseOptions = ->
   o.print       = !!  (o.print or (o.eval or o.stdio and o.compile))
 
 # The compile-time options to pass to the Shem compiler.
-compileOptions = (filename, base) ->
+compileOptions = (filename) ->
   answer = {
     filename
     literate: opts.literate or helpers.isLiterate(filename)
@@ -378,23 +384,27 @@ compileOptions = (filename, base) ->
     header: opts.compile and not opts['no-header']
     sourceMap: opts.map
   }
+
+compileOutputOptions = (filename, base) ->
   if filename
     if base
       cwd = process.cwd()
       jsPath = outputPath filename, base
       jsDir = path.dirname jsPath
-      answer = helpers.merge answer, {
+      {
         jsPath
         sourceRoot: path.relative jsDir, cwd
         sourceFiles: [path.relative cwd, filename]
         generatedFile: helpers.baseFileName(jsPath, no, useWinPathSep)
       }
     else
-      answer = helpers.merge answer,
+      {
         sourceRoot: ""
         sourceFiles: [helpers.baseFileName filename, no, useWinPathSep]
         generatedFile: helpers.baseFileName(filename, yes, useWinPathSep) + ".js"
-  answer
+      }
+  else
+    {}
 
 # Start up a new Node.js instance with the arguments in `--nodejs` passed to
 # the `node` binary, preserving the other options.

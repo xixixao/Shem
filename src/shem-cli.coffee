@@ -24,6 +24,23 @@ class ShemError extends Error
   constructor: (@message) ->
     @name = 'ShemError'
 
+exports.compile = (source, options, cb) ->
+  compiledShemCache = []
+  compiler.initCompilationServer()
+  mainFileName = fs.realpathSync(options.filename)
+  compileAndAddToCache = (code, options) ->
+    while requestedModule = (compiled = compile code, options).request
+      requestedSourceFilename = findModuleSourceFile requestedModule, mainFileName
+      requestedSource = fs.readFileSync requestedSourceFilename, 'utf8'
+      compileAndAddToCache requestedSource,
+        filename: requestedSourceFilename
+        name: requestedModule
+    compiledShemCache[options.filename] = res = runnable compiled
+    cb res, options.filename
+    res
+  cb (compileAndAddToCache source, options), mainFileName
+
+
 exports.compileModule = compile = (source, options) ->
   result =
     if options.name
