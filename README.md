@@ -10,6 +10,41 @@ The language has been designed for the use within its custom built IDE, [Golem](
 
 **Here Be Lions**
 
+## Use without Golem
+
+Clone this repo, go to the folder, then
+
+```bash
+npm install
+npm run build
+```
+
+To run a single file
+
+```bash
+echo '_ (.log (global "console") "Hello world!")' > test.shem
+bin/shem test.shem
+```
+
+To compile a single file to JavaScript
+
+```
+bin/shem -c test.shem
+```
+
+To run a module
+```bash
+mkdir test-modules
+echo 'message "Hello, hello, world!"' > test-modules/Hello.shem
+echo '[message] (req ./Hello) _ (.log (global "console") message)' > test-modules/index.shem
+bin/shem test-modules
+```
+
+To compile a module
+```bash
+bin/shem -o test-modules-out-dir -c test-modules
+```
+
 ## Demo
 
 https://www.youtube.com/watch?v=HnZipJOan54 (for now)
